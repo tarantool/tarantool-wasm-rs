@@ -1,15 +1,16 @@
-use std::path::PathBuf;
 use wasmtime::component::{ResourceTable};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi::preview1::{self, WasiP1Ctx};
-use wasmtime::{Engine, Linker, Store, Module};
+use wasmtime::{Engine, Linker, Store, Module, TypedFunc, Instance};
 use anyhow::Result;
 use lazy_static::lazy_static;
-use std::sync::Mutex;
 use std::thread;
+use std::collections::HashMap;
+use std::sync::{Mutex, Arc};
+use anyhow::anyhow;
 
 lazy_static! {
-    static ref runtime_state: RuntimeState = RuntimeState::new();
+    static ref runtime_state: Arc<Mutex<RuntimeState>> = Arc::new(Mutex::new(RuntimeState::new()));
 }
 
 pub struct WasmStates {
@@ -50,6 +51,7 @@ struct RuntimeState {
     pub engine: Engine,
     pub linker: wasmtime::component::Linker<SyncWasmStates>,
     pub linker_preview1: Linker<WasiP1Ctx>,
+    pub modules: HashMap<String, Module>
 }
 
 impl RuntimeState {
@@ -59,25 +61,46 @@ impl RuntimeState {
         let mut linker_preview1 = Linker::<WasiP1Ctx>::new(&engine);
         preview1::add_to_linker_sync(&mut linker_preview1, |t| t);
         wasmtime_wasi::add_to_linker_sync(&mut linker);
-        RuntimeState { engine, linker, linker_preview1 }
+        let modules = HashMap::new();
+        RuntimeState { engine, linker, linker_preview1, modules }
     }
 }
 
-pub fn tt_wasm_load_module(path: PathBuf) -> Result<Module> {
-    print!("The path is {}", path.display());
-    Module::from_file(&(runtime_state.engine), path)
+pub fn tt_wasm_load_module(path: String) -> Result<String> {
+    let mut state = runtime_state.lock().unwrap();
+    match Module::from_file(&state.engine, path.clone()) {
+        Ok(module) => {
+            state.modules.insert(path.clone(), module);
+            return Ok(path);
+        },
+        Err(e) => return Err(e),
+    }
 }
 
-pub fn tt_wasm_run_module(module: &Module) -> Result<()> {
-        let mut ctx_builder =  WasiCtxBuilder::new();
-        let ctx = ctx_builder.build_p1();
-        let mut store = Store::new(&runtime_state.engine, ctx);
-        let instance = runtime_state.linker_preview1.instantiate(&mut store, &module)?;
+fn get_entry_point(instance: &Instance, store: &mut Store<WasiP1Ctx>) -> Result<TypedFunc<(), ()>> {
+    let names = ["_start", "main", "_main", "__main_argc_argv"];
+    for item in names.into_iter() {
+        match instance.get_typed_func::<(), ()>(&mut *store, item) {
+            Ok(func) => {
+                println!("{}", item);
+                return Ok(func)
+            },
+            Err(e) => {}
+        };
+    }
+    Err(anyhow!("Entry point not found"))
+}
 
-        let handle = thread::spawn(move || -> Result<()> {
-            let func = instance.get_typed_func::<(), ()>(&mut store, "_start")?;
-            func.call(&mut store, ())?;
-            Ok(())
-        });
-        handle.join().unwrap()
+pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
+    let state = runtime_state.lock().unwrap();
+    let module = state.modules.get(&module_uid).unwrap();
+    let mut ctx_builder =  WasiCtxBuilder::new();
+    let ctx = ctx_builder.inherit_stdio().build_p1();
+    let mut store = Store::new(&state.engine, ctx);
+    let instance = state.linker_preview1.instantiate(&mut store, &module)?;
+    let func = get_entry_point(&instance, &mut store)?;
+    match func.call(&mut store, ()) {
+        Ok(()) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
