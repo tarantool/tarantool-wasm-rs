@@ -92,15 +92,18 @@ fn get_entry_point(instance: &Instance, store: &mut Store<WasiP1Ctx>) -> Result<
 }
 
 pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
-    let state = runtime_state.lock().unwrap();
-    let module = state.modules.get(&module_uid).unwrap();
-    let mut ctx_builder =  WasiCtxBuilder::new();
-    let ctx = ctx_builder.inherit_stdio().build_p1();
-    let mut store = Store::new(&state.engine, ctx);
-    let instance = state.linker_preview1.instantiate(&mut store, &module)?;
-    let func = get_entry_point(&instance, &mut store)?;
-    match func.call(&mut store, ()) {
-        Ok(()) => Ok(()),
-        Err(e) => Err(e),
-    }
+    let handle = thread::spawn(move || {
+        let state = runtime_state.lock().unwrap();
+        let module = state.modules.get(&module_uid).unwrap();
+        let mut ctx_builder =  WasiCtxBuilder::new();
+        let ctx = ctx_builder.inherit_stdio().build_p1();
+        let mut store = Store::new(&state.engine, ctx);
+        let instance = state.linker_preview1.instantiate(&mut store, &module)?;
+        let func = get_entry_point(&instance, &mut store)?;
+        match func.call(&mut store, ()) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(e),
+        }
+    });
+    handle.join().unwrap()
 }
