@@ -1,6 +1,6 @@
 use wasmtime::component::{ResourceTable};
+use wasmtime_wasi::bindings::Command;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
-use wasmtime_wasi::preview1::{self, WasiP1Ctx};
 use wasmtime::{Engine, Linker, Store, Module, TypedFunc, Instance};
 use anyhow::Result;
 use lazy_static::lazy_static;
@@ -8,6 +8,15 @@ use std::thread;
 use std::collections::HashMap;
 use std::sync::{Mutex, Arc};
 use anyhow::anyhow;
+use std::cell::RefCell;
+use std::borrow::BorrowMut;
+use wasmtime::component::Component;
+use tokio::runtime::Runtime;
+use wasmtime::Config;
+
+struct WasmCoro(minicoroutine::Coroutine<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>);
+//unsafe impl Send for WasmCoro{}
+
 
 lazy_static! {
     static ref runtime_state: Arc<Mutex<RuntimeState>> = Arc::new(Mutex::new(RuntimeState::new()));
@@ -50,25 +59,24 @@ impl WasiView for SyncWasmStates {
 struct RuntimeState {
     pub engine: Engine,
     pub linker: wasmtime::component::Linker<SyncWasmStates>,
-    pub linker_preview1: Linker<WasiP1Ctx>,
-    pub modules: HashMap<String, Module>
+    pub modules: HashMap<String, Component>
 }
 
 impl RuntimeState {
     pub fn new() -> Self {
-        let engine = Engine::default();
+        let mut config = Config::new();
+        config.async_support(true);
+        let engine = Engine::new(&config).unwrap();
         let mut linker = wasmtime::component::Linker::<SyncWasmStates>::new(&engine);
-        let mut linker_preview1 = Linker::<WasiP1Ctx>::new(&engine);
-        preview1::add_to_linker_sync(&mut linker_preview1, |t| t);
-        wasmtime_wasi::add_to_linker_sync(&mut linker);
+        wasmtime_wasi::add_to_linker_async(&mut linker);
         let modules = HashMap::new();
-        RuntimeState { engine, linker, linker_preview1, modules }
+        RuntimeState { engine, linker, modules }
     }
 }
 
 pub fn tt_wasm_load_module(path: String) -> Result<String> {
     let mut state = runtime_state.lock().unwrap();
-    match Module::from_file(&state.engine, path.clone()) {
+    match Component::from_file(&state.engine, path.clone()) {
         Ok(module) => {
             state.modules.insert(path.clone(), module);
             return Ok(path);
@@ -77,33 +85,32 @@ pub fn tt_wasm_load_module(path: String) -> Result<String> {
     }
 }
 
-fn get_entry_point(instance: &Instance, store: &mut Store<WasiP1Ctx>) -> Result<TypedFunc<(), ()>> {
-    let names = ["_start", "main", "_main", "__main_argc_argv"];
-    for item in names.into_iter() {
-        match instance.get_typed_func::<(), ()>(&mut *store, item) {
-            Ok(func) => {
-                println!("{}", item);
-                return Ok(func)
-            },
-            Err(e) => {}
-        };
-    }
-    Err(anyhow!("Entry point not found"))
-}
-
 pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
-    let handle = thread::spawn(move || {
-        let state = runtime_state.lock().unwrap();
-        let module = state.modules.get(&module_uid).unwrap();
-        let mut ctx_builder =  WasiCtxBuilder::new();
-        let ctx = ctx_builder.inherit_stdio().build_p1();
-        let mut store = Store::new(&state.engine, ctx);
-        let instance = state.linker_preview1.instantiate(&mut store, &module)?;
-        let func = get_entry_point(&instance, &mut store)?;
-        match func.call(&mut store, ()) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(e),
-        }
+    let state = runtime_state.lock().unwrap();
+    let engine = state.engine.clone();
+    let component = state.modules.get(&module_uid).unwrap().clone();
+    let linker = state.linker.clone();
+    let wasi_view = SyncWasmStates::new();
+    let mut store = Store::new(&engine, wasi_view);
+    let store_cell = RefCell::new(store);
+    drop(state);
+
+
+    let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
+        let mut coroutine = WasmCoro(minicoroutine::Coroutine::new(move |_| {
+            let mut store = store_cell.borrow_mut();
+            let rt = Runtime::new().unwrap();
+            rt.block_on(async {
+                let command = Command::instantiate_async(&mut *store, &component, &linker);
+                command.await.unwrap().wasi_cli_run().call_run(&mut *store).await;
+                let current_thread = thread::current();
+                println!("Current thread name: {:?}", current_thread.name());
+            });
+            Ok(())
+        }, ()).unwrap());
+        coroutine.0.resume(());
+        Ok::<(), wasmtime::Error>(())
     });
-    handle.join().unwrap()
+    handle.unwrap().join().unwrap();
+    Ok(())
 }

@@ -1,4 +1,4 @@
 local wasm = require('my_module')
-local module = wasm.load("/home/maxim/dev/tarantool-wasm/samples/00-basic/hello-qjs/index.wasm")
+local module = wasm.load("/home/maxim/dev/tarantool-wasm/samples/00-basic/hello-qjs/icomponent.wasm")
 print(module)
 wasm.run(module)
