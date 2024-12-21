@@ -99,9 +99,13 @@ impl tupler::HostSpace for SyncWasmStates {
     async fn insert(&mut self, _self_: wasmtime::component::Resource<TtSpace>, tup: tupler::TtTuple) -> Result<tupler::TtTuple, String> {
 
         println!("TX");
+        let current_thread = thread::current();
+        println!("Current thread name: {:?}", current_thread.name());
         let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
         yielder_handle.send(()).await;
         tokio::task::yield_now().await;
+        let current_thread = thread::current();
+        println!("Current thread name: {:?}", current_thread.name());
         Ok(tup)
     }
 
@@ -153,37 +157,36 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
         let rt = Builder::new_current_thread().build().unwrap();
         let (tx, mut rx) = mpsc::channel(1);
+        let rx_cell = RefCell::new(rx);
         rt.block_on(async {
+            let final_tx = tx.clone();
             store.data().0.lock().unwrap().yielder = Some(tx);
             rt.spawn(async move {
                 let command = Command::instantiate_async(&mut store, &component, &linker);
                 command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
-                let current_thread = thread::current();
-                println!("Current thread name: {:?}", current_thread.name());
+                final_tx.send(()).await;
             });
-            rx.recv().await.unwrap();
+            rx_cell.borrow_mut().recv().await.unwrap();
         });
 
-        /*let (tx, rx) = mpsc::channel();
-        let (ret_tx, ret_rx) = mpsc::channel();
-        println!("Running");
-        coroutine.0.resume(());
-        println!("Yielded");
-        println!("Sending");
-        tx.send(coroutine);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (ret_tx, ret_rx) = std::sync::mpsc::channel();
+        tx.send(rt);
         println!("Sended");
         let cb = move || -> () {
-            let mut coro: WasmCoro = rx.recv().unwrap();
+            let mut rt = rx.recv().unwrap();
             println!("resuming");
-            coro.0.resume(());
+            rt.block_on(async {
+                rx_cell.borrow_mut().recv().await.unwrap();
+            });
             println!("Yielded");
-            ret_tx.send(coro);
+            ret_tx.send(rt);
             println!("Sended back");
         };
         tx_push(
             Box::new(TxCtx{cb: Box::new(cb)})
         );
-        tx_flush();*/
+        tx_flush();
         Ok::<(), wasmtime::Error>(())
     });
     Ok(())
