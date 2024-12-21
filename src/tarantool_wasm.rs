@@ -1,17 +1,13 @@
 use wasmtime::component::{ResourceTable};
 use wasmtime_wasi::bindings::Command;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
-use wasmtime::{Engine, Linker, Store, Module, TypedFunc, Instance};
+use wasmtime::{Engine, Store};
 use anyhow::Result;
 use lazy_static::lazy_static;
 use std::thread;
 use std::collections::HashMap;
 use std::sync::{Mutex, Arc};
-use anyhow::anyhow;
-use std::cell::RefCell;
-use std::borrow::BorrowMut;
 use wasmtime::component::Component;
-use tokio::runtime::Runtime;
 use wasmtime::Config;
 use crate::tx::{tx_flush, tx_push, TxCtx};
 use wasmtime::component::bindgen;
@@ -19,10 +15,6 @@ use crate::tarantool_wasm::docs::adder::tupler;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use wasmtime_wasi::async_trait;
-
-struct WasmCoro(minicoroutine::Coroutine<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>);
-unsafe impl Send for WasmCoro{}
-
 
 lazy_static! {
     static ref runtime_state: Arc<Mutex<RuntimeState>> = Arc::new(Mutex::new(RuntimeState::new()));
@@ -158,14 +150,14 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
     let engine = state.engine.clone();
     let component = state.modules.get(&module_uid).unwrap().clone();
     let linker = state.linker.clone();
+    drop(state);
     let wasi_view = SyncWasmStates::new();
     let mut store = Store::new(&engine, wasi_view);
-    drop(state);
 
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
         let rt = Builder::new_current_thread().build().unwrap();
-        let (tx, mut rx) = mpsc::channel(1);
-        let rx_cell = Arc::new(Mutex::new(RefCell::new(rx)));
+        let (tx, rx) = mpsc::channel(1);
+        let rx_cell = Arc::new(Mutex::new(rx));
         rt.block_on(async {
             let final_tx = tx.clone();
             store.data().0.lock().unwrap().yielder = Some(tx);
@@ -174,7 +166,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
                 command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
                 final_tx.send(()).await;
             });
-            (*rx_cell.lock().unwrap()).borrow_mut().recv().await.unwrap();
+            (*rx_cell.lock().unwrap()).recv().await.unwrap();
         });
 
         let (tx, rx) = std::sync::mpsc::channel();
@@ -183,10 +175,10 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         let rx_cell_cp = rx_cell.clone();
         println!("Sended");
         let cb = move || -> () {
-            let mut rt = rx.recv().unwrap();
+            let rt = rx.recv().unwrap();
             println!("resuming");
             rt.block_on(async {
-                (*rx_cell.lock().unwrap()).borrow_mut().recv().await.unwrap();
+                (*rx_cell.lock().unwrap()).recv().await.unwrap();
             });
             println!("Yielded");
             ret_tx.send(rt);
@@ -196,10 +188,10 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
             Box::new(TxCtx{cb: Box::new(cb)})
         );
         tx_flush();
-        let mut rt = ret_rx.recv().unwrap();
+        let rt = ret_rx.recv().unwrap();
         println!("resuming");
         rt.block_on(async {
-            (*rx_cell_cp.lock().unwrap()).borrow_mut().recv().await.unwrap();
+            (*rx_cell_cp.lock().unwrap()).recv().await.unwrap();
         });
         println!("Yielded");
         Ok::<(), wasmtime::Error>(())
