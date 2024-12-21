@@ -20,6 +20,12 @@ lazy_static! {
     static ref runtime_state: Arc<Mutex<RuntimeState>> = Arc::new(Mutex::new(RuntimeState::new()));
 }
 
+fn resume_wasm(rt: &tokio::runtime::Runtime, awaiter: Arc<Mutex<mpsc::Receiver<()>>>) {
+        rt.block_on(async {
+            awaiter.lock().unwrap().recv().await.unwrap();
+        });
+}
+
 pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
@@ -123,19 +129,17 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         let rx_cell_cp = rx_cell.clone();
         let cb = move || -> () {
             let rt = rx.recv().unwrap();
-            rt.block_on(async {
-                rx_cell.lock().unwrap().recv().await.unwrap();
-            });
+            resume_wasm(&rt, rx_cell);
             ret_tx.send(rt);
         };
+
         tx_push(
             Box::new(TxCtx{cb: Box::new(cb)})
         );
         tx_flush();
+
         let rt = ret_rx.recv().unwrap();
-        rt.block_on(async {
-            rx_cell_cp.lock().unwrap().recv().await.unwrap();
-        });
+        resume_wasm(&rt, rx_cell_cp);
         Ok::<(), wasmtime::Error>(())
     });
     Ok(())
