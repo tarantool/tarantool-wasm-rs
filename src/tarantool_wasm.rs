@@ -11,38 +11,20 @@ use wasmtime::component::Component;
 use wasmtime::Config;
 use crate::tx::{tx_flush, tx_push, TxCtx};
 use wasmtime::component::bindgen;
-use crate::tarantool_wasm::docs::adder::tupler;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
-use wasmtime_wasi::async_trait;
+use crate::bindings::docs::adder::tupler;
+
 
 lazy_static! {
     static ref runtime_state: Arc<Mutex<RuntimeState>> = Arc::new(Mutex::new(RuntimeState::new()));
 }
 
-pub struct WasmStates {
-    table: ResourceTable,
-    ctx: WasiCtx,
-    yielder: Option<mpsc::Sender<()>>,
+pub(crate) struct WasmStates {
+    pub(crate) table: ResourceTable,
+    pub(crate) ctx: WasiCtx,
+    pub(crate) yielder: Option<mpsc::Sender<()>>,
 
-}
-
-struct SyncWasmStates(Mutex<WasmStates>);
-
-bindgen!({
-    path: "adder.wit",
-    world: "adder",
-    async: true,
-    with: {
-        "docs:adder/tupler/space": TtSpace,
-    }
-});
-
-
-impl SyncWasmStates {
-    pub fn new() -> Self {
-        SyncWasmStates(Mutex::new(WasmStates::new()))
-    }
 }
 
 impl WasmStates {
@@ -56,6 +38,14 @@ impl WasmStates {
     }
 }
 
+pub(crate) struct SyncWasmStates(pub(crate) Mutex<WasmStates>);
+
+impl SyncWasmStates {
+    pub fn new() -> Self {
+        SyncWasmStates(Mutex::new(WasmStates::new()))
+    }
+}
+
 impl WasiView for SyncWasmStates {
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.0.get_mut().unwrap().table
@@ -63,55 +53,6 @@ impl WasiView for SyncWasmStates {
 
     fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.0.get_mut().unwrap().ctx
-    }
-}
-
-#[async_trait]
-impl tupler::Host for SyncWasmStates {
-    async fn get_tuple(&mut self, name: String, value: Vec<u8>) -> tupler::TtTuple {
-        let current_thread = thread::current();
-        println!("Current thread name: {:?}", current_thread.name());
-        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
-        yielder_handle.send(()).await;
-        tokio::task::yield_now().await;
-        let current_thread = thread::current();
-        println!("Current thread name: {:?}", current_thread.name());
-
-        tupler::TtTuple {
-            name: name,
-            value: value,
-            status: true,
-        }
-    }
-}
-
-pub struct TtSpace {
-    space_id: u32
-}
-
-#[async_trait]
-impl tupler::HostSpace for SyncWasmStates {
-    async fn new(&mut self, name: String) -> wasmtime::component::Resource<TtSpace> {
-        let space_id = if name == "test" { 512 }  else  { 0 };
-        self.0.lock().unwrap().table.push(TtSpace{space_id}).unwrap()
-    }
-
-    async fn insert(&mut self, _self_: wasmtime::component::Resource<TtSpace>, tup: tupler::TtTuple) -> Result<tupler::TtTuple, String> {
-
-        println!("TX");
-        let current_thread = thread::current();
-        println!("Current thread name: {:?}", current_thread.name());
-        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
-        yielder_handle.send(()).await;
-        tokio::task::yield_now().await;
-        let current_thread = thread::current();
-        println!("Current thread name: {:?}", current_thread.name());
-        Ok(tup)
-    }
-
-    async fn drop(&mut self, self_: wasmtime::component::Resource<TtSpace>) -> Result<(), wasmtime::Error> {
-        self.0.lock().unwrap().table.delete(self_);
-        Ok(())
     }
 }
 

@@ -1,6 +1,7 @@
 mod tarantool_wasm;
 mod tx;
 mod txffi;
+mod bindings;
 use mlua::prelude::*;
 use crate::tarantool_wasm::tt_wasm_load_module;
 use crate::tarantool_wasm::tt_wasm_run_module;
