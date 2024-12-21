@@ -13,9 +13,14 @@ use std::borrow::BorrowMut;
 use wasmtime::component::Component;
 use tokio::runtime::Runtime;
 use wasmtime::Config;
+use std::sync::mpsc;
+use crate::tx::{tx_flush, tx_push, TxCtx};
+use wasmtime::component::bindgen;
+use crate::tarantool_wasm::docs::adder::tupler;
+
 
 struct WasmCoro(minicoroutine::Coroutine<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>);
-//unsafe impl Send for WasmCoro{}
+unsafe impl Send for WasmCoro{}
 
 
 lazy_static! {
@@ -29,6 +34,21 @@ pub struct WasmStates {
 
 struct SyncWasmStates(Mutex<WasmStates>);
 
+bindgen!({
+    path: "adder.wit",
+    world: "adder",
+    with: {
+        "docs:adder/tupler/space": TtSpace,
+    }
+});
+
+
+impl SyncWasmStates {
+    pub fn new() -> Self {
+        SyncWasmStates(Mutex::new(WasmStates::new()))
+    }
+}
+
 impl WasmStates {
     pub fn new() -> Self {
         let table = ResourceTable::new();
@@ -40,12 +60,6 @@ impl WasmStates {
     }
 }
 
-impl SyncWasmStates {
-    pub fn new() -> Self {
-        SyncWasmStates(Mutex::new(WasmStates::new()))
-    }
-}
-
 impl WasiView for SyncWasmStates {
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.0.get_mut().unwrap().table
@@ -53,6 +67,39 @@ impl WasiView for SyncWasmStates {
 
     fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.0.get_mut().unwrap().ctx
+    }
+}
+
+impl tupler::Host for SyncWasmStates {
+    fn get_tuple(&mut self, name: String, value: Vec<u8>) -> tupler::TtTuple {
+        tupler::TtTuple {
+            name: name,
+            value: value,
+            status: true,
+        }
+    }
+}
+
+pub struct TtSpace {
+    space_id: u32
+}
+
+impl tupler::HostSpace for SyncWasmStates {
+    fn new(&mut self, name: String) -> wasmtime::component::Resource<TtSpace> {
+        let space_id = if name == "test" { 512 }  else  { 0 };
+        self.0.lock().unwrap().table.push(TtSpace{space_id}).unwrap()
+    }
+
+    fn insert(&mut self, _self_: wasmtime::component::Resource<TtSpace>, tup: tupler::TtTuple) -> Result<tupler::TtTuple, String> {
+        minicoroutine::Coroutine::<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>::running().unwrap().yield_(());
+        println!("TX");
+        minicoroutine::Coroutine::<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>::running().unwrap().yield_(());
+        Ok(tup)
+    }
+
+    fn drop(&mut self, self_: wasmtime::component::Resource<TtSpace>) -> Result<(), wasmtime::Error> {
+        self.0.lock().unwrap().table.delete(self_);
+        Ok(())
     }
 }
 
@@ -69,6 +116,7 @@ impl RuntimeState {
         let engine = Engine::new(&config).unwrap();
         let mut linker = wasmtime::component::Linker::<SyncWasmStates>::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker);
+        tupler::add_to_linker(&mut linker, |state| state);
         let modules = HashMap::new();
         RuntimeState { engine, linker, modules }
     }
@@ -97,10 +145,11 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
 
 
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
+        let rt = Runtime::new().unwrap();
+        let (ret_tx, ret_rx) = mpsc::channel();
         let mut coroutine = WasmCoro(minicoroutine::Coroutine::new(move |_| {
-            let mut store = store_cell.borrow_mut();
-            let rt = Runtime::new().unwrap();
             rt.block_on(async {
+                let mut store = store_cell.borrow_mut();
                 let command = Command::instantiate_async(&mut *store, &component, &linker);
                 command.await.unwrap().wasi_cli_run().call_run(&mut *store).await;
                 let current_thread = thread::current();
@@ -108,9 +157,27 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
             });
             Ok(())
         }, ()).unwrap());
+
+        let (tx, rx) = mpsc::channel();
+        println!("Running");
         coroutine.0.resume(());
+        println!("Yielded");
+        println!("Sending");
+        tx.send(coroutine);
+        println!("Sended");
+        let cb = move || -> () {
+            let mut coro: WasmCoro = rx.recv().unwrap();
+            println!("resuming");
+            coro.0.resume(());
+            println!("Yielded");
+            ret_tx.send(coro);
+            println!("Sended back");
+        };
+        tx_push(
+            Box::new(TxCtx{cb: Box::new(cb)})
+        );
+        tx_flush();
         Ok::<(), wasmtime::Error>(())
     });
-    handle.unwrap().join().unwrap();
     Ok(())
 }
