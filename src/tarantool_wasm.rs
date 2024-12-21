@@ -41,8 +41,14 @@ impl WasmStates {
 pub(crate) struct SyncWasmStates(pub(crate) Mutex<WasmStates>);
 
 impl SyncWasmStates {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         SyncWasmStates(Mutex::new(WasmStates::new()))
+    }
+
+    pub(crate) async fn yield_now(&self) {
+        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
+        yielder_handle.send(()).await;
+        tokio::task::yield_now().await;
     }
 }
 

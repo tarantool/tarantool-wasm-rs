@@ -23,9 +23,7 @@ impl tupler::Host for SyncWasmStates {
     async fn get_tuple(&mut self, name: String, value: Vec<u8>) -> tupler::TtTuple {
         let current_thread = thread::current();
         println!("Current thread name: {:?}", current_thread.name());
-        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
-        yielder_handle.send(()).await;
-        tokio::task::yield_now().await;
+        self.yield_now().await;
         let current_thread = thread::current();
         println!("Current thread name: {:?}", current_thread.name());
 
@@ -49,9 +47,7 @@ impl tupler::HostSpace for SyncWasmStates {
         println!("TX");
         let current_thread = thread::current();
         println!("Current thread name: {:?}", current_thread.name());
-        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
-        yielder_handle.send(()).await;
-        tokio::task::yield_now().await;
+        self.yield_now().await;
         let current_thread = thread::current();
         println!("Current thread name: {:?}", current_thread.name());
         Ok(tup)
