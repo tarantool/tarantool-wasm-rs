@@ -13,12 +13,12 @@ use std::borrow::BorrowMut;
 use wasmtime::component::Component;
 use tokio::runtime::Runtime;
 use wasmtime::Config;
-use std::sync::mpsc;
 use crate::tx::{tx_flush, tx_push, TxCtx};
 use wasmtime::component::bindgen;
 use crate::tarantool_wasm::docs::adder::tupler;
 use tokio::runtime::Builder;
-use tokio::sync::oneshot;
+use tokio::sync::mpsc;
+use wasmtime_wasi::async_trait;
 
 struct WasmCoro(minicoroutine::Coroutine<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>);
 unsafe impl Send for WasmCoro{}
@@ -31,6 +31,8 @@ lazy_static! {
 pub struct WasmStates {
     table: ResourceTable,
     ctx: WasiCtx,
+    yielder: Option<mpsc::Sender<()>>,
+
 }
 
 struct SyncWasmStates(Mutex<WasmStates>);
@@ -38,6 +40,7 @@ struct SyncWasmStates(Mutex<WasmStates>);
 bindgen!({
     path: "adder.wit",
     world: "adder",
+    async: true,
     with: {
         "docs:adder/tupler/space": TtSpace,
     }
@@ -57,7 +60,7 @@ impl WasmStates {
         // TODO: make env and stdio configurable
         builder.inherit_stdio().inherit_env();
         let ctx = builder.build();
-        Self { table, ctx }
+        Self { table, ctx, yielder: None.into() }
     }
 }
 
@@ -71,8 +74,9 @@ impl WasiView for SyncWasmStates {
     }
 }
 
+#[async_trait]
 impl tupler::Host for SyncWasmStates {
-    fn get_tuple(&mut self, name: String, value: Vec<u8>) -> tupler::TtTuple {
+    async fn get_tuple(&mut self, name: String, value: Vec<u8>) -> tupler::TtTuple {
         tupler::TtTuple {
             name: name,
             value: value,
@@ -85,18 +89,23 @@ pub struct TtSpace {
     space_id: u32
 }
 
+#[async_trait]
 impl tupler::HostSpace for SyncWasmStates {
-    fn new(&mut self, name: String) -> wasmtime::component::Resource<TtSpace> {
+    async fn new(&mut self, name: String) -> wasmtime::component::Resource<TtSpace> {
         let space_id = if name == "test" { 512 }  else  { 0 };
         self.0.lock().unwrap().table.push(TtSpace{space_id}).unwrap()
     }
 
-    fn insert(&mut self, _self_: wasmtime::component::Resource<TtSpace>, tup: tupler::TtTuple) -> Result<tupler::TtTuple, String> {
+    async fn insert(&mut self, _self_: wasmtime::component::Resource<TtSpace>, tup: tupler::TtTuple) -> Result<tupler::TtTuple, String> {
+
         println!("TX");
+        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
+        yielder_handle.send(()).await;
+        tokio::task::yield_now().await;
         Ok(tup)
     }
 
-    fn drop(&mut self, self_: wasmtime::component::Resource<TtSpace>) -> Result<(), wasmtime::Error> {
+    async fn drop(&mut self, self_: wasmtime::component::Resource<TtSpace>) -> Result<(), wasmtime::Error> {
         self.0.lock().unwrap().table.delete(self_);
         Ok(())
     }
@@ -143,16 +152,16 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
 
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
         let rt = Builder::new_current_thread().build().unwrap();
+        let (tx, mut rx) = mpsc::channel(1);
         rt.block_on(async {
-            let (tx, rx) = oneshot::channel();
+            store.data().0.lock().unwrap().yielder = Some(tx);
             rt.spawn(async move {
                 let command = Command::instantiate_async(&mut store, &component, &linker);
                 command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
                 let current_thread = thread::current();
                 println!("Current thread name: {:?}", current_thread.name());
-                tx.send(()).unwrap();
             });
-            rx.await.unwrap();
+            rx.recv().await.unwrap();
         });
 
         /*let (tx, rx) = mpsc::channel();
