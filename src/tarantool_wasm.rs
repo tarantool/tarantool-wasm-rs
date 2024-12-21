@@ -166,34 +166,28 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
                 command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
                 final_tx.send(()).await;
             });
-            (*rx_cell.lock().unwrap()).recv().await.unwrap();
+            rx_cell.lock().unwrap().recv().await.unwrap();
         });
 
         let (tx, rx) = std::sync::mpsc::channel();
         let (ret_tx, ret_rx) = std::sync::mpsc::channel();
         tx.send(rt);
         let rx_cell_cp = rx_cell.clone();
-        println!("Sended");
         let cb = move || -> () {
             let rt = rx.recv().unwrap();
-            println!("resuming");
             rt.block_on(async {
-                (*rx_cell.lock().unwrap()).recv().await.unwrap();
+                rx_cell.lock().unwrap().recv().await.unwrap();
             });
-            println!("Yielded");
             ret_tx.send(rt);
-            println!("Sended back");
         };
         tx_push(
             Box::new(TxCtx{cb: Box::new(cb)})
         );
         tx_flush();
         let rt = ret_rx.recv().unwrap();
-        println!("resuming");
         rt.block_on(async {
-            (*rx_cell_cp.lock().unwrap()).recv().await.unwrap();
+            rx_cell_cp.lock().unwrap().recv().await.unwrap();
         });
-        println!("Yielded");
         Ok::<(), wasmtime::Error>(())
     });
     Ok(())
