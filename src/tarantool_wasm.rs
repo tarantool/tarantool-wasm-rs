@@ -17,7 +17,8 @@ use std::sync::mpsc;
 use crate::tx::{tx_flush, tx_push, TxCtx};
 use wasmtime::component::bindgen;
 use crate::tarantool_wasm::docs::adder::tupler;
-
+use tokio::runtime::Builder;
+use tokio::sync::oneshot;
 
 struct WasmCoro(minicoroutine::Coroutine<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>);
 unsafe impl Send for WasmCoro{}
@@ -91,9 +92,7 @@ impl tupler::HostSpace for SyncWasmStates {
     }
 
     fn insert(&mut self, _self_: wasmtime::component::Resource<TtSpace>, tup: tupler::TtTuple) -> Result<tupler::TtTuple, String> {
-        minicoroutine::Coroutine::<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>::running().unwrap().yield_(());
         println!("TX");
-        minicoroutine::Coroutine::<(), (),  std::result::Result<(), wasmtime::Error>, (), minicoroutine::GLOBAL>::running().unwrap().yield_(());
         Ok(tup)
     }
 
@@ -140,25 +139,24 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
     let linker = state.linker.clone();
     let wasi_view = SyncWasmStates::new();
     let mut store = Store::new(&engine, wasi_view);
-    let store_cell = RefCell::new(store);
     drop(state);
 
-
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
-        let rt = Runtime::new().unwrap();
-        let (ret_tx, ret_rx) = mpsc::channel();
-        let mut coroutine = WasmCoro(minicoroutine::Coroutine::new(move |_| {
-            rt.block_on(async {
-                let mut store = store_cell.borrow_mut();
-                let command = Command::instantiate_async(&mut *store, &component, &linker);
-                command.await.unwrap().wasi_cli_run().call_run(&mut *store).await;
+        let rt = Builder::new_current_thread().build().unwrap();
+        rt.block_on(async {
+            let (tx, rx) = oneshot::channel();
+            rt.spawn(async move {
+                let command = Command::instantiate_async(&mut store, &component, &linker);
+                command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
                 let current_thread = thread::current();
                 println!("Current thread name: {:?}", current_thread.name());
+                tx.send(()).unwrap();
             });
-            Ok(())
-        }, ()).unwrap());
+            rx.await.unwrap();
+        });
 
-        let (tx, rx) = mpsc::channel();
+        /*let (tx, rx) = mpsc::channel();
+        let (ret_tx, ret_rx) = mpsc::channel();
         println!("Running");
         coroutine.0.resume(());
         println!("Yielded");
@@ -176,7 +174,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         tx_push(
             Box::new(TxCtx{cb: Box::new(cb)})
         );
-        tx_flush();
+        tx_flush();*/
         Ok::<(), wasmtime::Error>(())
     });
     Ok(())
