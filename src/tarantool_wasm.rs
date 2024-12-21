@@ -77,6 +77,14 @@ impl WasiView for SyncWasmStates {
 #[async_trait]
 impl tupler::Host for SyncWasmStates {
     async fn get_tuple(&mut self, name: String, value: Vec<u8>) -> tupler::TtTuple {
+        let current_thread = thread::current();
+        println!("Current thread name: {:?}", current_thread.name());
+        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
+        yielder_handle.send(()).await;
+        tokio::task::yield_now().await;
+        let current_thread = thread::current();
+        println!("Current thread name: {:?}", current_thread.name());
+
         tupler::TtTuple {
             name: name,
             value: value,
@@ -157,7 +165,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
         let rt = Builder::new_current_thread().build().unwrap();
         let (tx, mut rx) = mpsc::channel(1);
-        let rx_cell = RefCell::new(rx);
+        let rx_cell = Arc::new(Mutex::new(RefCell::new(rx)));
         rt.block_on(async {
             let final_tx = tx.clone();
             store.data().0.lock().unwrap().yielder = Some(tx);
@@ -166,18 +174,19 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
                 command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
                 final_tx.send(()).await;
             });
-            rx_cell.borrow_mut().recv().await.unwrap();
+            (*rx_cell.lock().unwrap()).borrow_mut().recv().await.unwrap();
         });
 
         let (tx, rx) = std::sync::mpsc::channel();
         let (ret_tx, ret_rx) = std::sync::mpsc::channel();
         tx.send(rt);
+        let rx_cell_cp = rx_cell.clone();
         println!("Sended");
         let cb = move || -> () {
             let mut rt = rx.recv().unwrap();
             println!("resuming");
             rt.block_on(async {
-                rx_cell.borrow_mut().recv().await.unwrap();
+                (*rx_cell.lock().unwrap()).borrow_mut().recv().await.unwrap();
             });
             println!("Yielded");
             ret_tx.send(rt);
@@ -187,6 +196,12 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
             Box::new(TxCtx{cb: Box::new(cb)})
         );
         tx_flush();
+        let mut rt = ret_rx.recv().unwrap();
+        println!("resuming");
+        rt.block_on(async {
+            (*rx_cell_cp.lock().unwrap()).borrow_mut().recv().await.unwrap();
+        });
+        println!("Yielded");
         Ok::<(), wasmtime::Error>(())
     });
     Ok(())
