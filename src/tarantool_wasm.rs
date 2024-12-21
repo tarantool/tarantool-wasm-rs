@@ -105,13 +105,14 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         let rt = Builder::new_current_thread().build().unwrap();
         let (tx, rx) = mpsc::channel(1);
         let rx_cell = Arc::new(Mutex::new(rx));
+        let finalizer = tx.clone();
+        store.data().0.lock().unwrap().yielder = Some(tx);
+
         rt.block_on(async {
-            let final_tx = tx.clone();
-            store.data().0.lock().unwrap().yielder = Some(tx);
             rt.spawn(async move {
                 let command = Command::instantiate_async(&mut store, &component, &linker);
                 command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
-                final_tx.send(()).await;
+                finalizer.send(()).await;
             });
             rx_cell.lock().unwrap().recv().await.unwrap();
         });
