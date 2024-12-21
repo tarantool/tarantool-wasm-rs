@@ -114,14 +114,13 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         let finalizer = tx.clone();
         store.data().0.lock().unwrap().yielder = Some(tx);
 
-        rt.block_on(async {
-            rt.spawn(async move {
-                let command = Command::instantiate_async(&mut store, &component, &linker);
-                command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
-                finalizer.send(()).await;
-            });
-            rx_cell.lock().unwrap().recv().await.unwrap();
+        rt.spawn(async move {
+            let command = Command::instantiate_async(&mut store, &component, &linker);
+            command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
+            finalizer.send(()).await;
         });
+
+        resume_wasm(&rt, rx_cell.clone());
 
         let (tx, rx) = std::sync::mpsc::channel();
         let (ret_tx, ret_rx) = std::sync::mpsc::channel();
