@@ -1,4 +1,8 @@
 local wasm = require('my_module')
+print("Initialized")
 local module = wasm.load("../wasm-component-test/guest-js/add.wasm")
+print("Loaded")
 print(module)
+print("Running")
 wasm.run(module)
+print("Finished")
