@@ -12,6 +12,7 @@ use wasmtime::Config;
 use crate::tx::{tx_flush, tx_push, TxCtx};
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use crate::bindings::docs::adder::tupler;
 use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
@@ -20,9 +21,14 @@ lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
 }
 
+enum WasmFiberStatus {
+    Suspended,
+    Finished
+}
+
 struct WasmFiber {
     rt: tokio::runtime::Runtime,
-    awaiter: mpsc::Receiver<()>,
+    awaiter: mpsc::Receiver<WasmFiberStatus>,
 }
 
 impl WasmFiber {
@@ -35,22 +41,22 @@ impl WasmFiber {
         rt.spawn(async move {
             let command = Command::instantiate_async(&mut store, &component, &linker);
             command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
-            finalizer.send(()).await;
+            finalizer.send(WasmFiberStatus::Finished).await;
         });
         WasmFiber{rt, awaiter}
     }
 
-    pub fn resume(&mut self) {
+    pub fn resume(&mut self) -> WasmFiberStatus {
         self.rt.block_on(async {
-            self.awaiter.recv().await.unwrap();
-        });
+            self.awaiter.recv().await.unwrap()
+        })
     }
 }
 
 pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
-    pub(crate) yielder: Option<mpsc::Sender<()>>,
+    pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
 
 }
 
@@ -74,7 +80,7 @@ impl SyncWasmStates {
 
     pub(crate) async fn yield_now(&self) {
         let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
-        yielder_handle.send(()).await;
+        yielder_handle.send(WasmFiberStatus::Suspended).await;
         tokio::task::yield_now().await;
     }
 }
@@ -140,21 +146,12 @@ where
     Ok(handle?)
 }
 
-pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
-    let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
-        let linker = runtime_state.linker.clone();
-
-        let wasi_view = SyncWasmStates::new();
-        let mut store = Store::new(&runtime_state.engine, wasi_view);
-        let mut fiber = WasmFiber::new(store, linker, component);
-        fiber.resume();
-
-        let (tx, rx) = std::sync::mpsc::channel();
-        let (ret_tx, ret_rx) = std::sync::mpsc::channel();
+fn block_on_tx(fiber: WasmFiber) -> WasmFiber {
+        let (tx, rx) = oneshot::channel();
+        let (ret_tx, ret_rx) = oneshot::channel();
         tx.send(fiber);
         let cb = move || {
-            let mut fiber = rx.recv().unwrap();
+            let mut fiber = rx.blocking_recv().unwrap();
             fiber.resume();
             ret_tx.send(fiber);
         };
@@ -164,7 +161,32 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
         );
         tx_flush();
 
-        let mut fiber = ret_rx.recv().unwrap();
+        ret_rx.blocking_recv().unwrap()
+}
+
+/*pub(crate) fn block_on(fiber: &mut WasmFiber) -> Result<()>{
+    loop {
+        match fiber.resume() {
+            WasmFiberStatus::Suspended => {
+                *fiber = block_on_tx(fiber);
+            },
+            WasmFiberStatus::Finished => {
+                return Ok(());
+            },
+        }
+    }
+}*/
+
+pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
+    let handle = spawn_tt_thread("wasm".to_string(), move || {
+        let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
+        let linker = runtime_state.linker.clone();
+
+        let wasi_view = SyncWasmStates::new();
+        let mut store = Store::new(&runtime_state.engine, wasi_view);
+        let mut fiber = WasmFiber::new(store, linker, component);
+        fiber.resume();
+        fiber = block_on_tx(fiber);
         fiber.resume();
         Ok::<(), wasmtime::Error>(())
     })?;
