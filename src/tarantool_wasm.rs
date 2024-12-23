@@ -39,9 +39,10 @@ impl WasmFiber {
         store.data().0.lock().unwrap().yielder = Some(yielder);
 
         rt.spawn(async move {
-            let command = Command::instantiate_async(&mut store, &component, &linker);
-            command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
-            finalizer.send(WasmFiberStatus::Finished).await;
+            let command = Command::instantiate_async(&mut store, &component, &linker).await?;
+            let result = command.wasi_cli_run().call_run(&mut store).await;
+            finalizer.send(WasmFiberStatus::Finished).await?;
+            Ok::<Result<(), ()>, wasmtime::Error>(result?)
         });
         WasmFiber{rt, awaiter}
     }
