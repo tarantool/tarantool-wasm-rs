@@ -119,13 +119,13 @@ pub fn tt_wasm_load_module(path: String) -> Result<String> {
 }
 
 pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
-    let engine = runtime_state.engine.clone();
-    let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
-    let linker = runtime_state.linker.clone();
 
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
+        let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
+        let linker = runtime_state.linker.clone();
+
         let wasi_view = SyncWasmStates::new();
-        let mut store = Store::new(&engine, wasi_view);
+        let mut store = Store::new(&runtime_state.engine, wasi_view);
         let mut fiber = WasmFiber::new(store, linker, component);
         fiber.resume();
 
