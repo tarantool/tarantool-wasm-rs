@@ -6,7 +6,7 @@ use anyhow::Result;
 use lazy_static::lazy_static;
 use std::thread;
 use std::collections::HashMap;
-use std::sync::{Mutex, Arc};
+use std::sync::{Mutex, Arc, RwLock};
 use wasmtime::component::Component;
 use wasmtime::Config;
 use crate::tx::{tx_flush, tx_push, TxCtx};
@@ -16,7 +16,7 @@ use crate::bindings::docs::adder::tupler;
 
 
 lazy_static! {
-    static ref runtime_state: Arc<Mutex<RuntimeState>> = Arc::new(Mutex::new(RuntimeState::new()));
+    static ref runtime_state: RuntimeState = RuntimeState::new();
 }
 
 struct WasmFiber {
@@ -91,7 +91,7 @@ impl WasiView for SyncWasmStates {
 struct RuntimeState {
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
-    pub modules: HashMap<String, Component>
+    pub modules: RwLock<HashMap<String, Component>>
 }
 
 impl RuntimeState {
@@ -102,17 +102,16 @@ impl RuntimeState {
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker);
         tupler::add_to_linker(&mut linker, |state| state);
-        let modules = HashMap::new();
+        let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
         RuntimeState { engine, linker: linker_ref, modules }
     }
 }
 
 pub fn tt_wasm_load_module(path: String) -> Result<String> {
-    let mut state = runtime_state.lock().unwrap();
-    match Component::from_file(&state.engine, path.clone()) {
+    match Component::from_file(&runtime_state.engine, path.clone()) {
         Ok(module) => {
-            state.modules.insert(path.clone(), module);
+            runtime_state.modules.write().unwrap().insert(path.clone(), module);
             return Ok(path);
         },
         Err(e) => return Err(e),
@@ -120,11 +119,9 @@ pub fn tt_wasm_load_module(path: String) -> Result<String> {
 }
 
 pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
-    let state = runtime_state.lock().unwrap();
-    let engine = state.engine.clone();
-    let component = state.modules.get(&module_uid).unwrap().clone();
-    let linker = state.linker.clone();
-    drop(state);
+    let engine = runtime_state.engine.clone();
+    let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
+    let linker = runtime_state.linker.clone();
 
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
         let wasi_view = SyncWasmStates::new();
