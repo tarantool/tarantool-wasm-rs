@@ -164,18 +164,18 @@ fn block_on_tx(fiber: WasmFiber) -> WasmFiber {
         ret_rx.blocking_recv().unwrap()
 }
 
-/*pub(crate) fn block_on(fiber: &mut WasmFiber) -> Result<()>{
+pub(crate) fn block_on(mut fiber: WasmFiber) -> Result<()>{
     loop {
         match fiber.resume() {
             WasmFiberStatus::Suspended => {
-                *fiber = block_on_tx(fiber);
+                fiber = block_on_tx(fiber);
             },
             WasmFiberStatus::Finished => {
                 return Ok(());
             },
         }
     }
-}*/
+}
 
 pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
@@ -185,9 +185,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
         let wasi_view = SyncWasmStates::new();
         let mut store = Store::new(&runtime_state.engine, wasi_view);
         let mut fiber = WasmFiber::new(store, linker, component);
-        fiber.resume();
-        fiber = block_on_tx(fiber);
-        fiber.resume();
+        block_on(fiber);
         Ok::<(), wasmtime::Error>(())
     })?;
     Ok(handle)
