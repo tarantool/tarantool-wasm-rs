@@ -27,11 +27,7 @@ impl tupler::Host for SyncWasmStates {
         let current_thread = thread::current();
         println!("Current thread name: {:?}", current_thread.name());
 
-        tupler::TtTuple {
-            name: name,
-            value: value,
-            status: true,
-        }
+        tupler::TtTuple {name, value, status: true}
     }
 }
 

@@ -60,7 +60,7 @@ impl WasmStates {
         // TODO: make env and stdio configurable
         builder.inherit_stdio().inherit_env();
         let ctx = builder.build();
-        Self { table, ctx, yielder: None.into() }
+        Self {table, ctx, yielder: None}
     }
 }
 
@@ -112,9 +112,9 @@ pub fn tt_wasm_load_module(path: String) -> Result<String> {
     match Component::from_file(&runtime_state.engine, path.clone()) {
         Ok(module) => {
             runtime_state.modules.write().unwrap().insert(path.clone(), module);
-            return Ok(path);
+            Ok(path)
         },
-        Err(e) => return Err(e),
+        Err(e) => Err(e),
     }
 }
 
@@ -132,7 +132,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
         let (ret_tx, ret_rx) = std::sync::mpsc::channel();
         tx.send(fiber);
-        let cb = move || -> () {
+        let cb = move || {
             let mut fiber = rx.recv().unwrap();
             fiber.resume();
             ret_tx.send(fiber);
