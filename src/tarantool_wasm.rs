@@ -14,6 +14,7 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use crate::bindings::docs::adder::tupler;
 use std::thread::JoinHandle;
+use nix::sys::signal::{self, SigSet, Signal};
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -116,6 +117,15 @@ pub fn tt_wasm_load_module(path: String) -> Result<String> {
         },
         Err(e) => Err(e),
     }
+}
+
+fn set_thread_signal_mask() {
+    let mut sigset = SigSet::all();
+    sigset.remove(Signal::SIGILL);
+    sigset.remove(Signal::SIGBUS);
+    sigset.remove(Signal::SIGFPE);
+    sigset.remove(Signal::SIGSEGV);
+    sigset.thread_block();
 }
 
 pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
