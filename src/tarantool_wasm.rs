@@ -13,7 +13,7 @@ use crate::tx::{tx_flush, tx_push, TxCtx};
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use crate::bindings::docs::adder::tupler;
-
+use std::thread::JoinHandle;
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -118,8 +118,7 @@ pub fn tt_wasm_load_module(path: String) -> Result<String> {
     }
 }
 
-pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
-
+pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
         let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
         let linker = runtime_state.linker.clone();
@@ -146,6 +145,6 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         let mut fiber = ret_rx.recv().unwrap();
         fiber.resume();
         Ok::<(), wasmtime::Error>(())
-    });
-    Ok(())
+    })?;
+    Ok(handle)
 }
