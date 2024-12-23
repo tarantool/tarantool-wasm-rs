@@ -14,7 +14,7 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use crate::bindings::docs::adder::tupler;
 use std::thread::JoinHandle;
-use nix::sys::signal::{self, SigSet, Signal};
+use nix::sys::signal::{SigSet, Signal};
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -119,17 +119,29 @@ pub fn tt_wasm_load_module(path: String) -> Result<String> {
     }
 }
 
-fn set_thread_signal_mask() {
-    let mut sigset = SigSet::all();
-    sigset.remove(Signal::SIGILL);
-    sigset.remove(Signal::SIGBUS);
-    sigset.remove(Signal::SIGFPE);
-    sigset.remove(Signal::SIGSEGV);
-    sigset.thread_block();
+fn spawn_tt_thread<F, T>(name: String, f: F) -> Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T,
+    F: Send + 'static,
+    T: Send + 'static,
+{
+    let mut newset = SigSet::all();
+    newset.remove(Signal::SIGILL);
+    newset.remove(Signal::SIGBUS);
+    newset.remove(Signal::SIGFPE);
+    newset.remove(Signal::SIGSEGV);
+
+    let oldset = SigSet::thread_get_mask()?;
+
+    newset.thread_block()?;
+    let handle = thread::Builder::new().name(name).spawn(f);
+    oldset.thread_set_mask();
+
+    Ok(handle?)
 }
 
 pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
-    let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
+    let handle = spawn_tt_thread("wasm".to_string(), move || {
         let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
         let linker = runtime_state.linker.clone();
 
