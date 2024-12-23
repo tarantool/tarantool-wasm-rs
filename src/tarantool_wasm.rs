@@ -14,6 +14,9 @@ use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
 use crate::wasm_fiber::WasmFiberStatus;
 use crate::wasm_fiber::WasmFiber;
+use tarantool::trigger::on_shutdown;
+use tarantool::fiber;
+use std::time::Duration;
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -71,12 +74,22 @@ impl RuntimeState {
     pub fn new() -> Self {
         let mut config = Config::new();
         config.async_support(true);
+        config.epoch_interruption(true);
+
         let engine = Engine::new(&config).unwrap();
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker);
         tupler::add_to_linker(&mut linker, |state| state);
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
+
+        let engine_ref = engine.clone();
+
+        on_shutdown(move || {
+            engine_ref.increment_epoch();
+            fiber::sleep(Duration::new(1, 0));
+        });
+
         RuntimeState { engine, linker: linker_ref, modules }
     }
 }
@@ -119,6 +132,9 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
 
         let wasi_view = SyncWasmStates::new();
         let mut store = Store::new(&runtime_state.engine, wasi_view);
+        store.set_epoch_deadline(1);
+        store.epoch_deadline_trap();
+
         let mut fiber = WasmFiber::new(store, linker, component);
         fiber.block_on();
         Ok::<(), wasmtime::Error>(())
