@@ -46,10 +46,41 @@ impl WasmFiber {
         WasmFiber{rt, awaiter}
     }
 
-    pub fn resume(&mut self) -> WasmFiberStatus {
+    fn resume(&mut self) -> WasmFiberStatus {
         self.rt.block_on(async {
             self.awaiter.recv().await.unwrap()
         })
+    }
+
+    fn resume_on_tx(self) -> WasmFiber {
+        let (tx, rx) = oneshot::channel();
+        let (ret_tx, ret_rx) = oneshot::channel();
+        tx.send(self);
+        let cb = move || {
+            let mut fiber = rx.blocking_recv().unwrap();
+            fiber.resume();
+            ret_tx.send(fiber);
+        };
+
+        tx_push(
+            Box::new(TxCtx{cb: Box::new(cb)})
+        );
+        tx_flush();
+
+        ret_rx.blocking_recv().unwrap()
+    }
+
+    pub(crate) fn block_on(mut self) -> Result<()>{
+        loop {
+            match self.resume() {
+                WasmFiberStatus::Suspended => {
+                    self = self.resume_on_tx();
+                },
+                WasmFiberStatus::Finished => {
+                    return Ok(());
+                },
+            }
+        }
     }
 }
 
@@ -146,37 +177,6 @@ where
     Ok(handle?)
 }
 
-fn block_on_tx(fiber: WasmFiber) -> WasmFiber {
-        let (tx, rx) = oneshot::channel();
-        let (ret_tx, ret_rx) = oneshot::channel();
-        tx.send(fiber);
-        let cb = move || {
-            let mut fiber = rx.blocking_recv().unwrap();
-            fiber.resume();
-            ret_tx.send(fiber);
-        };
-
-        tx_push(
-            Box::new(TxCtx{cb: Box::new(cb)})
-        );
-        tx_flush();
-
-        ret_rx.blocking_recv().unwrap()
-}
-
-pub(crate) fn block_on(mut fiber: WasmFiber) -> Result<()>{
-    loop {
-        match fiber.resume() {
-            WasmFiberStatus::Suspended => {
-                fiber = block_on_tx(fiber);
-            },
-            WasmFiberStatus::Finished => {
-                return Ok(());
-            },
-        }
-    }
-}
-
 pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
@@ -185,7 +185,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
         let wasi_view = SyncWasmStates::new();
         let mut store = Store::new(&runtime_state.engine, wasi_view);
         let mut fiber = WasmFiber::new(store, linker, component);
-        block_on(fiber);
+        fiber.block_on();
         Ok::<(), wasmtime::Error>(())
     })?;
     Ok(handle)
