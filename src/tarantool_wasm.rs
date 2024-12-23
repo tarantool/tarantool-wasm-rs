@@ -1,4 +1,4 @@
-use wasmtime::component::{ResourceTable};
+use wasmtime::component::{ResourceTable, Linker};
 use wasmtime_wasi::bindings::Command;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime::{Engine, Store};
@@ -10,7 +10,6 @@ use std::sync::{Mutex, Arc};
 use wasmtime::component::Component;
 use wasmtime::Config;
 use crate::tx::{tx_flush, tx_push, TxCtx};
-use wasmtime::component::bindgen;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use crate::bindings::docs::adder::tupler;
@@ -20,10 +19,31 @@ lazy_static! {
     static ref runtime_state: Arc<Mutex<RuntimeState>> = Arc::new(Mutex::new(RuntimeState::new()));
 }
 
-fn resume_wasm(rt: &tokio::runtime::Runtime, awaiter: Arc<Mutex<mpsc::Receiver<()>>>) {
-        rt.block_on(async {
-            awaiter.lock().unwrap().recv().await.unwrap();
+struct WasmFiber {
+    rt: tokio::runtime::Runtime,
+    awaiter: mpsc::Receiver<()>,
+}
+
+impl WasmFiber {
+    pub fn new(mut store: Store<SyncWasmStates>, linker: Arc<Linker<SyncWasmStates>>, component: Component) -> Self {
+        let rt = Builder::new_current_thread().build().unwrap();
+        let (yielder, awaiter) = mpsc::channel(1);
+        let finalizer = yielder.clone();
+        store.data().0.lock().unwrap().yielder = Some(yielder);
+
+        rt.spawn(async move {
+            let command = Command::instantiate_async(&mut store, &component, &linker);
+            command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
+            finalizer.send(()).await;
         });
+        WasmFiber{rt, awaiter}
+    }
+
+    pub fn resume(&mut self) {
+        self.rt.block_on(async {
+            self.awaiter.recv().await.unwrap();
+        });
+    }
 }
 
 pub(crate) struct WasmStates {
@@ -70,7 +90,7 @@ impl WasiView for SyncWasmStates {
 
 struct RuntimeState {
     pub engine: Engine,
-    pub linker: wasmtime::component::Linker<SyncWasmStates>,
+    pub linker: Arc<Linker<SyncWasmStates>>,
     pub modules: HashMap<String, Component>
 }
 
@@ -79,11 +99,12 @@ impl RuntimeState {
         let mut config = Config::new();
         config.async_support(true);
         let engine = Engine::new(&config).unwrap();
-        let mut linker = wasmtime::component::Linker::<SyncWasmStates>::new(&engine);
+        let mut linker = Linker::<SyncWasmStates>::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker);
         tupler::add_to_linker(&mut linker, |state| state);
         let modules = HashMap::new();
-        RuntimeState { engine, linker, modules }
+        let linker_ref = Arc::new(linker);
+        RuntimeState { engine, linker: linker_ref, modules }
     }
 }
 
@@ -104,32 +125,20 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
     let component = state.modules.get(&module_uid).unwrap().clone();
     let linker = state.linker.clone();
     drop(state);
-    let wasi_view = SyncWasmStates::new();
-    let mut store = Store::new(&engine, wasi_view);
 
     let handle = thread::Builder::new().name("MyThread".to_string()).spawn(move || {
-        let rt = Builder::new_current_thread().build().unwrap();
-        let (tx, rx) = mpsc::channel(1);
-        let rx_cell = Arc::new(Mutex::new(rx));
-        let finalizer = tx.clone();
-        store.data().0.lock().unwrap().yielder = Some(tx);
-
-        rt.spawn(async move {
-            let command = Command::instantiate_async(&mut store, &component, &linker);
-            command.await.unwrap().wasi_cli_run().call_run(&mut store).await;
-            finalizer.send(()).await;
-        });
-
-        resume_wasm(&rt, rx_cell.clone());
+        let wasi_view = SyncWasmStates::new();
+        let mut store = Store::new(&engine, wasi_view);
+        let mut fiber = WasmFiber::new(store, linker, component);
+        fiber.resume();
 
         let (tx, rx) = std::sync::mpsc::channel();
         let (ret_tx, ret_rx) = std::sync::mpsc::channel();
-        tx.send(rt);
-        let rx_cell_cp = rx_cell.clone();
+        tx.send(fiber);
         let cb = move || -> () {
-            let rt = rx.recv().unwrap();
-            resume_wasm(&rt, rx_cell);
-            ret_tx.send(rt);
+            let mut fiber = rx.recv().unwrap();
+            fiber.resume();
+            ret_tx.send(fiber);
         };
 
         tx_push(
@@ -137,8 +146,8 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<()> {
         );
         tx_flush();
 
-        let rt = ret_rx.recv().unwrap();
-        resume_wasm(&rt, rx_cell_cp);
+        let mut fiber = ret_rx.recv().unwrap();
+        fiber.resume();
         Ok::<(), wasmtime::Error>(())
     });
     Ok(())
