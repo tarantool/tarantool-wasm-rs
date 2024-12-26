@@ -70,12 +70,31 @@ struct RuntimeState {
     pub modules: RwLock<HashMap<String, Component>>
 }
 
+fn get_configuration() -> Config {
+        let mut config = Config::new();
+        /*
+         * Async support is required to implement rescheduling into the TX
+         * thread. In non-async mode WASM is heavily dependent on the
+         * thread-local storage. In async mode it changes to the task-local
+         * storage. This way we can run our module within a Tokio runtime
+         * task and reschedule that task instead.
+         */
+        config.async_support(true);
+
+        /*
+         * We use epoch-based interruptions to implement graceful shutdown.
+         * Epoch is a global tick counter managed by the engine. We can setup
+         * a limiting epoch for each module, after which it will halt. With
+         * that technique we can set the limit at 1 tick for all modules and
+         * then halt all modules at once by incrementing the epoch.
+         */
+        config.epoch_interruption(true);
+        config
+}
+
 impl RuntimeState {
     pub fn new() -> Self {
-        let mut config = Config::new();
-        config.async_support(true);
-        config.epoch_interruption(true);
-
+        let config = get_configuration();
         let engine = Engine::new(&config).unwrap();
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker);
@@ -132,6 +151,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
 
         let wasi_view = SyncWasmStates::new();
         let mut store = Store::new(&runtime_state.engine, wasi_view);
+
         store.set_epoch_deadline(1);
         store.epoch_deadline_trap();
 

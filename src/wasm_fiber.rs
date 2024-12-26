@@ -11,7 +11,7 @@ use anyhow::Result;
 
 pub(crate) enum WasmFiberStatus {
     Suspended,
-    Finished
+    Finished,
 }
 
 pub(crate) struct WasmFiber {
@@ -73,4 +73,3 @@ impl WasmFiber {
         }
     }
 }
-
