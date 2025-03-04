@@ -17,6 +17,10 @@ interface tupler {
 
 world adder {
   import tupler;
+
+  import types;
+  import ttbox;
+
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
   import wasi:io/error@0.2.0;
@@ -48,6 +52,54 @@ world adder {
   export add: func(x: s32, y: s32) -> s32;
   export wasi:cli/run@0.2.0;
 }
+
+interface types {
+
+    record box-error {
+        message: string,
+        %type: string,
+        code: u32,
+        payload: option<list<tuple<string, string>>>,
+        file: option<string>,
+        line: option<u32>,
+    }
+
+    record space {
+        id: s32,
+    }
+
+    record index {
+        id: s32,
+        space-id: s32,
+        index-base: s32,
+    }
+}
+
+interface ttbox {
+
+  use types.{
+      space,
+      box-error,
+      index,
+  };
+
+  schema-version: func() -> s64;
+  space-by-name: func(name: string) -> result<space, box-error>;
+  index-by-name: func(%space: space, name: string) -> result<index, box-error>;
+  
+  // update: func(index: index, key: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
+  // insert: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
+  // replace: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
+  // truncate: func(space: space) -> result<_, box-error>;
+  // delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+  // upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
+
+}
+
+
+// =================================================================================================
+
+
 package wasi:io@0.2.0 {
   interface error {
     resource error {

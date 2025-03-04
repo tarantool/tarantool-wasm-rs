@@ -1920,6 +1920,7 @@ dependencies = [
  "minicoroutine",
  "mlua",
  "nix",
+ "scopeguard",
  "tarantool",
  "tokio",
  "wasmtime",
