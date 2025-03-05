@@ -20,6 +20,7 @@ world adder {
 
   import types;
   import ttbox;
+  import say;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -73,6 +74,19 @@ interface types {
         space-id: s32,
         index-base: s32,
     }
+
+    type box-tuple = u64;
+
+    enum log-level {
+        s-fatal,
+        s-syserror,
+        s-error,
+        s-crit,
+        s-warn,
+        s-info,
+        s-verbose,
+        s-debug,
+    }
 }
 
 interface ttbox {
@@ -81,19 +95,36 @@ interface ttbox {
       space,
       box-error,
       index,
+      box-tuple
   };
 
   schema-version: func() -> s64;
   space-by-name: func(name: string) -> result<space, box-error>;
   index-by-name: func(%space: space, name: string) -> result<index, box-error>;
+  insert: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
   
   // update: func(index: index, key: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
-  // insert: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
   // replace: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
   // truncate: func(space: space) -> result<_, box-error>;
   // delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
   // upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
 
+}
+
+interface say {
+
+    use types.{
+        log-level,
+    };
+
+    say: func(level: log-level, msg: string);
+    say-error: func(msg: string);
+    say-crit: func(msg: string);
+    say-warn: func(msg: string);
+    say-info: func(msg: string);
+    say-verbose: func(msg: string);
+    say-debug: func(msg: string);
+    say-syserror: func(msg: string);
 }
 
 

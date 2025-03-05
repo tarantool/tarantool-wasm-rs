@@ -11,6 +11,7 @@ use wasmtime::Config;
 use tokio::sync::mpsc;
 use crate::bindings::docs::adder::tupler;
 use crate::bindings::docs::adder::ttbox;
+use crate::bindings::docs::adder::say;
 use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
 use crate::wasm_fiber::WasmFiberStatus;
@@ -101,6 +102,7 @@ impl RuntimeState {
         wasmtime_wasi::add_to_linker_async(&mut linker);
         tupler::add_to_linker(&mut linker, |state| state);
         ttbox::add_to_linker(&mut linker, |state| state);
+        say::add_to_linker(&mut linker, |state| state);
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
 
