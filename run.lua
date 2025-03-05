@@ -33,4 +33,3 @@ print("Running")
 local handle = wasm.run(module)
 wasm.join(handle)
 print("Finished")
-

@@ -21,6 +21,7 @@ world adder {
   import types;
   import ttbox;
   import say;
+  import error;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -127,6 +128,19 @@ interface say {
     say-syserror: func(msg: string);
 }
 
+interface error {
+
+    use types.{
+        box-error,
+    };
+
+    new: func(message: string, %type: string, code: u32) -> box-error;
+    set: func(err: box-error);
+    last: func() -> option<box-error>;
+    clear: func();
+    to-string: func(err: box-error) -> string;
+
+}
 
 // =================================================================================================
 
