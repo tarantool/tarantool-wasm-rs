@@ -10,6 +10,8 @@ use crate::bindings::docs::adder::types::{Space, BoxError, Index, LogLevel};
 
 use std::ffi::{CStr, CString};
 use std::ptr;
+use crate::tx::{tx_push, tx_flush, TxCtx};
+use tokio::sync::oneshot;
 
 pub type BoxTuple = u64;
 
@@ -171,51 +173,64 @@ impl ttbox::Host for SyncWasmStates {
             });
         }
 
-        let start = tup.as_ptr();
-        let end = unsafe { start.add(tup.len()) };
-        let mut result_tuple: *mut Tuple = ptr::null_mut();
+        let (tx, rx) = oneshot::channel();
 
-        let rc = unsafe { box_insert(space.id as u32, start, end, &mut result_tuple) };
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing insert in TX thread...");
+                let start = tup.as_ptr();
+                let end = unsafe { start.add(tup.len()) };
+                let mut result_tuple: *mut Tuple = ptr::null_mut();
 
-        if rc != 0 {
-            let err_ptr = unsafe { box_error_last() };
-            if !err_ptr.is_null() {
-                let err = unsafe { &*err_ptr };
-                println!("RS | Insert error: {}", err);
-                return Err(BoxError {
-                    message: err.to_string(),
-                    type_: "tarantool error".to_string(),
-                    code: err.error_code() as u32,
-                    payload: None,
-                    file: None,
-                    line: None,
-                });
-            } else {
-                return Err(BoxError {
-                    message: "Unknown Tarantool error".to_string(),
-                    type_: "tarantool error".to_string(),
-                    code: 0,
-                    payload: None,
-                    file: None,
-                    line: None,
-                });
-            }
-        }
+                let rc = unsafe { box_insert(space.id as u32, start, end, &mut result_tuple) };
 
-        if result_tuple.is_null() {
-            return Err(BoxError {
-                message: "Returned tuple is NULL".to_string(),
-                type_: "tarantool error".to_string(),
-                code: 0,
+                if rc != 0 {
+                    let err_ptr = unsafe { box_error_last() };
+                    if !err_ptr.is_null() {
+                        let err = unsafe { &*err_ptr };
+                        println!("RS | Insert error: {}", err);
+                        tx.send(Err(BoxError {
+                            message: err.to_string(),
+                            type_: "tarantool error".to_string(),
+                            code: err.error_code() as u32,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }))
+                        .unwrap();
+                    } else {
+                        tx.send(Err(BoxError {
+                            message: "Unknown Tarantool error".to_string(),
+                            type_: "tarantool error".to_string(),
+                            code: 0,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }))
+                        .unwrap();
+                    }
+                } else {
+                    let tuple_id = result_tuple as u64;
+                    println!("RS | Insert successful, tuple_id: {}", tuple_id);
+                    tx.send(Ok(tuple_id)).unwrap();
+                }
+            }),
+        });
+
+        tx_push(task);
+        tx_flush();
+
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(BoxError {
+                message: "Failed to receive response from TX thread".to_string(),
+                type_: "internal error".to_string(),
+                code: 500,
                 payload: None,
                 file: None,
                 line: None,
-            });
+            }),
         }
-
-        let tuple_id = result_tuple as u64;
-        println!("RS | Insert successful, tuple_id: {}", tuple_id);
-        Ok(tuple_id)
     }
 }
 

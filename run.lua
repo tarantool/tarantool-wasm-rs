@@ -20,7 +20,18 @@ local function ensure_space_exists()
     end
 end
 
--- Инициализируем Tarantool и создаем пространство перед запуском WASM
+local function print_space_contents()
+    local space = box.space.test_space
+    if space then
+        log.info("Dumping contents of 'test_space':")
+        for _, tuple in space:pairs() do
+            log.info("%s", tuple)
+        end
+    else
+        log.info("Space 'test_space' does not exist")
+    end
+end
+
 box.cfg{}
 
 ensure_space_exists()
@@ -33,3 +44,5 @@ print("Running")
 local handle = wasm.run(module)
 wasm.join(handle)
 print("Finished")
+
+print_space_contents()
