@@ -103,13 +103,11 @@ interface ttbox {
   space-by-name: func(name: string) -> result<space, box-error>;
   index-by-name: func(%space: space, name: string) -> result<index, box-error>;
   insert: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
-  
-  // update: func(index: index, key: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
-  // replace: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
-  // truncate: func(space: space) -> result<_, box-error>;
-  // delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
-  // upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
-
+  update: func(index: index, key: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
+  replace: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
+  upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
+  tt-delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+  truncate: func(space: space) -> result<_, box-error>;
 }
 
 interface say {

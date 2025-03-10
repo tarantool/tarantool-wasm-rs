@@ -12,10 +12,11 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 use crate::tx::{tx_push, tx_flush, TxCtx};
 use tokio::sync::oneshot;
+use hex;
 
 pub type BoxTuple = u64;
 
-use tarantool::space::{Space as TarantoolSpace, SpaceCreateOptions, SpaceEngineType, SpaceType};
+use tarantool::space::Space as TarantoolSpace;
 use tarantool::error::TarantoolError;
 use tarantool::tuple::Tuple;
 use tarantool::log::{self, SayLevel};
@@ -33,6 +34,26 @@ extern "C" {
     fn box_schema_version() -> u32;
     fn box_index_id_by_name(space_id: u32, name: *const u8, len: u32) -> u32;
     fn box_insert(space_id: u32, tuple: *const u8, tuple_end: *const u8, result: *mut *mut Tuple) -> i32;
+    fn box_update(space_id: u32, index_id: u32,
+        key: *const u8, key_end: *const u8,
+        ops: *const u8, ops_end: *const u8, index_base: i32,
+        result: *mut *mut Tuple) -> i32;
+
+    fn box_replace(space_id: u32, tuple: *const u8, tuple_end: *const u8, result: *mut *mut Tuple) -> i32;
+
+    fn box_upsert(space_id: u32, index_id: u32,
+        tuple: *const u8, tuple_end: *const u8,
+        ops: *const u8, ops_end: *const u8,
+        index_base: i32,
+        result: *mut *mut Tuple) -> i32;
+
+    fn box_delete(
+        space_id: u32,
+        index_id: u32,
+        key: *const u8,
+        key_end: *const u8,
+        result: *mut *mut Tuple,
+    ) -> i32;
 
     fn box_error_last() -> *const TarantoolError;
     fn box_error_type(error: *const TarantoolError) -> *const i8;
@@ -44,6 +65,13 @@ extern "C" {
 
 pub struct TtSpace {
     space_id: u32
+}
+
+
+extern "C" {
+    fn box_txn_begin() -> i32;
+    fn box_txn_commit() -> i32;
+    fn box_txn_rollback() -> i32;
 }
 
 #[async_trait]
@@ -155,7 +183,7 @@ impl ttbox::Host for SyncWasmStates {
         Ok(Index {
             id: index_id as i32,
             space_id: space.id,
-            index_base: 1,
+            index_base: 0,
         })
     }
 
@@ -173,47 +201,76 @@ impl ttbox::Host for SyncWasmStates {
             });
         }
 
+        let tup_heap = tup.clone();
         let (tx, rx) = oneshot::channel();
 
         let task = Box::new(TxCtx {
             cb: Box::new(move || {
                 println!("RS | Executing insert in TX thread...");
-                let start = tup.as_ptr();
-                let end = unsafe { start.add(tup.len()) };
+
+                unsafe {
+                    if box_txn_begin() != 0 {
+                        let err_message = "Failed to start transaction".to_string();
+                        println!("RS | Transaction begin failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+
+                let start = tup_heap.as_ptr();
+                let end = unsafe { start.add(tup_heap.len()) };
                 let mut result_tuple: *mut Tuple = ptr::null_mut();
 
                 let rc = unsafe { box_insert(space.id as u32, start, end, &mut result_tuple) };
 
                 if rc != 0 {
+                    unsafe { box_txn_rollback(); }
+
                     let err_ptr = unsafe { box_error_last() };
-                    if !err_ptr.is_null() {
-                        let err = unsafe { &*err_ptr };
-                        println!("RS | Insert error: {}", err);
-                        tx.send(Err(BoxError {
-                            message: err.to_string(),
-                            type_: "tarantool error".to_string(),
-                            code: err.error_code() as u32,
-                            payload: None,
-                            file: None,
-                            line: None,
-                        }))
-                        .unwrap();
+                    let err_message = if !err_ptr.is_null() {
+                        unsafe { CStr::from_ptr(box_error_message(err_ptr)).to_string_lossy().into_owned() }
                     } else {
-                        tx.send(Err(BoxError {
-                            message: "Unknown Tarantool error".to_string(),
-                            type_: "tarantool error".to_string(),
-                            code: 0,
+                        "Unknown Tarantool error".to_string()
+                    };
+
+                    println!("RS | Insert error: {}", err_message);
+                    let _ = tx.send(Err(BoxError {
+                        message: err_message,
+                        type_: "tarantool error".to_string(),
+                        code: 0,
+                        payload: None,
+                        file: None,
+                        line: None,
+                    }));
+                    return;
+                }
+
+                unsafe {
+                    if box_txn_commit() != 0 {
+                        let err_message = "Failed to commit transaction".to_string();
+                        println!("RS | Transaction commit failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
                             payload: None,
                             file: None,
                             line: None,
-                        }))
-                        .unwrap();
+                        }));
+                        return;
                     }
-                } else {
-                    let tuple_id = result_tuple as u64;
-                    println!("RS | Insert successful, tuple_id: {}", tuple_id);
-                    tx.send(Ok(tuple_id)).unwrap();
                 }
+
+                let tuple_id = result_tuple as u64;
+                println!("RS | Insert successful, tuple_id: {}", tuple_id);
+                let _ = tx.send(Ok(tuple_id));
             }),
         });
 
@@ -232,6 +289,567 @@ impl ttbox::Host for SyncWasmStates {
             }),
         }
     }
+
+    async fn update(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<BoxTuple, BoxError> {
+        println!(
+            "RS | update() called for space_id: {}, index_id: {}, index_base: {}",
+            index.space_id, index.id, index.index_base
+        );
+
+        if key.is_empty() || ops.is_empty() {
+            return Err(BoxError {
+                message: "Key or ops data is empty".to_string(),
+                type_: "validation error".to_string(),
+                code: 1,
+                payload: None,
+                file: None,
+                line: None,
+            });
+        }
+
+        println!("RS | update() key (MsgPack): {:?}", hex::encode(&key));
+        println!("RS | update() ops (MsgPack): {:?}", hex::encode(&ops));
+
+        let key_heap = key.clone();
+        let ops_heap = ops.clone();
+        let (tx, rx) = oneshot::channel();
+
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing update in TX thread...");
+
+                unsafe {
+                    if box_txn_begin() != 0 {
+                        let err_message = "Failed to start transaction".to_string();
+                        println!("RS | Transaction begin failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+
+                let key_start = key_heap.as_ptr();
+                let key_end = unsafe { key_start.add(key_heap.len()) };
+                let ops_start = ops_heap.as_ptr();
+                let ops_end = unsafe { ops_start.add(ops_heap.len()) };
+
+                let mut result_tuple: *mut Tuple = ptr::null_mut();
+
+                println!("RS | Calling box_update...");
+                let rc = unsafe {
+                    box_update(
+                        index.space_id as u32,
+                        index.id as u32,
+                        key_start,
+                        key_end,
+                        ops_start,
+                        ops_end,
+                        index.index_base,
+                        &mut result_tuple,
+                    )
+                };
+
+                if rc != 0 {
+                    unsafe { box_txn_rollback(); }
+
+                    let err_ptr = unsafe { box_error_last() };
+                    let err_message = if !err_ptr.is_null() {
+                        unsafe { CStr::from_ptr(box_error_message(err_ptr)).to_string_lossy().into_owned() }
+                    } else {
+                        "Unknown Tarantool error".to_string()
+                    };
+
+                    println!("RS | Update error: {}", err_message);
+                    let _ = tx.send(Err(BoxError {
+                        message: err_message,
+                        type_: "tarantool error".to_string(),
+                        code: 0,
+                        payload: None,
+                        file: None,
+                        line: None,
+                    }));
+                    return;
+                }
+
+                unsafe {
+                    if box_txn_commit() != 0 {
+                        let err_message = "Failed to commit transaction".to_string();
+                        println!("RS | Transaction commit failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+
+                let tuple_id = result_tuple as u64;
+                println!("RS | Update successful, tuple_id: {}", tuple_id);
+                let _ = tx.send(Ok(tuple_id));
+            }),
+        });
+
+        tx_push(task);
+        tx_flush();
+
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(BoxError {
+                message: "Failed to receive response from TX thread".to_string(),
+                type_: "internal error".to_string(),
+                code: 500,
+                payload: None,
+                file: None,
+                line: None,
+            }),
+        }
+    }
+
+    async fn replace(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
+        println!("RS | replace() called for space_id: {}", space.id);
+
+        if tup.is_empty() {
+            return Err(BoxError {
+                message: "Tuple data is empty".to_string(),
+                type_: "validation error".to_string(),
+                code: 1,
+                payload: None,
+                file: None,
+                line: None,
+            });
+        }
+
+        println!("RS | replace() tuple (MsgPack): {:?}", hex::encode(&tup));
+
+        let tup_heap = tup.clone();
+        let (tx, rx) = oneshot::channel();
+
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing replace in TX thread...");
+
+                unsafe {
+                    if box_txn_begin() != 0 {
+                        let err_message = "Failed to start transaction".to_string();
+                        println!("RS | Transaction begin failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+
+                let tup_start = tup_heap.as_ptr();
+                let tup_end = unsafe { tup_start.add(tup_heap.len()) };
+                let mut result_tuple: *mut Tuple = ptr::null_mut();
+
+                println!("RS | Calling box_replace...");
+                let rc = unsafe { box_replace(space.id as u32, tup_start, tup_end, &mut result_tuple) };
+
+                if rc != 0 {
+                    unsafe { box_txn_rollback(); }
+
+                    let err_ptr = unsafe { box_error_last() };
+                    let err_message = if !err_ptr.is_null() {
+                        unsafe { CStr::from_ptr(box_error_message(err_ptr)).to_string_lossy().into_owned() }
+                    } else {
+                        "Unknown Tarantool error".to_string()
+                    };
+
+                    println!("RS | Update error: {}", err_message);
+                    let _ = tx.send(Err(BoxError {
+                        message: err_message,
+                        type_: "tarantool error".to_string(),
+                        code: 0,
+                        payload: None,
+                        file: None,
+                        line: None,
+                    }));
+                    return;
+                }
+
+                unsafe {
+                    if box_txn_commit() != 0 {
+                        let err_message = "Failed to commit transaction".to_string();
+                        println!("RS | Transaction commit failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+
+                let tuple_id = result_tuple as u64;
+                println!("RS | Replace successful, tuple_id: {}", tuple_id);
+                let _ = tx.send(Ok(tuple_id));
+            }),
+        });
+
+        tx_push(task);
+        tx_flush();
+
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(BoxError {
+                message: "Failed to receive response from TX thread".to_string(),
+                type_: "internal error".to_string(),
+                code: 500,
+                payload: None,
+                file: None,
+                line: None,
+            }),
+        }
+    }
+
+    async fn upsert(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<BoxTuple, BoxError> {
+        println!(
+            "RS | upsert() called for space_id: {}, index_id: {}, index_base: {}",
+            index.space_id, index.id, index.index_base
+        );
+
+        if key.is_empty() || ops.is_empty() {
+            return Err(BoxError {
+                message: "Key or ops data is empty".to_string(),
+                type_: "validation error".to_string(),
+                code: 1,
+                payload: None,
+                file: None,
+                line: None,
+            });
+        }
+
+        println!("RS | upsert() key (MsgPack): {:?}", hex::encode(&key));
+        println!("RS | upsert() ops (MsgPack): {:?}", hex::encode(&ops));
+
+        let key_heap = key.clone();
+        let ops_heap = ops.clone();
+
+        let (tx, rx) = oneshot::channel();
+
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing upsert in TX thread...");
+
+                unsafe {
+                    if box_txn_begin() != 0 {
+                        let err_message = "Failed to start transaction".to_string();
+                        println!("RS | Transaction begin failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+
+                let key_start = key_heap.as_ptr();
+                let key_end = unsafe { key_start.add(key_heap.len()) };
+                let ops_start = ops_heap.as_ptr();
+                let ops_end = unsafe { ops_start.add(ops_heap.len()) };
+
+                let mut result_tuple: *mut Tuple = ptr::null_mut();
+
+                println!("RS | Calling box_upsert...");
+                let rc = unsafe {
+                    box_upsert(
+                        index.space_id as u32,
+                        index.id as u32,
+                        key_start,
+                        key_end,
+                        ops_start,
+                        ops_end,
+                        index.index_base,
+                        &mut result_tuple,
+                    )
+                };
+
+                if rc != 0 {
+                    unsafe { box_txn_rollback(); }
+
+                    let err_ptr = unsafe { box_error_last() };
+                    let err_message = if !err_ptr.is_null() {
+                        unsafe { CStr::from_ptr(box_error_message(err_ptr)).to_string_lossy().into_owned() }
+                    } else {
+                        "Unknown Tarantool error".to_string()
+                    };
+
+                    println!("RS | Update error: {}", err_message);
+                    let _ = tx.send(Err(BoxError {
+                        message: err_message,
+                        type_: "tarantool error".to_string(),
+                        code: 0,
+                        payload: None,
+                        file: None,
+                        line: None,
+                    }));
+                    return;
+                }
+
+                unsafe {
+                    if box_txn_commit() != 0 {
+                        let err_message = "Failed to commit transaction".to_string();
+                        println!("RS | Transaction commit failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+
+                let tuple_id = result_tuple as u64;
+                println!("RS | Upsert successful, tuple_id: {}", tuple_id);
+                let _ = tx.send(Ok(tuple_id));
+            }),
+        });
+
+        tx_push(task);
+        tx_flush();
+
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(BoxError {
+                message: "Failed to receive response from TX thread".to_string(),
+                type_: "internal error".to_string(),
+                code: 500,
+                payload: None,
+                file: None,
+                line: None,
+            }),
+        }
+    }
+
+    async fn tt_delete(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
+        println!(
+            "RS | delete() called for space_id: {}, index_id: {}",
+            index.space_id, index.id
+        );
+    
+        if key.is_empty() {
+            return Err(BoxError {
+                message: "Key data is empty".to_string(),
+                type_: "validation error".to_string(),
+                code: 1,
+                payload: None,
+                file: None,
+                line: None,
+            });
+        }
+    
+        println!("RS | delete() key (MsgPack): {:?}", hex::encode(&key));
+    
+        let key_heap = key.clone();
+        let (tx, rx) = oneshot::channel();
+    
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing delete in TX thread...");
+    
+                unsafe {
+                    if box_txn_begin() != 0 {
+                        let err_message = "Failed to start transaction".to_string();
+                        println!("RS | Transaction begin failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+    
+                let key_start = key_heap.as_ptr();
+                let key_end = unsafe { key_start.add(key_heap.len()) };
+    
+                let mut result_tuple: *mut Tuple = ptr::null_mut();
+    
+                println!("RS | Calling box_delete...");
+                let rc = unsafe {
+                    box_delete(
+                        index.space_id as u32,
+                        index.id as u32,
+                        key_start,
+                        key_end,
+                        &mut result_tuple,
+                    )
+                };
+    
+                if rc != 0 {
+                    unsafe { box_txn_rollback(); }
+
+                    let err_ptr = unsafe { box_error_last() };
+                    let err_message = if !err_ptr.is_null() {
+                        unsafe { CStr::from_ptr(box_error_message(err_ptr)).to_string_lossy().into_owned() }
+                    } else {
+                        "Unknown Tarantool error".to_string()
+                    };
+
+                    println!("RS | Update error: {}", err_message);
+                    let _ = tx.send(Err(BoxError {
+                        message: err_message,
+                        type_: "tarantool error".to_string(),
+                        code: 0,
+                        payload: None,
+                        file: None,
+                        line: None,
+                    }));
+                    return;
+                }
+
+                unsafe {
+                    if box_txn_commit() != 0 {
+                        let err_message = "Failed to commit transaction".to_string();
+                        println!("RS | Transaction commit failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+    
+                let tuple_id = result_tuple as u64;
+                println!("RS | Delete successful, tuple_id: {}", tuple_id);
+                let _ = tx.send(Ok(tuple_id));
+            }),
+        });
+    
+        tx_push(task);
+        tx_flush();
+    
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(BoxError {
+                message: "Failed to receive response from TX thread".to_string(),
+                type_: "internal error".to_string(),
+                code: 500,
+                payload: None,
+                file: None,
+                line: None,
+            }),
+        }
+    }
+
+    async fn truncate(&mut self, space: Space) -> Result<(), BoxError> {
+        println!("RS | truncate() called for space_id: {}", space.id);
+    
+        let (tx, rx) = oneshot::channel();
+    
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing truncate in TX thread...");
+    
+                unsafe {
+                    if box_txn_begin() != 0 {
+                        let err_message = "Failed to start transaction".to_string();
+                        println!("RS | Transaction begin failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+    
+                let rc = unsafe { box_truncate(space.id as u32) };
+    
+                if rc != 0 {
+                    unsafe { box_txn_rollback(); }
+
+                    let err_ptr = unsafe { box_error_last() };
+                    let err_message = if !err_ptr.is_null() {
+                        unsafe { CStr::from_ptr(box_error_message(err_ptr)).to_string_lossy().into_owned() }
+                    } else {
+                        "Unknown Tarantool error".to_string()
+                    };
+
+                    println!("RS | Update error: {}", err_message);
+                    let _ = tx.send(Err(BoxError {
+                        message: err_message,
+                        type_: "tarantool error".to_string(),
+                        code: 0,
+                        payload: None,
+                        file: None,
+                        line: None,
+                    }));
+                    return;
+                }
+
+                unsafe {
+                    if box_txn_commit() != 0 {
+                        let err_message = "Failed to commit transaction".to_string();
+                        println!("RS | Transaction commit failed: {}", err_message);
+                        let _ = tx.send(Err(BoxError {
+                            message: err_message,
+                            type_: "Tarantool error".to_string(),
+                            code: 1337,
+                            payload: None,
+                            file: None,
+                            line: None,
+                        }));
+                        return;
+                    }
+                }
+    
+                println!("RS | Truncate successful");
+                let _ = tx.send(Ok(()));
+            }),
+        });
+    
+        tx_push(task);
+        tx_flush();
+    
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err(BoxError {
+                message: "Failed to receive response from TX thread".to_string(),
+                type_: "internal error".to_string(),
+                code: 500,
+                payload: None,
+                file: None,
+                line: None,
+            }),
+        }
+    } 
 }
 
 
@@ -352,27 +970,3 @@ impl error::Host for SyncWasmStates {
         format!("[{}] {}: {}", err.code, err.type_, err.message)
     }
 }
-
-
-
-
-
-
-
-
-    // async fn update(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<BoxTuple, BoxError> {
-    //     println!("Calling tarantool::box_::update for index id: {} key: {:?} ops: {:?}", index.id, key, ops);
-    //     Ok(u64::MAX)
-    // }
-
-    // async fn replace(&mut self, space: Space,tup: &[u8],) -> Result<BoxTuple,BoxError>{
-    // }
-
-    // async fn truncate(&mut self, space: Space,) -> Result<(),BoxError>{
-    // }
-
-    // async fn delete(&mut self, index: Index,key: &[u8],) -> Result<BoxTuple,BoxError>{
-    // }
-
-    // async fn upsert(&mut self, index: Index,tup: &[u8],ops: &[u8],) -> Result<BoxTuple,BoxError>{
-    // }

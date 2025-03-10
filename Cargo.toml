@@ -14,6 +14,10 @@ tokio = "1.42.0"
 wasmtime = "27.0.0"
 wasmtime-wasi = "27.0.0"
 scopeguard = "1.1.0"
+hex = "0.4"
+rmp-serde = "1.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [lib]
 crate-type = ["cdylib"]
