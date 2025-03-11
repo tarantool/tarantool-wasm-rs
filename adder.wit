@@ -22,6 +22,7 @@ world adder {
   import ttbox;
   import say;
   import error;
+  import session;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -88,6 +89,10 @@ interface types {
         s-verbose,
         s-debug,
     }
+
+    record session {
+        id: s64,
+    }
 }
 
 interface ttbox {
@@ -137,6 +142,27 @@ interface error {
     last: func() -> option<box-error>;
     clear: func();
     to-string: func(err: box-error) -> string;
+
+}
+
+interface session {
+
+  use types.{
+      session,
+      box-error,
+  };
+
+  // C API: uint64_t box_session_id(void)
+  // https://www.tarantool.io/en/doc/latest/reference/reference_capi/box/#c.box_session_id
+  current: func() -> session;
+
+  // Lua API: box.broadcast(key, value)
+  // https://www.tarantool.io/en/doc/latest/reference/reference_lua/box_events/broadcast/#lua-function.box.broadcast
+  broadcast: func(key: string, value: list<u8>) -> result<_, box-error>;
+
+  // C API: int box_iproto_send(uint64_t sid, char *header, char *header_end[, char *body, char *body_end])
+  // https://www.tarantool.io/en/doc/latest/reference/reference_capi/box/#c.box_iproto_send
+  iproto-send: func(session: session, header: list<u8>, body: list<u8>) -> result<_, box-error>;
 
 }
 

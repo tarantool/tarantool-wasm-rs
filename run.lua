@@ -31,6 +31,7 @@ local function print_space_contents()
 end
 
 box.cfg{}
+box.cfg{log_level=6}
 
 ensure_space_exists()
 
