@@ -8,6 +8,7 @@ use crate::bindings::docs::adder::ttbox;
 use crate::bindings::docs::adder::say;
 use crate::bindings::docs::adder::error;
 use crate::bindings::docs::adder::session;
+use crate::bindings::docs::adder::msgpack;
 use crate::bindings::docs::adder::types::{Space, BoxError, Index, LogLevel, Session};
 
 use std::ffi::{CStr, CString};
@@ -22,6 +23,9 @@ use tarantool::space::Space as TarantoolSpace;
 use tarantool::error::TarantoolError;
 use tarantool::tuple::Tuple;
 use tarantool::log::{self, SayLevel};
+
+use rmp_serde::{from_slice, to_vec};
+use serde_json::Value;
 
 bindgen!({
     path: "adder.wit",
@@ -978,7 +982,6 @@ impl error::Host for SyncWasmStates {
 
 extern "C" {
     pub fn box_session_id() -> u64;
-    pub fn box_session_push(data: *const u8, data_end: *const u8) -> i32;
     pub fn box_iproto_send(
         sid: u64,
         header: *const u8,
@@ -987,8 +990,6 @@ extern "C" {
         body_end: *const u8,
     ) -> i32;
 }
-
-use mlua::{Lua, Function, Table};
 
 #[async_trait]
 impl session::Host for SyncWasmStates {
@@ -1130,3 +1131,64 @@ impl session::Host for SyncWasmStates {
     }
 
 }
+
+#[async_trait]
+impl msgpack::Host for SyncWasmStates {
+    
+    async fn encode(&mut self, data: Vec<u8>) -> Result<Vec<u8>, BoxError> {
+        let deserialized: Value = match serde_json::from_slice(&data) {
+            Ok(val) => val,
+            Err(e) => {
+                return Err(BoxError {
+                    message: format!("JSON decode error: {:?}", e),
+                    type_: "internal error".to_string(),
+                    code: 500,
+                    payload: None,
+                    file: None,
+                    line: None,
+                });
+            }
+        };
+    
+        match to_vec(&deserialized) {
+            Ok(msgpack) => Ok(msgpack),
+            Err(e) => Err(BoxError {
+                message: format!("MsgPack encoding error: {:?}", e),
+                type_: "internal error".to_string(),
+                code: 500,
+                payload: None,
+                file: None,
+                line: None,
+            }),
+        }
+    }
+    
+    async fn decode(&mut self, data: Vec<u8>) -> Result<Vec<u8>, BoxError> {
+        let deserialized: Value = match from_slice(&data) {
+            Ok(val) => val,
+            Err(e) => {
+                return Err(BoxError {
+                    message: format!("MsgPack decoding error: {:?}", e),
+                    type_: "internal error".to_string(),
+                    code: 500,
+                    payload: None,
+                    file: None,
+                    line: None,
+                });
+            }
+        };
+    
+        match serde_json::to_vec(&deserialized) {
+            Ok(json_bytes) => Ok(json_bytes),
+            Err(e) => Err(BoxError {
+                message: format!("JSON encode error: {:?}", e),
+                type_: "internal error".to_string(),
+                code: 500,
+                payload: None,
+                file: None,
+                line: None,
+            }),
+        }
+    } 
+}
+

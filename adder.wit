@@ -19,6 +19,7 @@ world adder {
   import tupler;
 
   import types;
+  import msgpack;
   import ttbox;
   import say;
   import error;
@@ -93,6 +94,18 @@ interface types {
     record session {
         id: s64,
     }
+}
+
+interface msgpack {
+  use types.{
+    box-error,
+  };
+
+  /// Encodes a JSON-like structure into MsgPack format.
+  encode: func(data: list<u8>) -> result<list<u8>, box-error>;
+
+  /// Decodes a MsgPack-encoded byte array back into a JSON-like structure.
+  decode: func(data: list<u8>) -> result<list<u8>, box-error>;
 }
 
 interface ttbox {
