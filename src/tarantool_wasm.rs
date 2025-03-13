@@ -9,12 +9,7 @@ use std::sync::{Mutex, Arc, RwLock};
 use wasmtime::component::Component;
 use wasmtime::Config;
 use tokio::sync::mpsc;
-use crate::bindings::docs::adder::tupler;
-use crate::bindings::docs::adder::ttbox;
-use crate::bindings::docs::adder::say;
-use crate::bindings::docs::adder::error;
-use crate::bindings::docs::adder::session;
-use crate::bindings::docs::adder::msgpack;
+use crate::bindings::docs::adder::{ttbox, say, error, session, msgpack};
 use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
 use crate::wasm_fiber::WasmFiberStatus;
@@ -102,19 +97,20 @@ impl RuntimeState {
         let config = get_configuration();
         let engine = Engine::new(&config).unwrap();
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
-        wasmtime_wasi::add_to_linker_async(&mut linker);
-        tupler::add_to_linker(&mut linker, |state| state);
-        ttbox::add_to_linker(&mut linker, |state| state);
-        say::add_to_linker(&mut linker, |state| state);
-        error::add_to_linker(&mut linker, |state| state);
-        session::add_to_linker(&mut linker, |state| state);
-        msgpack::add_to_linker(&mut linker, |state| state);
+        let _ = wasmtime_wasi::add_to_linker_async(&mut linker);
+
+        let _ = ttbox::add_to_linker(&mut linker, |state| state);
+        let _ = say::add_to_linker(&mut linker, |state| state);
+        let _ = error::add_to_linker(&mut linker, |state| state);
+        let _ = session::add_to_linker(&mut linker, |state| state);
+        let _ = msgpack::add_to_linker(&mut linker, |state| state);
+        
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
 
         let engine_ref = engine.clone();
 
-        on_shutdown(move || {
+        let _ = on_shutdown(move || {
             engine_ref.increment_epoch();
             fiber::sleep(Duration::new(1, 0));
         });

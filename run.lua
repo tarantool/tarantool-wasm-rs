@@ -59,7 +59,7 @@ if box.space.test_space then
 end
 
 print("Initialized")
-local module = wasm.load("../wasm-component-test/guest-js/add.wasm")
+local module = wasm.load("examples/js/js.wasm")
 print("Loaded")
 print(module)
 print("Running")

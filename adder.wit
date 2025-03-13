@@ -1,23 +1,6 @@
 package docs:adder@0.1.0;
 
-interface tupler {
-  record tt-tuple {
-    name: string,
-    value: list<u8>,
-    status: bool,
-  }
-
-  resource space {
-    constructor(name: string);
-    insert: func(tup: tt-tuple) -> result<tt-tuple, string>;
-  }
-
-  get-tuple: func(name: string, value: list<u8>) -> tt-tuple;
-}
-
 world adder {
-  import tupler;
-
   import types;
   import msgpack;
   import ttbox;
@@ -53,7 +36,6 @@ world adder {
   import wasi:random/insecure@0.2.0;
   import wasi:random/insecure-seed@0.2.0;
 
-  export add: func(x: s32, y: s32) -> s32;
   export wasi:cli/run@0.2.0;
 }
 
