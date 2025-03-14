@@ -1,6 +1,6 @@
 mod tarantool_wasm;
 mod tx;
-mod txffi;
+mod ffi;
 mod wasm_fiber;
 mod bindings;
 use mlua::prelude::*;

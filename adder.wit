@@ -132,7 +132,7 @@ interface error {
         box-error,
     };
 
-    new: func(message: string, %type: string, code: u32) -> box-error;
+    error-new: func(message: string, %type: string, code: u32) -> box-error;
     set: func(err: box-error);
     last: func() -> option<box-error>;
     clear: func();

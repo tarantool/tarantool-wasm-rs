@@ -1,5 +1,5 @@
 use std::os::raw::c_void;
-use crate::txffi::{tnt_tx_push, tnt_tx_flush};
+use crate::ffi::tnt::{tnt_tx_push, tnt_tx_flush};
 pub struct TxCtx {
     pub cb: Box<dyn FnOnce() + Send>,
 }
