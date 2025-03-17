@@ -5,6 +5,7 @@ use crate::tx::{tx_push, tx_flush, TxCtx};
 use crate::ffi as ffi;
 use crate::bindings::ttbox::{begin_transaction, commit_transaction};
 use crate::bindings::error::handle_tarantool_error;
+use sha2::{Digest, Sha256};
 
 use wasmtime_wasi::async_trait;
 use tokio::sync::oneshot;
@@ -84,8 +85,68 @@ impl session::Host for SyncWasmStates {
         rx.await.unwrap_or_else(|_| Err(BoxError::new("Failed to receive response from TX thread", "internal error", 500)))
     }
 
-    async fn broadcast(&mut self, _key: String, _value: Vec<u8>) -> Result<(), BoxError> {
-        return Err(BoxError::new("Not implemented now", "internal error", 0))
+    async fn broadcast(&mut self, key: String, value: String) -> Result<(), BoxError> {
+        println!("RS | broadcast() called for key: {}", key);
+    
+        if key.is_empty() {
+            return Err(BoxError::new("Key is empty", "validation error", 1));
+        }
+        if value.is_empty() {
+            return Err(BoxError::new("Value is empty", "validation error", 1));
+        }
+    
+        let key_heap = key.clone();
+        let value_heap = value.clone();
+        let (tx, rx) = oneshot::channel();
+    
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing broadcast in TX thread...");
+    
+                unsafe {
+                    if let Err(err) = begin_transaction() {
+                        let _ = tx.send(Err(err));
+                        return;
+                    }
+                }
+
+                let mut hasher = Sha256::new();
+                hasher.update(value_heap.as_bytes());
+                let hash = hasher.finalize();
+                let hash_str = format!("{:x}", hash);
+                let var_name = format!("__wasm_{}", hash_str);
+                println!("{}", var_name);
+                
+                let lua = tarantool::lua_state();
+                lua.exec_with(&format!("{} = {};", var_name, value_heap), ()).unwrap();
+
+                let broadcast_result = lua.exec_with(&format!("box.broadcast(..., {})", var_name), key_heap);
+
+                if let Err(err) = broadcast_result {
+                    unsafe { ffi::tnt::box_txn_rollback(); }
+                    let err_message = format!("Lua error during broadcast: {:?}", err);
+                    println!("RS | broadcast() error: {}", err_message);
+                    let _ = tx.send(Err(BoxError::new(&err_message, "lua error", 500)));
+                    return;
+                }
+    
+                unsafe {
+                    if let Err(err) = commit_transaction() {
+                        ffi::tnt::box_txn_rollback();
+                        let _ = tx.send(Err(err));
+                        return;
+                    }
+                }
+    
+                println!("RS | broadcast() successful");
+                let _ = tx.send(Ok(()));
+            }),
+        });
+    
+        tx_push(task);
+        tx_flush();
+    
+        rx.await.unwrap_or_else(|_| Err(BoxError::new("Failed to receive response from TX thread", "internal error", 500)))
     }
 }
 

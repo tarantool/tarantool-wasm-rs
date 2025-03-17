@@ -7,6 +7,7 @@ world adder {
   import say;
   import error;
   import session;
+  import txn;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -75,6 +76,17 @@ interface types {
 
     record session {
         id: s64,
+    }
+
+    enum txn-isolation-level {
+      /** determine isolation level automatically (default). */
+      txn-isolation-best-effort,
+      /** allow to read committed, but not confirmed changes. */
+      txn-isolation-read-committed,
+      /** allow to read only confirmed changes. */
+      txn-isolation-read-confirmed,
+      /** allow to read only the changes confirmed on any cluster node. */
+      txn-isolation-linearizable,
     }
 }
 
@@ -153,11 +165,32 @@ interface session {
 
   // Lua API: box.broadcast(key, value)
   // https://www.tarantool.io/en/doc/latest/reference/reference_lua/box_events/broadcast/#lua-function.box.broadcast
-  broadcast: func(key: string, value: list<u8>) -> result<_, box-error>;
+  //
+  // Now you can pass any lua object using a string.
+  // Example: broadcast("x", "{a = 2, [2] = 3}")
+  broadcast: func(key: string, value: string) -> result<_, box-error>;
 
   // C API: int box_iproto_send(uint64_t sid, char *header, char *header_end[, char *body, char *body_end])
   // https://www.tarantool.io/en/doc/latest/reference/reference_capi/box/#c.box_iproto_send
   iproto-send: func(session: session, header: list<u8>, body: list<u8>) -> result<_, box-error>;
+
+}
+
+interface txn {
+
+  use types.{
+      box-error,
+      txn-isolation-level,
+  };
+
+  txn-id: func() -> s64;
+  txn-isolation: func() -> txn-isolation-level;
+  txn: func() -> bool;
+  begin: func() -> result<_, box-error>;
+  commit: func() -> result<_, box-error>;
+  rollback: func() -> result<_, box-error>;
+  // txn-set-isolation: func(isolation: txn-isolation-level) -> result<_, box-error>;
+  // txn-make-sync: func();
 
 }
 

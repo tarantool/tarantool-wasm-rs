@@ -1931,6 +1931,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
+ "sha2",
  "tarantool",
  "tokio",
  "wasmtime",

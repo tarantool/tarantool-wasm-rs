@@ -30,6 +30,26 @@ local function print_space_contents()
     end
 end
 
+function print_table(tbl, indent)
+    if type(tbl) ~= "table" then
+        print(string.rep("  ", indent) .. tostring(tbl))
+        return
+    end
+
+    for k, v in pairs(tbl) do
+        local key_str = tostring(k)
+        local indent_str = "  " .. indent
+        
+        if type(v) == "table" then
+            print(indent_str .. key_str .. " = {")
+            print_table(v, indent + 1)
+            print(indent_str .. "}")
+        else
+            print(indent_str .. key_str .. " = " .. tostring(v))
+        end
+    end
+end
+
 box.cfg{}
 box.cfg{log_level=6}
 
@@ -58,8 +78,15 @@ if box.space.test_space then
     log.info("TARANTOOL | on_replace trigger attached to 'test_space'")
 end
 
+local function my_callback(value, d)
+    print("Event received! Value:", value, d)
+    print_table(d, "")
+end
+
+box.watch("x", my_callback)
+
 print("Initialized")
-local module = wasm.load("examples/js/js.wasm")
+local module = wasm.load("examples/python/py.wasm")
 print("Loaded")
 print(module)
 print("Running")
@@ -68,3 +95,5 @@ wasm.join(handle)
 print("Finished")
 
 print_space_contents()
+
+-- require('console').start()

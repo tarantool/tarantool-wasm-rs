@@ -1,5 +1,5 @@
 from adder import exports
-from adder.imports import say, msgpack
+from adder.imports import say, msgpack, session, txn
 from adder.imports import ttbox as box
 from adder.imports.docs_adder_types import Space, Index
 import adder
@@ -28,6 +28,7 @@ def decode(msgpack_bytes):
 class Run(exports.Run):
     def run(self) -> None:
         try:
+
             say.say_info(f"PY | Schema version: {box.schema_version()}")
 
             space: Space = box.space_by_name("test_space")
@@ -41,6 +42,11 @@ class Run(exports.Run):
             sleep(5) # Workaround: Possible issue with 'tx' - requires further investigation
             
             say.say_info(f"PY | Update successful, tuple_id: {box.update(index, encode([1]), encode([["=", 2, "new_value"]]))}")
+
+            session.broadcast("x", "{a = 2, [2] = 3}")
+
+            say.say_info(f"PY | txn_isolation : {txn.txn_isolation().name}")
+            
 
         except Exception as e:
             say.say_error(str(e))
