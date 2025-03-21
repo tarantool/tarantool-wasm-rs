@@ -88,6 +88,36 @@ interface types {
       /** allow to read only the changes confirmed on any cluster node. */
       txn-isolation-linearizable,
     }
+
+    enum iterator-type {
+      iter-eq,
+      iter-req,
+      iter-all,
+      iter-lt,
+      iter-le,
+      iter-ge,
+      iter-gt,
+      iter-bits-all-set,
+      iter-bits-any-set,
+      iter-bits-all-not-set,
+      iter-overlaps,
+      iter-neighbor,
+      iter-np,
+      iter-pp,
+    }
+
+    resource iterator {
+      new-iterator: static func(index: index, iterator-type: iterator-type, key: list<u8>) -> result<iterator, box-error>;
+      next: func() -> result<box-tuple, box-error>;
+    }
+
+    // resource tuple-iterator {
+    //     new-tuple-iterator: static func(%tuple: box-tuple) -> result<tuple-iterator, box-error>;
+    //     position: func() -> u32;
+    //     rewind: func();
+    //     seek: func(pos: u32) -> result<tuple-field, box-error>;
+    //     next: func() -> result<tuple-field, box-error>;
+    // }
 }
 
 interface msgpack {
@@ -183,14 +213,52 @@ interface txn {
       txn-isolation-level,
   };
 
+  /// Returns the current transaction ID.
+  ///
+  /// If a transaction is active, this function returns its ID.
+  /// If there is no active transaction, it returns `-1`.
+  /// Implemented using `box.txn_id()` in Lua.
   txn-id: func() -> s64;
+
+  /// Returns the current transaction isolation level.
+  ///
+  /// This function retrieves the transaction isolation level from the Tarantool
+  /// configuration using `require('config'):get('database.txn_isolation')` in Lua.
+  /// If the isolation level is not found or an error occurs, it defaults to `best-effort`.
   txn-isolation: func() -> txn-isolation-level;
+
+  /// Checks whether a transaction is currently active.
+  ///
+  /// Returns `true` if a transaction is active, otherwise returns `false`.
+  /// Implemented via the `box_txn()` from Tarantool C API,  
   txn: func() -> bool;
+
+  /// Begins a new transaction.
+  ///
+  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
+  /// Implemented using `box_txn_begin()` from Tarantool C API.
   begin: func() -> result<_, box-error>;
+
+  /// Commits the current transaction.
+  ///
+  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
+  /// Implemented using `box_txn_commit()` from the Tarantool C API.
   commit: func() -> result<_, box-error>;
+
+  /// Rolls back the current transaction.
+  ///
+  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
+  /// Implemented using `box_txn_rollback()` from the Tarantool C API.
   rollback: func() -> result<_, box-error>;
-  // txn-set-isolation: func(isolation: txn-isolation-level) -> result<_, box-error>;
-  // txn-make-sync: func();
+
+  /// Sets the transaction isolation level.
+  ///
+  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
+  /// Implemented using `box.cfg{ txn_isolation = ... }` in Lua.
+  txn-set-isolation: func(isolation: txn-isolation-level) -> result<_, box-error>;
+
+  // 
+  txn-make-sync: func();
 
 }
 

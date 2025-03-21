@@ -1,7 +1,7 @@
 from adder import exports
 from adder.imports import say, msgpack, session, txn
 from adder.imports import ttbox as box
-from adder.imports.docs_adder_types import Space, Index
+from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType
 import adder
 import json
 from time import sleep
@@ -25,28 +25,72 @@ def decode(msgpack_bytes):
         raise
 
 
+def test_iterator():
+    test_data = [
+        [1, "Alice", 25],
+        [2, "Bob", 30],
+        [3, "Charlie", 35],
+        [4, "David", 40],
+        [5, "Eve", 4],
+    ]
+    space: Space = box.space_by_name("test_space")
+    say.say_info(f"PY | Space: {space} {type(space)}")
+
+    box.truncate(space)
+
+    index: Index = box.index_by_name(space, "primary")
+    say.say_info(f"PY | Index: {index}")
+
+    res = {}
+    for data in test_data:
+        sleep(3)
+        tuple_id = box.insert(space, encode(data))
+        say.say_info(f"PY | Insert: {tuple_id = }")
+        res[tuple_id] = data
+    
+    sleep(3)
+    print()
+    key = encode([3])
+    print(f"{key = }")
+    t = Iterator.new_iterator(index, IteratorType.ITER_LE, key)
+    while True:
+        tuple_id = t.next()
+        if not tuple_id:
+            break
+        say.say_info(f"PY | Iterator: {tuple_id = }, {res.get(tuple_id, "?")}")
+
+
+def test_box():
+    say.say_info(f"PY | Schema version: {box.schema_version()}")
+
+    space: Space = box.space_by_name("test_space")
+    say.say_info(f"PY | Space: {space} {type(space)}")
+
+    index: Index = box.index_by_name(space, "primary")
+    say.say_info(f"PY | Index: {index}")
+
+    say.say_info(f"PY | Insert successful, tuple_id: {box.insert(space, encode([1, "bar"]))}")
+
+    sleep(5) # Workaround: Possible issue with 'tx' - requires further investigation
+    
+    say.say_info(f"PY | Update successful, tuple_id: {box.update(index, encode([1]), encode([["=", 2, "new_value"]]))}")
+
+
+def test_session():
+    say.say_info(f"PY | Test Session")
+
+    say.say_info(f"PY | Session id: {session.current()}")
+
+    say.say_info(f"PY | Broadcast")
+    session.broadcast("x", "{a = 2, [2] = 3}")
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
-
-            say.say_info(f"PY | Schema version: {box.schema_version()}")
-
-            space: Space = box.space_by_name("test_space")
-            say.say_info(f"PY | Space: {space} {type(space)}")
-
-            index: Index = box.index_by_name(space, "primary")
-            say.say_info(f"PY | Index: {index}")
-
-            say.say_info(f"PY | Insert successful, tuple_id: {box.insert(space, encode([1, "bar"]))}")
-
-            sleep(5) # Workaround: Possible issue with 'tx' - requires further investigation
-            
-            say.say_info(f"PY | Update successful, tuple_id: {box.update(index, encode([1]), encode([["=", 2, "new_value"]]))}")
-
-            session.broadcast("x", "{a = 2, [2] = 3}")
-
-            say.say_info(f"PY | txn_isolation : {txn.txn_isolation().name}")
-            
+            # test_box()
+            # test_session()
+            test_iterator()
 
         except Exception as e:
             say.say_error(str(e))

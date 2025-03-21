@@ -9,7 +9,12 @@ pub mod types {
         _private: [u8; 0], // Opaque type
     }
     
-    pub const BOX_ID_NIL: u32 = 2147483647;    
+    pub const BOX_ID_NIL: u32 = 2147483647; 
+
+    #[repr(C)]
+    pub struct BoxIteratorT {
+        _private: [u8; 0], // Opaque type
+    }
 }
 
 pub mod tnt {
@@ -104,4 +109,68 @@ pub mod session {
             body_end: *const u8,
         ) -> i32;
     }
+}
+
+pub mod index {
+    use crate::ffi::types::{BoxIteratorT, BoxTupleT};
+
+    extern "C" {
+        pub fn box_index_iterator(
+            space_id: u32,
+            index_id: u32,
+            iterator_type: i32,
+            key: *const u8,
+            key_end: *const u8,
+        ) -> *mut BoxIteratorT;
+    
+        pub fn box_iterator_next(
+            iterator: *mut BoxIteratorT,
+            result: *mut *mut BoxTupleT,
+        ) -> i32;
+    
+        pub fn box_iterator_free(iterator: *mut BoxIteratorT);
+    
+        pub fn box_index_len(space_id: u32, index_id: u32) -> isize;
+    
+        pub fn box_index_bsize(space_id: u32, index_id: u32) -> isize;
+    
+        pub fn box_index_get(
+            space_id: u32,
+            index_id: u32,
+            key: *const u8,
+            key_end: *const u8,
+            result: *mut *mut BoxTupleT,
+        ) -> i32;
+    
+        pub fn box_index_min(
+            space_id: u32,
+            index_id: u32,
+            key: *const u8,
+            key_end: *const u8,
+            result: *mut *mut BoxTupleT,
+        ) -> i32;
+    
+        pub fn box_index_max(
+            space_id: u32,
+            index_id: u32,
+            key: *const u8,
+            key_end: *const u8,
+            result: *mut *mut BoxTupleT,
+        ) -> i32;
+    
+        pub fn box_index_count(
+            space_id: u32,
+            index_id: u32,
+            iterator_type: i32,
+            key: *const u8,
+            key_end: *const u8,
+        ) -> isize;
+    
+        pub fn box_index_random(
+            space_id: u32,
+            index_id: u32,
+            rnd: u32,
+            result: *mut *mut BoxTupleT,
+        ) -> i32;
+    }    
 }

@@ -3,10 +3,12 @@ use crate::bindings::docs::adder::types::{BoxError, TxnIsolationLevel};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
+use crate::tx::{tx_flush, tx_push, TxCtx};
 
 use wasmtime_wasi::async_trait;
 use tarantool::lua_state;
 use tarantool::tlua::LuaError;
+use tokio::sync::oneshot;
 
 impl std::str::FromStr for TxnIsolationLevel {
     type Err = ();
@@ -18,6 +20,17 @@ impl std::str::FromStr for TxnIsolationLevel {
             "read-confirmed" => Ok(TxnIsolationLevel::TxnIsolationReadConfirmed),
             "linearizable" => Ok(TxnIsolationLevel::TxnIsolationLinearizable),
             _ => Err(()),
+        }
+    }
+}
+
+impl TxnIsolationLevel {
+    fn as_str(&self) -> &'static str {
+        match self {
+            TxnIsolationLevel::TxnIsolationBestEffort => "best-effort",
+            TxnIsolationLevel::TxnIsolationReadCommitted => "read-committed",
+            TxnIsolationLevel::TxnIsolationReadConfirmed => "read-confirmed",
+            TxnIsolationLevel::TxnIsolationLinearizable => "linearizable",
         }
     }
 }
@@ -48,7 +61,7 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn txn(&mut self) -> bool {
-        return true;
+        unsafe { ffi::tnt::box_txn() }
     }
 
     async fn begin(&mut self) -> Result<(), BoxError> {
@@ -81,13 +94,42 @@ impl txn::Host for SyncWasmStates {
         }
     }
 
-    // async fn txn_set_isolation(&mut self, isolation: TxnIsolationLevel) -> Result<(), BoxError> {
+    async fn txn_set_isolation(&mut self, isolation: TxnIsolationLevel) -> Result<(), BoxError> {
+        let isolation_heap = isolation.clone();
+        let (tx, rx) = oneshot::channel();
+    
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | txn_set_isolation: {}", isolation_heap.as_str());
+    
+                let lua = lua_state();
+                let isolation_str = isolation_heap.as_str();
+                let script = format!("box.cfg{{txn_isolation = '{}'}};", isolation_str);
+                println!("Executing Lua: {}", script);
+    
+                let result = match lua.eval::<()>(&script) {
+                    Ok(_) => Ok(()),
+                    Err(_e) => {
+                        let err = unsafe { handle_tarantool_error() };
+                        eprintln!("Lua execution error: {}", err.message);
+                        Err(err)
+                    }
+                };
+    
+                println!("RS | txn_set_isolation successful");
+                let _ = tx.send(result);
+            }),
+        });
+    
+        tx_push(task);
+        tx_flush();
+    
+        rx.await.unwrap_or_else(|_| Err(BoxError::new("Failed to receive response from TX thread", "internal error", 500)))
+    }
 
-    // }
 
-
-    // async fn txn_make_sync(&mut self) {
-
-    // }
+    async fn txn_make_sync(&mut self) {
+        // ?
+    }
     
 }
