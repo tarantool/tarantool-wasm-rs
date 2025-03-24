@@ -97,6 +97,8 @@ for _, tuple in ipairs(data) do
     box.space.test_space:insert(tuple)
 end
 
+local sq = box.schema.sequence.create("test")
+
 print("Initialized")
 local module = wasm.load("examples/python/py.wasm")
 print("Loaded")

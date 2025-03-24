@@ -9,6 +9,7 @@ world adder {
   import session;
   import txn;
   import index;
+  import sequence;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -119,6 +120,10 @@ interface types {
     //     seek: func(pos: u32) -> result<tuple-field, box-error>;
     //     next: func() -> result<tuple-field, box-error>;
     // }
+
+    record sequence {
+        id: s32,
+    }
 }
 
 interface msgpack {
@@ -280,6 +285,19 @@ interface index {
   count: func(index: index, iter-type: iterator-type, key: list<u8>) -> result<s64, box-error>;
 
 }
+
+interface sequence {
+  use types.{
+      sequence,
+      box-error,
+  };
+
+  next: func(seq: sequence) -> result<s64, box-error>;
+  current: func(seq: sequence) -> result<s64, box-error>;
+  set: func(seq: sequence, value: s64) -> result<_, box-error>;
+  reset: func(seq: sequence) -> result<_, box-error>;
+}
+
 // =================================================================================================
 
 

@@ -95,6 +95,12 @@ pub mod r#box {
         ) -> i32;
         
         pub fn box_truncate(space_id: u32) -> i32;
+
+        pub fn box_sequence_current(seq_id: u32, result: *mut i64) -> i32;
+        pub fn box_sequence_next(seq_id: u32, result: *mut i64) -> i32;
+        pub fn box_sequence_reset(seq_id: u32) -> i32;
+        pub fn box_sequence_set(seq_id: u32, value: i64) -> i32;
+
     }
 }
 

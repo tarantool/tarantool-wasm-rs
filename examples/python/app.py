@@ -1,8 +1,8 @@
 from adder import exports
-from adder.imports import say, msgpack, session, txn
+from adder.imports import say, msgpack, session, txn, sequence
 from adder.imports import index as tt_index
 from adder.imports import ttbox as box
-from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType
+from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType, Sequence, BoxError
 import adder
 import json
 from time import sleep
@@ -104,13 +104,35 @@ def test_index():
     say.say_info(f"PY | index count: {tt_index.count(index, IteratorType.ITER_EQ ,encode([1]))}")
 
 
+def test_sequence():
+    say.say_info(f"PY | Test Sequence")
+
+    seq = Sequence(id=1)
+    try:
+        say.say_info(f"PY | sequence.current: {sequence.current(seq)}")
+    except Exception as e:
+        say.say_info(f"PY | sequence.current: {str(e)}")
+
+    say.say_info(f"PY | sequence.next: {sequence.next(seq)}")
+    say.say_info(f"PY | sequence.current: {sequence.current(seq)}")
+    say.say_info(f"PY | sequence.set: {sequence.set(seq, 42)}")
+    say.say_info(f"PY | sequence.current: {sequence.current(seq)}")
+    say.say_info(f"PY | sequence.reset: {sequence.reset(seq)}")
+
+    try:
+        sequence.current(seq)
+    except Exception as e:
+        say.say_info(f"PY | sequence.current: {str(e)}")
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
             # test_box()
             # test_session()
             # test_iterator()
-            test_index()
+            # test_index()
+            test_sequence()
 
         except Exception as e:
             say.say_error(str(e))
