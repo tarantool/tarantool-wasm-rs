@@ -21,7 +21,7 @@ impl Drop for IteratorImpl {
     }
 }
 
-fn to_c_iterator(iterator_type: IteratorType) -> i32 {
+pub fn to_c_iterator(iterator_type: IteratorType) -> i32 {
     match iterator_type {
         IteratorType::IterEq => 0,
         IteratorType::IterReq => 1,

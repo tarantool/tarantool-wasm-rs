@@ -8,6 +8,7 @@ world adder {
   import error;
   import session;
   import txn;
+  import index;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -262,6 +263,23 @@ interface txn {
 
 }
 
+interface index {
+  use types.{
+      index,
+      box-error,
+      box-tuple,
+      iterator-type,
+  };
+
+  len: func(index: index) -> result<s64, box-error>;
+  bsize: func(index: index) -> result<s64, box-error>;
+  random: func(index: index, rnd: u32) -> result<box-tuple, box-error>;
+  get: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+  min: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+  max: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+  count: func(index: index, iter-type: iterator-type, key: list<u8>) -> result<s64, box-error>;
+
+}
 // =================================================================================================
 
 

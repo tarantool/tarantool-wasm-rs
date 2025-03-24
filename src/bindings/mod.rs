@@ -21,3 +21,4 @@ pub mod error;
 pub mod session;
 pub mod txn;
 pub mod types;
+pub mod index;

@@ -85,6 +85,18 @@ end
 
 box.watch("x", my_callback)
 
+local data = {
+    {1, "Alice", 25},
+    {2, "Bob", 30},
+    {3, "Charlie", 35},
+    {4, "David", 40},
+    {5, "Eve", 4}
+}
+
+for _, tuple in ipairs(data) do
+    box.space.test_space:insert(tuple)
+end
+
 print("Initialized")
 local module = wasm.load("examples/python/py.wasm")
 print("Loaded")

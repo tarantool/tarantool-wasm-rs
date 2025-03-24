@@ -1,5 +1,6 @@
 from adder import exports
 from adder.imports import say, msgpack, session, txn
+from adder.imports import index as tt_index
 from adder.imports import ttbox as box
 from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType
 import adder
@@ -85,12 +86,31 @@ def test_session():
     session.broadcast("x", "{a = 2, [2] = 3}")
 
 
+def test_index():
+    say.say_info(f"PY | Test Index")
+
+    space: Space = box.space_by_name("test_space")
+    say.say_info(f"PY | Space: {space}")
+
+    index: Index = box.index_by_name(space, "primary")
+    say.say_info(f"PY | Index: {index}")
+
+    say.say_info(f"PY | index len: {tt_index.len(index)}")
+    say.say_info(f"PY | index bsize: {tt_index.bsize(index)}")
+    say.say_info(f"PY | index random: {tt_index.random(index, 32)}")
+    say.say_info(f"PY | index get: {tt_index.get(index, encode([1]))}")
+    say.say_info(f"PY | index min: {tt_index.min(index, encode([1]))}")
+    say.say_info(f"PY | index max: {tt_index.max(index, encode([1]))}")
+    say.say_info(f"PY | index count: {tt_index.count(index, IteratorType.ITER_EQ ,encode([1]))}")
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
             # test_box()
             # test_session()
-            test_iterator()
+            # test_iterator()
+            test_index()
 
         except Exception as e:
             say.say_error(str(e))
