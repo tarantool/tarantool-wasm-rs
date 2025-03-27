@@ -81,6 +81,8 @@ interface types {
     }
 
     enum txn-isolation-level {
+      /** take isolation level from global default_isolation_level. */
+      txn-isolation-default,
       /** determine isolation level automatically (default). */
       txn-isolation-best-effort,
       /** allow to read committed, but not confirmed changes. */
@@ -221,22 +223,26 @@ interface txn {
 
   /// Returns the current transaction ID.
   ///
-  /// If a transaction is active, this function returns its ID.
-  /// If there is no active transaction, it returns `-1`.
-  /// Implemented using `box.txn_id()` in Lua.
+  /// Transaction id - a non-persistent unique identifier
+  /// of the current transaction. -1 if there is no current
+  /// transaction.
+  /// C API: int64_t box_txn_id(void)
+  /// No doc
   txn-id: func() -> s64;
 
   /// Returns the current transaction isolation level.
   ///
-  /// This function retrieves the transaction isolation level from the Tarantool
-  /// configuration using `require('config'):get('database.txn_isolation')` in Lua.
-  /// If the isolation level is not found or an error occurs, it defaults to `best-effort`.
+  /// Get isolation level of current transaction, one of enum txn_isolation_level
+  /// values (but cannot be TXN_ISOLATION_DEFAULT (which is zero) by design).
+  /// -1 if there is no current transaction.
+  /// C API: int box_txn_isolation(void);
+  /// No doc
   txn-isolation: func() -> txn-isolation-level;
 
-  /// Checks whether a transaction is currently active.
+  /// Return true if there is an active transaction.
   ///
-  /// Returns `true` if a transaction is active, otherwise returns `false`.
-  /// Implemented via the `box_txn()` from Tarantool C API,  
+  /// C API: bool box_txn(void)
+  /// https://www.tarantool.io/en/doc/latest/reference/reference_capi/txn/#c.box_txn
   txn: func() -> bool;
 
   /// Begins a new transaction.
@@ -257,13 +263,20 @@ interface txn {
   /// Implemented using `box_txn_rollback()` from the Tarantool C API.
   rollback: func() -> result<_, box-error>;
 
-  /// Sets the transaction isolation level.
+  /// Set an isolation @a level for a transaction.
+  /// Must be called before the first DML.
+  /// The level must be of enun txn_isolation_level values.
+  /// @retval 0 if success
+  /// @retval -1 if failed, diag is set.
   ///
-  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
-  /// Implemented using `box.cfg{ txn_isolation = ... }` in Lua.
+  /// C API: int box_txn_set_isolation(uint32_t level)
+  /// No doc
   txn-set-isolation: func(isolation: txn-isolation-level) -> result<_, box-error>;
 
-  // 
+  /// Make the transaction synchronous.
+  ///
+  /// C API void box_txn_make_sync(void)
+  /// No doc
   txn-make-sync: func();
 
 }

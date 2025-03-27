@@ -49,6 +49,11 @@ pub mod tnt {
         pub fn box_txn_begin() -> i32;
         pub fn box_txn_commit() -> i32;
         pub fn box_txn_rollback() -> i32;
+        pub fn box_txn_id() -> i64;
+        pub fn box_txn_isolation() -> i32;
+        pub fn box_txn_set_isolation(level: u32) -> i32;
+        pub fn box_txn_make_sync();
+
     }
 }
 
