@@ -1,8 +1,8 @@
 from adder import exports
-from adder.imports import say, msgpack, session, txn, sequence
+from adder.imports import say, msgpack, session, txn, sequence, key_def
 from adder.imports import index as tt_index
 from adder.imports import ttbox as box
-from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType, Sequence, BoxError
+from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType, Sequence, BoxError, KeyPart, KeyPartFlags
 import adder
 import json
 from time import sleep
@@ -125,6 +125,41 @@ def test_sequence():
         say.say_info(f"PY | sequence.current: {str(e)}")
 
 
+def test_key_def():
+    say.say_info(f"PY | Test KeyDef")
+
+    key_parts_1 = [
+        KeyPart(
+            field_no = 0,
+            field_type = "unsigned",
+            collation = None,
+            path = None,
+            flags = KeyPartFlags.IS_NULLABLE
+        )
+    ]
+
+    key_parts_2 = [
+        KeyPart(
+            field_no = 1,
+            field_type = "string",
+            collation = None,
+            path = None,
+            flags = KeyPartFlags.EXCLUDE_NULL
+        )
+    ]
+
+    t1 = key_def.new(key_parts_1)
+    t2 = key_def.new(key_parts_2)
+
+    say.say_info(f"PY | key_def: {t1, t2}")
+
+    merged_t = key_def.merge(t1, t2)
+    say.say_info(f"PY | key_def merged: {merged_t}")
+
+    key_def.delete(merged_t)
+    say.say_info(f"PY | Delete key defs")
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
@@ -132,7 +167,8 @@ class Run(exports.Run):
             # test_session()
             # test_iterator()
             # test_index()
-            test_sequence()
+            # test_sequence()
+            test_key_def()
 
         except Exception as e:
             say.say_error(str(e))

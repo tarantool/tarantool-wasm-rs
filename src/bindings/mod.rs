@@ -23,3 +23,4 @@ pub mod txn;
 pub mod types;
 pub mod index;
 pub mod sequence;
+pub mod key_def;

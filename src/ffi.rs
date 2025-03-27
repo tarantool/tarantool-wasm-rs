@@ -1,4 +1,6 @@
 pub mod types {
+    use libc;
+
     #[repr(C)]
     pub struct BoxErrorT {
         _private: [u8; 0], // Opaque type
@@ -14,6 +16,20 @@ pub mod types {
     #[repr(C)]
     pub struct BoxIteratorT {
         _private: [u8; 0], // Opaque type
+    }
+
+    #[repr(C)]
+    pub struct BoxKeyDefT {
+        _private: [u8; 0], // Opaque type
+    }
+
+    #[repr(C)]
+    pub struct BoxKeyPartDefT {
+        pub fieldno: u32,
+        pub flags: u32,
+        pub field_type: *const libc::c_char,
+        pub collation: *const libc::c_char,
+        pub path: *const libc::c_char,
     }
 }
 
@@ -184,4 +200,21 @@ pub mod index {
             result: *mut *mut BoxTupleT,
         ) -> i32;
     }    
+}
+
+pub mod tuple {
+    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT};
+
+    extern "C" {
+        pub fn box_key_def_new_v2(
+            parts: *mut BoxKeyPartDefT,
+            part_count: u32,
+        ) -> *mut BoxKeyDefT;
+
+        pub fn box_key_part_def_create(part: *mut BoxKeyPartDefT);
+
+        pub fn box_key_def_delete(key_def: *mut BoxKeyDefT);
+
+        pub fn box_key_def_merge(first: *const BoxKeyDefT, second: *const BoxKeyDefT) -> *mut BoxKeyDefT;
+    }
 }

@@ -10,6 +10,7 @@ world adder {
   import txn;
   import index;
   import sequence;
+  import key-def;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -126,6 +127,21 @@ interface types {
     record sequence {
         id: s32,
     }
+
+    flags key-part-flags {
+      is-nullable,
+      exclude-null,
+    }
+
+    record key-part {
+        field-no: u32,
+        field-type: string,
+        collation: option<string>,
+        path: option<string>,
+        %flags: key-part-flags,
+    }
+
+    type key-def = u64;
 }
 
 interface msgpack {
@@ -311,6 +327,47 @@ interface sequence {
   reset: func(seq: sequence) -> result<_, box-error>;
 }
 
+
+interface key-def {
+
+  use types.{
+      box-error,
+      box-tuple,
+      key-def,
+      key-part,
+  };
+
+  // C API
+  // box_key_def_delete (+)
+  // box_key_def_dump_parts (+)
+  // box_key_def_dup (+)
+  // box_key_def_merge (+) 
+  // box_key_def_new (+)
+  // box_key_def_extract_key
+  // box_key_def_new_v2
+  // box_key_def_validate_full_key
+  // box_key_def_validate_key
+  // box_key_def_validate_tuple
+  // box_key_part_def_create
+
+  new: func(parts: list<key-part>) -> result<key-def, box-error>;
+  delete: func(key-def: key-def);
+  merge: func(left: key-def, right: key-def) -> result<key-def, box-error>;
+
+  // dup: func(key-def: key-def) -> result<key-def, box-error>;
+  // dump-parts: func(key-def: key-def) -> result<list<key-part>, box-error>;
+
+  // part-count: func(key-def: key-def) -> result<u32, box-error>;
+  // validate-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
+  // validate-full-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
+  // compare-keys: func(key-def: key-def, left: key-def, right: key-def) -> s32;
+
+  // compare: func(key-def: key-def, left: box-tuple, right: box-tuple) -> s32;
+  // extract-key: func(key-def: key-def, %tuple: box-tuple) -> box-tuple;
+  // validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
+
+
+}
 // =================================================================================================
 
 
