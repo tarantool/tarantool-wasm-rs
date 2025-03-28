@@ -5,7 +5,9 @@ use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 
 use wasmtime_wasi::async_trait;
-use std::ffi::CString;
+use std::ffi::{CString, NulError};
+use std::mem::ManuallyDrop;
+
 
 fn field_type_to_id(field_type: &str) -> Result<&'static str, BoxError> {
     match field_type {
@@ -38,9 +40,22 @@ fn encode_key_part_flags(flags: &KeyPartFlags) -> u32 {
 }
 
 
+fn decode_key_part_flags(bits: u32) -> KeyPartFlags {
+    let mut raw: u8 = 0;
+    if bits & (1 << 0) != 0 {
+        raw |= 1 << 0; // is-nullable
+    }
+    if bits & (1 << 1) != 0 {
+        raw |= 1 << 1; // exclude-null
+    }
+
+    unsafe { std::mem::transmute(raw) }
+}
+
 #[async_trait]
 impl key_def::Host for SyncWasmStates {
-    async fn new(&mut self, parts: Vec<KeyPart>) -> Result<KeyDef, BoxError> {
+
+    async fn new(&mut self, parts: Vec<KeyPart>) -> Result<u64, BoxError> {
         let part_count = parts.len();
         println!("Creating key_def with {} parts", part_count);
 
@@ -52,34 +67,45 @@ impl key_def::Host for SyncWasmStates {
         for (i, part) in parts.iter().enumerate() {
             println!("Part {}: {:?}", i, part);
 
-            let mut def: ffi::types::BoxKeyPartDefT = unsafe { std::mem::zeroed() };
-            unsafe { ffi::tuple::box_key_part_def_create(&mut def) };
-
-            def.fieldno = part.field_no;
-            def.flags = encode_key_part_flags(&part.flags);
-
             let field_type_str = field_type_to_id(&part.field_type)?;
             let field_type_cstr = CString::new(field_type_str)
                 .map_err(|_| BoxError::new("Invalid field_type", "validation error", 2))?;
-
-            def.field_type = field_type_cstr.as_ptr();
+            let field_type_ptr = field_type_cstr.as_ptr();
             c_field_types.push(field_type_cstr);
 
-            if let Some(ref collation) = part.collation {
+            let collation_ptr: *const libc::c_char = if let Some(ref collation) = part.collation {
                 let collation_cstr = CString::new(collation.as_str())
                     .map_err(|_| BoxError::new("Invalid collation", "validation error", 2))?;
-                def.collation = collation_cstr.as_ptr();
+                let ptr = collation_cstr.as_ptr();
                 c_collations.push(collation_cstr);
-            }
+                ptr
+            } else {
+                std::ptr::null()
+            };
 
-            if let Some(ref path) = part.path {
+            let path_ptr: *const libc::c_char = if let Some(ref path) = part.path {
                 let path_cstr = CString::new(path.as_str())
                     .map_err(|_| BoxError::new("Invalid path", "validation error", 2))?;
-                def.path = path_cstr.as_ptr();
+                let ptr = path_cstr.as_ptr();
                 c_paths.push(path_cstr);
-            }
+                ptr
+            } else {
+                std::ptr::null()
+            };
 
-            key_parts.push(def);
+            let flags = encode_key_part_flags(&part.flags);
+
+            let fields = ffi::types::BoxKeyPartDefFields {
+                fieldno: part.field_no,
+                flags,
+                field_type: field_type_ptr,
+                collation: collation_ptr,
+                path: path_ptr,
+            };
+
+            key_parts.push(ffi::types::BoxKeyPartDefT {
+                fields: ManuallyDrop::new(fields),
+            });
         }
 
         let ptr = unsafe {
@@ -114,5 +140,67 @@ impl key_def::Host for SyncWasmStates {
         } else {
             Ok(ptr as KeyDef)
         }
+    }
+
+    async fn dup(&mut self, key_def: KeyDef) -> Result<KeyDef, BoxError> {
+        let ptr = key_def as *const ffi::types::BoxKeyDefT;
+        if ptr.is_null() {
+            return Err(BoxError::new("Invalid key_def", "internal error", 1));
+        }
+        let new_ptr = unsafe {
+            ffi::tuple::box_key_def_dup(ptr)
+        };
+        Ok(new_ptr as KeyDef)
+    }
+
+    async fn dump_parts(&mut self, key_def: KeyDef) -> Result<Vec<KeyPart>, BoxError> {
+        let mut part_count: u32 = 0;
+        let ptr = unsafe {
+            ffi::tuple::box_key_def_dump_parts(key_def as *const _, &mut part_count as *mut _)
+        };
+
+        if ptr.is_null() {
+            return Err(unsafe { handle_tarantool_error() });
+        }
+
+        let parts_slice = unsafe { std::slice::from_raw_parts(ptr, part_count as usize) };
+        let mut result = Vec::with_capacity(part_count as usize);
+
+        for (i, part_union) in parts_slice.iter().enumerate() {
+            let part = unsafe { &part_union.fields };
+
+            let field_no = part.fieldno;
+            let flags = decode_key_part_flags(part.flags);
+
+            let field_type = unsafe {
+                std::ffi::CStr::from_ptr(part.field_type).to_string_lossy().to_string()
+            };
+
+            let collation = if part.collation.is_null() {
+                None
+            } else {
+                Some(unsafe {
+                    std::ffi::CStr::from_ptr(part.collation).to_string_lossy().to_string()
+                })
+            };
+
+            let path = if part.path.is_null() {
+                None
+            } else {
+                Some(unsafe {
+                    std::ffi::CStr::from_ptr(part.path).to_string_lossy().to_string()
+                })
+            };
+
+            result.push(KeyPart {
+                field_no,
+                field_type,
+                collation,
+                path,
+                flags,
+            });
+        }
+
+        Ok(result)
     }
 }

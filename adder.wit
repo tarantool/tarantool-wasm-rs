@@ -353,9 +353,8 @@ interface key-def {
   new: func(parts: list<key-part>) -> result<key-def, box-error>;
   delete: func(key-def: key-def);
   merge: func(left: key-def, right: key-def) -> result<key-def, box-error>;
-
-  // dup: func(key-def: key-def) -> result<key-def, box-error>;
-  // dump-parts: func(key-def: key-def) -> result<list<key-part>, box-error>;
+  dup: func(key-def: key-def) -> result<key-def, box-error>;
+  dump-parts: func(key-def: key-def) -> result<list<key-part>, box-error>;
 
   // part-count: func(key-def: key-def) -> result<u32, box-error>;
   // validate-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;

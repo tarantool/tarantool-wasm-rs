@@ -135,7 +135,14 @@ def test_key_def():
             collation = None,
             path = None,
             flags = KeyPartFlags.IS_NULLABLE
-        )
+        ),
+        KeyPart(
+            field_no = 3,
+            field_type = "string",
+            collation = "unicode",
+            path = "t1",
+            flags = KeyPartFlags.EXCLUDE_NULL
+        ),
     ]
 
     key_parts_2 = [
@@ -151,10 +158,15 @@ def test_key_def():
     t1 = key_def.new(key_parts_1)
     t2 = key_def.new(key_parts_2)
 
-    say.say_info(f"PY | key_def: {t1, t2}")
+    say.say_info(f"PY | t1, t2: {t1, t2}")
+
+    t1_dup = key_def.dup(t1)
+    say.say_info(f"PY | t1_dup: {t1_dup}")
+    say.say_info(f"PY | t1_dup dump_parts:\n{'\n'.join([str(p) for p in key_def.dump_parts(t1_dup)])}")
+
 
     merged_t = key_def.merge(t1, t2)
-    say.say_info(f"PY | key_def merged: {merged_t}")
+    say.say_info(f"PY | t1, t2 merged: {merged_t}")
 
     key_def.delete(merged_t)
     say.say_info(f"PY | Delete key defs")

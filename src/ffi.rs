@@ -23,13 +23,27 @@ pub mod types {
         _private: [u8; 0], // Opaque type
     }
 
+    const BOX_KEY_PART_DEF_T_SIZE: usize = 64;
+
     #[repr(C)]
-    pub struct BoxKeyPartDefT {
+    pub union BoxKeyPartDefT {
+        pub fields: std::mem::ManuallyDrop<BoxKeyPartDefFields>,
+        pub padding: [u8; BOX_KEY_PART_DEF_T_SIZE],
+    }
+
+    #[repr(C)]
+    pub struct BoxKeyPartDefFields {
         pub fieldno: u32,
         pub flags: u32,
         pub field_type: *const libc::c_char,
         pub collation: *const libc::c_char,
         pub path: *const libc::c_char,
+    }
+
+    impl Default for BoxKeyPartDefT {
+        fn default() -> Self {
+            unsafe { std::mem::zeroed() }
+        }
     }
 }
 
@@ -216,5 +230,10 @@ pub mod tuple {
         pub fn box_key_def_delete(key_def: *mut BoxKeyDefT);
 
         pub fn box_key_def_merge(first: *const BoxKeyDefT, second: *const BoxKeyDefT) -> *mut BoxKeyDefT;
+
+        pub fn box_key_def_dup(key_def: *const BoxKeyDefT) -> *mut BoxKeyDefT;
+
+        pub fn box_key_def_dump_parts(key_def: *const BoxKeyDefT, part_count_ptr: *mut u32) -> *mut BoxKeyPartDefT;
+
     }
 }
