@@ -362,12 +362,8 @@ interface key-def {
   validate-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
   validate-full-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
   part-count: func(key-def: key-def) -> result<u32, box-error>;
-  
-  // compare-with-key: func(%tuple: box-tuple, key: list<u8>, key-def: key-def) -> s32; 
-  // compare: func(key-def: key-def, left: box-tuple, right: box-tuple) -> s32;
-  // extract-key: func(key-def: key-def, %tuple: box-tuple) -> box-tuple;
-  // validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
-
+  extract-key: func(key-def: key-def, %tuple: box-tuple) -> box-tuple;
+  validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
 
 }
 
@@ -397,6 +393,7 @@ interface %tuple {
       box-tuple,
       tuple-field,
       tuple-format,
+      key-def,
   };
 
   new: func(format: tuple-format, data: list<u8>) -> result<box-tuple, box-error>;
@@ -411,6 +408,8 @@ interface %tuple {
   update: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
   upsert: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
   validate: func(t: box-tuple, format: tuple-format) -> bool;
+  compare-with-key: func(%tuple: box-tuple, key: list<u8>, key-def: key-def) -> s32;
+  compare: func(key-def: key-def, left: box-tuple, right: box-tuple) -> s32;
 }
 
 // =================================================================================================

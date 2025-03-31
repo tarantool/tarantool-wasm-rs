@@ -310,5 +310,29 @@ pub mod tuple {
             tuple: *mut BoxTupleT,
             format: *mut BoxTupleFormatT,
         ) -> i32;
+
+        pub fn box_tuple_compare(
+            tuple_a: *mut BoxTupleT,
+            tuple_b: *mut BoxTupleT,
+            key_def: *mut BoxKeyDefT
+        ) -> i32;
+
+        pub fn box_tuple_compare_with_key(
+            tuple_a: *mut BoxTupleT,
+            key_b: *const libc::c_char,
+            key_def: *mut BoxKeyDefT
+        ) -> i32;
+
+        pub fn box_key_def_validate_tuple(
+            key_def: *mut BoxKeyDefT,
+            tuple: *mut BoxTupleT
+        ) -> i32;
+
+        pub fn box_key_def_extract_key(
+            key_def: *mut BoxKeyDefT,
+            tuple: *mut BoxTupleT,
+            multikey_idx: i32,
+            key_size_ptr: *mut u32
+        ) -> *mut libc::c_char;
     }
 }

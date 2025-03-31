@@ -1,5 +1,5 @@
 use crate::bindings::docs::adder::key_def;
-use crate::bindings::docs::adder::types::{BoxError, KeyPart, KeyDef, KeyPartFlags};
+use crate::bindings::docs::adder::types::{BoxError, KeyPart, KeyDef, KeyPartFlags, BoxTuple};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
@@ -267,5 +267,31 @@ impl key_def::Host for SyncWasmStates {
             Ok(count)
         }
     }
-    
+
+    async fn validate_tuple(&mut self, key_def: KeyDef, tuple: BoxTuple) -> bool {
+        unsafe {
+            ffi::tuple::box_key_def_validate_tuple(
+                key_def as *mut _,
+                tuple as *mut _
+            ) == 0
+        }
+    }
+
+    async fn extract_key(&mut self, key_def: KeyDef, tuple: BoxTuple) -> BoxTuple {
+        let mut size: u32 = 0;
+        let ptr = unsafe {
+            ffi::tuple::box_key_def_extract_key(
+                key_def as *mut _,
+                tuple as *mut _,
+                -1, // multikey_idx = -1
+                &mut size as *mut _
+            )
+        };
+
+        if ptr.is_null() {
+            panic!("Failed to extract key from tuple");
+        }
+
+        ptr as BoxTuple
+    }
 }

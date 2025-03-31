@@ -295,11 +295,34 @@ def test_box_tuple():
     valid = tt_tuple.validate(tup, tf)
     say.say_info(f"PY | validate = {valid}")
 
+    # Create key_def to compare by first field
+    key_parts = [
+        KeyPart(
+            field_no=0,
+            field_type="unsigned",
+            collation=None,
+            path=None,
+            flags=KeyPartFlags.EXCLUDE_NULL
+        )
+    ]
+    kd = key_def.new(key_parts)
+    say.say_info(f"PY | Created key_def: {kd}")
+
+    # Compare with another tuple
+    another_data = encode([1, "abc", {"x": 42}])
+    other = tt_tuple.new(tf, another_data)
+    cmp_result = tt_tuple.compare(kd, tup, other)
+    say.say_info(f"PY | compare(tup, other) = {cmp_result}")
+
+    # Compare with key
+    key = encode([1])
+    cmp_key_result = tt_tuple.compare_with_key(tup, key, kd)
+    say.say_info(f"PY | compare_with_key(tup, [1]) = {cmp_key_result}")
+
     tt_tuple.unref(tup)
     say.say_info("PY | tuple.unref() done")
 
     say.say_info("PY | box-tuple test completed")
-
 
 
 class Run(exports.Run):

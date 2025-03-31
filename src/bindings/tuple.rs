@@ -1,5 +1,5 @@
 use crate::bindings::docs::adder::tuple;
-use crate::bindings::docs::adder::types::{BoxError, BoxTuple, TupleFormat};
+use crate::bindings::docs::adder::types::{BoxError, BoxTuple, TupleFormat, KeyDef};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
@@ -149,5 +149,25 @@ impl tuple::Host for SyncWasmStates {
             ffi::tuple::box_tuple_validate(t as *mut _, format as *mut _)
         };
         rc == 0
+    }
+
+    async fn compare(&mut self, key_def: KeyDef, left: BoxTuple, right: BoxTuple) -> i32 {
+        unsafe {
+            ffi::tuple::box_tuple_compare(
+                left as *mut _,
+                right as *mut _,
+                key_def as *mut _
+            )
+        }
+    }
+
+    async fn compare_with_key(&mut self, tuple: BoxTuple, key: Vec<u8>, key_def: KeyDef) -> i32 {
+        unsafe {
+            ffi::tuple::box_tuple_compare_with_key(
+                tuple as *mut _,
+                key.as_ptr() as *const _,
+                key_def as *mut _
+            )
+        }
     }
 }
