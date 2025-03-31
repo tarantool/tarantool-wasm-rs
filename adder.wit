@@ -12,6 +12,7 @@ world adder {
   import sequence;
   import key-def;
   import tuple-format;
+  import %tuple;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -144,6 +145,7 @@ interface types {
 
     type key-def = u64;
     type tuple-format = u64;
+    type tuple-field = u64;
 }
 
 interface msgpack {
@@ -387,6 +389,30 @@ interface tuple-format {
   ref: func(tf: tuple-format);
   unref: func(tf: tuple-format);
 }
+
+interface %tuple {
+
+  use types.{
+      box-error,
+      box-tuple,
+      tuple-field,
+      tuple-format,
+  };
+
+  new: func(format: tuple-format, data: list<u8>) -> result<box-tuple, box-error>;
+  ref: func(t: box-tuple) -> s32;
+  unref: func(t: box-tuple);
+  field-count: func(t: box-tuple) -> u32;
+  bsize: func(t: box-tuple) -> u64;
+  to-buf: func(t: box-tuple) -> result<list<u8>, box-error>;
+  format: func(t: box-tuple) -> tuple-format;
+  field: func(t: box-tuple, idx: u32) -> result<tuple-field, box-error>;
+  field-by-path: func(t: box-tuple, path: string, index-base: s32) -> result<tuple-field, box-error>;
+  update: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
+  upsert: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
+  validate: func(t: box-tuple, format: tuple-format) -> bool;
+}
+
 // =================================================================================================
 
 

@@ -222,7 +222,7 @@ pub mod index {
 }
 
 pub mod tuple {
-    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT};
+    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT, BoxTupleT};
 
     extern "C" {
         pub fn box_key_def_new_v2(
@@ -262,5 +262,53 @@ pub mod tuple {
         pub fn box_tuple_format_ref(format: *mut BoxTupleFormatT);
 
         pub fn box_tuple_format_unref(format: *mut BoxTupleFormatT);
+
+        pub fn box_tuple_new(
+            format: *mut BoxTupleFormatT,
+            data: *const libc::c_char,
+            end: *const libc::c_char,
+        ) -> *mut BoxTupleT;
+
+        pub fn box_tuple_update(
+            tuple: *mut BoxTupleT,
+            expr: *const u8,
+            expr_end: *const u8,
+        ) -> *mut BoxTupleT;
+    
+        pub fn box_tuple_upsert(
+            tuple: *mut BoxTupleT,
+            expr: *const u8,
+            expr_end: *const u8,
+        ) -> *mut BoxTupleT;
+
+        pub fn box_tuple_to_buf(
+            tuple: *mut BoxTupleT,
+            buf: *mut ::std::os::raw::c_char,
+            size: usize,
+        ) -> isize;
+
+        pub fn box_tuple_ref(tuple: *mut BoxTupleT) -> i32;
+
+        pub fn box_tuple_unref(tuple: *mut BoxTupleT);
+ 
+        pub fn box_tuple_field_count(tuple: *mut BoxTupleT) -> u32;
+
+        pub fn box_tuple_bsize(tuple: *mut BoxTupleT) -> usize;
+
+        pub fn box_tuple_format(tuple: *mut BoxTupleT) -> *mut BoxTupleFormatT;
+
+        pub fn box_tuple_field(tuple: *mut BoxTupleT, fieldno: u32) -> *const u8;
+
+        pub fn box_tuple_field_by_path(
+            tuple: *mut BoxTupleT,
+            path: *const libc::c_char,
+            path_len: u32,
+            index_base: i32,
+        ) -> *const u8;
+
+        pub fn box_tuple_validate(
+            tuple: *mut BoxTupleT,
+            format: *mut BoxTupleFormatT,
+        ) -> i32;
     }
 }

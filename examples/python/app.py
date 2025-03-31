@@ -1,5 +1,6 @@
 from adder import exports
 from adder.imports import say, msgpack, session, txn, sequence, key_def, tuple_format
+from adder.imports import tuple as tt_tuple
 from adder.imports import index as tt_index
 from adder.imports import ttbox as box
 from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType, Sequence, BoxError, KeyPart, KeyPartFlags
@@ -243,6 +244,64 @@ def test_tuple_format():
     say.say_info(f"PY | Default tuple_format: {default_tf}")
 
 
+def test_box_tuple():
+    say.say_info("PY | Start box-tuple test")
+
+    tf = tuple_format.default()
+    say.say_info(f"PY | Default format: {tf}")
+
+    data = encode([1, "abc", {"x": 42}])
+    tup = tt_tuple.new(tf, data)
+    say.say_info(f"PY | Created tuple: {tup}")
+
+    rc = tt_tuple.ref(tup)
+    say.say_info(f"PY | tuple.ref() => {rc}")
+
+    fc = tt_tuple.field_count(tup)
+    say.say_info(f"PY | field_count = {fc}")
+
+    size = tt_tuple.bsize(tup)
+    say.say_info(f"PY | bsize = {size}")
+
+    buf = tt_tuple.to_buf(tup)
+    say.say_info(f"PY | to_buf = {decode(buf)}")
+
+    tf2 = tt_tuple.format(tup)
+    say.say_info(f"PY | format = {tf2}")
+
+    for i in range(fc):
+        field = tt_tuple.field(tup, i)
+        if isinstance(field, int):
+            say.say_info(f"PY | field[{i}] = {field}")
+        else:
+            say.say_info(f"PY | field[{i}] error: {field}")
+
+    path_result = tt_tuple.field_by_path(tup, "[3].x", 1)
+    if isinstance(path_result, int):
+        say.say_info(f"PY | field_by_path = {path_result}")
+    else:
+        say.say_info(f"PY | field_by_path error: {path_result}")
+
+    update_expr = encode([["=", 1, "xyz"]])
+    updated = tt_tuple.update(tup, update_expr)
+    updated_val = decode(tt_tuple.to_buf(updated))
+    say.say_info(f"PY | updated tuple = {updated_val}")
+
+    upsert_expr = encode([["+", 1, 100]])
+    upserted = tt_tuple.upsert(tup, upsert_expr)
+    upserted_val = decode(tt_tuple.to_buf(upserted))
+    say.say_info(f"PY | upserted tuple = {upserted_val}")
+
+    valid = tt_tuple.validate(tup, tf)
+    say.say_info(f"PY | validate = {valid}")
+
+    tt_tuple.unref(tup)
+    say.say_info("PY | tuple.unref() done")
+
+    say.say_info("PY | box-tuple test completed")
+
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
@@ -252,7 +311,8 @@ class Run(exports.Run):
             # test_index()
             # test_sequence()
             # test_key_def()
-            test_tuple_format()
+            # test_tuple_format()
+            test_box_tuple()
 
         except Exception as e:
             say.say_error(str(e))
