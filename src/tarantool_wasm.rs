@@ -9,7 +9,7 @@ use std::sync::{Mutex, Arc, RwLock};
 use wasmtime::component::Component;
 use wasmtime::Config;
 use tokio::sync::mpsc;
-use crate::bindings::docs::adder::{ttbox, say, error, session, msgpack, txn, types, index, sequence, key_def};
+use crate::bindings::docs::adder::{ttbox, say, error, session, msgpack, txn, types, index, sequence, key_def, tuple_format};
 use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
 use crate::wasm_fiber::WasmFiberStatus;
@@ -109,6 +109,7 @@ impl RuntimeState {
         let _ = index::add_to_linker(&mut linker, |state| state);
         let _ = sequence::add_to_linker(&mut linker, |state| state);
         let _ = key_def::add_to_linker(&mut linker, |state| state);
+        let _ = tuple_format::add_to_linker(&mut linker, |state| state);
 
 
         let modules = RwLock::new(HashMap::new());

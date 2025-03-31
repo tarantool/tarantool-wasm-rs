@@ -11,6 +11,7 @@ world adder {
   import index;
   import sequence;
   import key-def;
+  import tuple-format;
 
   import wasi:cli/environment@0.2.0;
   import wasi:cli/exit@0.2.0;
@@ -142,6 +143,7 @@ interface types {
     }
 
     type key-def = u64;
+    type tuple-format = u64;
 }
 
 interface msgpack {
@@ -365,6 +367,25 @@ interface key-def {
   // validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
 
 
+}
+
+interface tuple-format {
+  use types.{
+      key-def,
+      box-error,
+      tuple-format
+  };
+
+  // box_tuple_format
+  // box_tuple_format_default
+  // box_tuple_format_new
+  // box_tuple_format_ref
+  // box_tuple_format_unref
+
+  default: func() -> tuple-format;
+  new: func(key-defs: list<key-def>) -> result<tuple-format, box-error>;
+  ref: func(tf: tuple-format);
+  unref: func(tf: tuple-format);
 }
 // =================================================================================================
 

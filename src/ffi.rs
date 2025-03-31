@@ -2,6 +2,11 @@ pub mod types {
     use libc;
 
     #[repr(C)]
+    pub struct BoxTupleFormatT {
+        _private: [u8; 0], // Оpaque type
+    }
+    
+    #[repr(C)]
     pub struct BoxErrorT {
         _private: [u8; 0], // Opaque type
     }
@@ -217,7 +222,7 @@ pub mod index {
 }
 
 pub mod tuple {
-    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT};
+    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT};
 
     extern "C" {
         pub fn box_key_def_new_v2(
@@ -247,5 +252,15 @@ pub mod tuple {
             key_size: *mut u32,
         ) -> i32;
 
+        pub fn box_tuple_format_default() -> *mut BoxTupleFormatT;
+
+        pub fn box_tuple_format_new(
+            keys: *const *const BoxKeyDefT,
+            key_count: u16,
+        ) -> *mut BoxTupleFormatT;
+
+        pub fn box_tuple_format_ref(format: *mut BoxTupleFormatT);
+
+        pub fn box_tuple_format_unref(format: *mut BoxTupleFormatT);
     }
 }

@@ -1,5 +1,5 @@
 from adder import exports
-from adder.imports import say, msgpack, session, txn, sequence, key_def
+from adder.imports import say, msgpack, session, txn, sequence, key_def, tuple_format
 from adder.imports import index as tt_index
 from adder.imports import ttbox as box
 from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType, Sequence, BoxError, KeyPart, KeyPartFlags
@@ -125,7 +125,6 @@ def test_sequence():
         say.say_info(f"PY | sequence.current: {str(e)}")
 
 
-
 def test_key_def():
     say.say_info("PY | Test KeyDef")
 
@@ -207,6 +206,43 @@ def test_key_def():
     say.say_info("PY | Deleted all key_defs")
 
 
+def test_tuple_format():
+    say.say_info("PY | Test TupleFormat")
+
+    # Создание KeyPart-ов
+    parts = [
+        KeyPart(
+            field_no=0,
+            field_type="unsigned",
+            collation=None,
+            path=None,
+            flags=KeyPartFlags.IS_NULLABLE
+        ),
+        KeyPart(
+            field_no=1,
+            field_type="string",
+            collation=None,
+            path=None,
+            flags=KeyPartFlags.EXCLUDE_NULL
+        ),
+    ]
+
+    kd = key_def.new(parts)
+    say.say_info(f"PY | Created key_def: {kd}")
+
+    tf = tuple_format.new([kd])
+    say.say_info(f"PY | Created tuple_format: {tf}")
+
+    tuple_format.ref(tf)
+    say.say_info("PY | Called tuple_format.ref")
+
+    tuple_format.unref(tf)
+    say.say_info("PY | Called tuple_format.unref")
+
+    default_tf = tuple_format.default()
+    say.say_info(f"PY | Default tuple_format: {default_tf}")
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
@@ -215,7 +251,8 @@ class Run(exports.Run):
             # test_iterator()
             # test_index()
             # test_sequence()
-            test_key_def()
+            # test_key_def()
+            test_tuple_format()
 
         except Exception as e:
             say.say_error(str(e))
