@@ -235,5 +235,17 @@ pub mod tuple {
 
         pub fn box_key_def_dump_parts(key_def: *const BoxKeyDefT, part_count_ptr: *mut u32) -> *mut BoxKeyPartDefT;
 
+        pub fn box_key_def_validate_key(
+            key_def: *const BoxKeyDefT,
+            key: *const libc::c_char,
+            key_size: *mut u32,
+        ) -> i32;
+    
+        pub fn box_key_def_validate_full_key(
+            key_def: *const BoxKeyDefT,
+            key: *const libc::c_char,
+            key_size: *mut u32,
+        ) -> i32;
+
     }
 }

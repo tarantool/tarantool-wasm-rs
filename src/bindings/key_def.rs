@@ -155,18 +155,30 @@ impl key_def::Host for SyncWasmStates {
 
     async fn dump_parts(&mut self, key_def: KeyDef) -> Result<Vec<KeyPart>, BoxError> {
         let mut part_count: u32 = 0;
-        let ptr = unsafe {
+        let raw_ptr = unsafe {
             ffi::tuple::box_key_def_dump_parts(key_def as *const _, &mut part_count as *mut _)
         };
 
-        if ptr.is_null() {
+        if raw_ptr.is_null() {
             return Err(unsafe { handle_tarantool_error() });
         }
 
-        let parts_slice = unsafe { std::slice::from_raw_parts(ptr, part_count as usize) };
-        let mut result = Vec::with_capacity(part_count as usize);
+        if part_count == 0 {
+            return Ok(Vec::new());
+        }
 
-        for (i, part_union) in parts_slice.iter().enumerate() {
+        println!("RS | Returned part_count: {}", part_count);
+
+        let part_size = std::mem::size_of::<ffi::types::BoxKeyPartDefT>();
+
+        // Copy raw bytes
+        let src = raw_ptr as *const u8;
+        let mut result = Vec::with_capacity(part_count as usize);
+    
+        for i in 0..part_count {
+            let offset = i as isize * part_size as isize;
+            let part_ptr = unsafe { src.offset(offset) as *const ffi::types::BoxKeyPartDefT };
+            let part_union = unsafe { std::ptr::read_unaligned(part_ptr) };
             let part = unsafe { &part_union.fields };
 
             let field_no = part.fieldno;
@@ -200,7 +212,60 @@ impl key_def::Host for SyncWasmStates {
                 flags,
             });
         }
-
+    
         Ok(result)
     }
+    
+    async fn validate_key(&mut self, key_def: KeyDef, key: Vec<u8>) -> Result<(bool, u32), BoxError> {
+        let key_ptr = key.as_ptr() as *const libc::c_char;
+        let mut key_size: u32 = 0;
+
+        let rc = unsafe {
+            ffi::tuple::box_key_def_validate_key(
+                key_def as *const _,
+                key_ptr,
+                &mut key_size,
+            )
+        };
+
+        if rc == 0 {
+            Ok((true, key_size))
+        } else {
+            Err(unsafe { handle_tarantool_error() })
+        }
+    }
+
+    async fn validate_full_key(&mut self, key_def: KeyDef, key: Vec<u8>) -> Result<(bool, u32), BoxError> {
+        let key_ptr = key.as_ptr() as *const libc::c_char;
+        let mut key_size: u32 = 0;
+
+        let rc = unsafe {
+            ffi::tuple::box_key_def_validate_full_key(
+                key_def as *const _,
+                key_ptr,
+                &mut key_size,
+            )
+        };
+
+        if rc == 0 {
+            Ok((true, key_size))
+        } else {
+            Err(unsafe { handle_tarantool_error() })
+        }
+    }
+
+    async fn part_count(&mut self, key_def: u64) -> Result<u32, BoxError> {
+        let mut count: u32 = 0;
+    
+        let ptr = unsafe {
+            ffi::tuple::box_key_def_dump_parts(key_def as *const _, &mut count as *mut _)
+        };
+    
+        if ptr.is_null() {
+            Err(unsafe { handle_tarantool_error() })
+        } else {
+            Ok(count)
+        }
+    }
+    
 }
