@@ -264,14 +264,221 @@ interface ttbox {
       box-tuple
   };
 
+  /// Returns the current schema version of the database.
+  ///
+  /// The schema version increases whenever the schema changes, such as creating or dropping spaces or indexes.
+  ///
+  /// ### Returns
+  /// - A 64-bit integer representing the current schema version.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  ///
+  /// version = box.schema_version()
+  /// print("Schema version:", version)
+  /// ```
   schema-version: func() -> s64;
+
+
+  /// Retrieves a space object by its name.
+  ///
+  /// This function performs a lookup for a space by name and returns a reference used in subsequent operations.
+  ///
+  /// ### Parameters
+  /// - `name`: The name of the space to retrieve.
+  ///
+  /// ### Returns
+  /// - A space object if found, or an error otherwise.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  ///
+  /// space = box.space_by_name("test_space")
+  /// print("Space ID:", space.id)
+  /// ```
   space-by-name: func(name: string) -> result<space, box-error>;
+
+
+  /// Retrieves an index object by name within a space.
+  ///
+  /// This function looks up the specified index in the given space and returns a reference to it.
+  ///
+  /// ### Parameters
+  /// - `space`: The space to search within.
+  /// - `name`: The name of the index to retrieve.
+  ///
+  /// ### Returns
+  /// - An index object if found, or an error otherwise.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  ///
+  /// index = box.index_by_name(space, "primary")
+  /// print("Index ID:", index.id)
+  /// ```
   index-by-name: func(%space: space, name: string) -> result<index, box-error>;
+
+
+  /// Inserts a new tuple into a space.
+  ///
+  /// The tuple must be provided as a MsgPack-encoded array: `[field1, field2, ...]`.
+  ///
+  /// ### Parameters
+  /// - `space`: The target space.
+  /// - `tup`: A MsgPack-encoded array representing the tuple.
+  ///
+  /// ### Returns
+  /// - The inserted tuple.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  /// from adder.imports import tuple as tt_tuple
+  /// from adder.imports import msgpack
+  ///
+  /// tup_bytes = msgpack.encode([1, "Alice", 25])
+  /// inserted = box.insert(space, tup_bytes)
+  /// print("Inserted ptr: ", hex(inserted))
+  /// print("Inserted tuple: ", msgpack.decode(tt_tuple.to_buf(inserted)))
+  /// ```
   insert: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
+
+
+  /// Updates an existing tuple by key in the specified index.
+  ///
+  /// - `key` must be a MsgPack array identifying the tuple, e.g. `[1]`
+  /// - `ops` must be a MsgPack array of operations, e.g. `[[ "=", 2, 30 ]]`
+  ///
+  /// ### Parameters
+  /// - `index`: The index to use for locating the tuple.
+  /// - `key`: MsgPack-encoded key array.
+  /// - `ops`: MsgPack-encoded array of update operations.
+  ///
+  /// ### Returns
+  /// - The updated tuple.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  /// from adder.imports import tuple as tt_tuple
+  /// from adder.imports import msgpack
+  ///
+  /// key = msgpack.encode([1])
+  /// ops = msgpack.encode([["=", 2, 26]])
+  /// updated = box.update(index, key, ops)
+  /// print("Updated ptr: ", hex(updated))
+  /// print("Updated tuple: ", msgpack.decode(tt_tuple.to_buf(updated)))
+  /// ```
   update: func(index: index, key: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
+
+
+  /// Replaces an existing tuple or inserts a new one.
+  ///
+  /// ### Parameters
+  /// - `space`: The space to operate on.
+  /// - `tup`: A MsgPack-encoded array representing the new tuple.
+  ///
+  /// ### Returns
+  /// - The replaced tuple.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  /// from adder.imports import tuple as tt_tuple
+  /// from adder.imports import msgpack
+  ///
+  /// tup = msgpack.encode([2, "Bob Jr.", 31])
+  /// replaced = box.replace(space, tup)
+  /// print("Replaced ptr: ", hex(replaced))
+  /// print("Replaced tuple: ", decode(data=tt_tuple.to_buf(replaced)))
+  /// ```
   replace: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
+
+
+  /// Performs an UPSERT operation: update if exists, insert otherwise.
+  ///
+  /// ### Parameters
+  /// - `index`: The index used for key lookup.
+  /// - `tup`: A MsgPack-encoded tuple to insert.
+  /// - `ops`: A MsgPack-encoded array of update operations.
+  ///
+  /// ### Returns
+  /// - The previous version of the tuple if it existed; otherwise, `null` if inserted.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  /// from adder.imports import msgpack
+  ///
+  /// tup = msgpack.encode([6, "Frank", 50])
+  /// ops = msgpack.encode([["+", 2, 1]])
+  /// box.upsert(index, tup, ops)
+  /// ```
   upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
+
+
+  /// Deletes a tuple by key from the specified index.
+  ///
+  /// The key must be encoded as a MsgPack array, e.g. `[1]`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index used for key lookup.
+  /// - `key`: MsgPack-encoded key array.
+  ///
+  /// ### Returns
+  /// - The deleted tuple, if found.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  /// from adder.imports import tuple as tt_tuple
+  /// from adder.imports import msgpack
+  ///
+  /// deleted = box.tt_delete(index, msgpack.encode([3]))
+  /// print("Deleted ptr: ", hex(deleted))
+  /// print("Deleted tuple: ", msgpack.decode(data=tt_tuple.to_buf(deleted)))
+  /// ```
   tt-delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+
+
+  /// Removes all tuples from the space.
+  ///
+  /// This operation is equivalent to SQL's `TRUNCATE TABLE`.
+  ///
+  /// ### Parameters
+  /// - `space`: The target space to truncate.
+  ///
+  /// ### Returns
+  /// - `null` on success, or an error.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import ttbox as box
+  ///
+  /// box.truncate(space)
+  /// print("Space cleared")
+  /// ```
   truncate: func(space: space) -> result<_, box-error>;
 }
 
@@ -436,19 +643,6 @@ interface key-def {
       key-part,
   };
 
-  // C API
-  // box_key_def_delete (+)
-  // box_key_def_dump_parts (+)
-  // box_key_def_dup (+)
-  // box_key_def_merge (+) 
-  // box_key_def_new (+)
-  // box_key_def_new_v2 (+)
-  // box_key_def_extract_key
-  // box_key_def_validate_full_key (+)
-  // box_key_def_validate_key (+)
-  // box_key_def_validate_tuple
-  // box_key_part_def_create
-
   new: func(parts: list<key-part>) -> result<key-def, box-error>;
   delete: func(key-def: key-def);
   merge: func(left: key-def, right: key-def) -> result<key-def, box-error>;
@@ -468,12 +662,6 @@ interface tuple-format {
       box-error,
       tuple-format
   };
-
-  // box_tuple_format
-  // box_tuple_format_default
-  // box_tuple_format_new
-  // box_tuple_format_ref
-  // box_tuple_format_unref
 
   default: func() -> tuple-format;
   new: func(key-defs: list<key-def>) -> result<tuple-format, box-error>;
