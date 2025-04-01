@@ -30,12 +30,12 @@ pub unsafe fn commit_transaction() -> Result<(), BoxError> {
 #[async_trait]
 impl ttbox::Host for SyncWasmStates {
     async fn schema_version(&mut self) -> i64 {
-        println!("RS | Executing adder::box::schema_version");
+        // println!("RS | Executing adder::box::schema_version");
         unsafe { ffi::r#box::box_schema_version() as i64 }
     }
 
     async fn space_by_name(&mut self, name: String) -> Result<Space, BoxError> {
-        println!("RS | Calling box_space_id_by_name with name: {}", name);
+        // println!("RS | Calling box_space_id_by_name with name: {}", name);
 
         let c_name = match CString::new(name.clone()) {
             Ok(cstr) => cstr,
@@ -47,17 +47,17 @@ impl ttbox::Host for SyncWasmStates {
         let space_id = unsafe { ffi::r#box::box_space_id_by_name(c_name.as_ptr(), name.len() as u32) };
 
         if space_id == ffi::types::BOX_ID_NIL {
-            println!("RS | Space '{}' not found", name);
+            // println!("RS | Space '{}' not found", name);
             unsafe { return Err(handle_tarantool_error()); }
         }
 
-        println!("RS | Found space: name = '{}', id = {}", name, space_id);
+        // println!("RS | Found space: name = '{}', id = {}", name, space_id);
 
         Ok(Space { id: space_id as i32 })
     }
 
     async fn index_by_name(&mut self, space: Space, name: String) -> Result<Index, BoxError> {
-        println!("RS | index_by_name('{}') called for space_id: {}", name, space.id);
+        // println!("RS | index_by_name('{}') called for space_id: {}", name, space.id);
 
         let c_name = match CString::new(name.clone()) {
             Ok(cstr) => cstr,
@@ -71,11 +71,11 @@ impl ttbox::Host for SyncWasmStates {
         };
 
         if index_id == ffi::types::BOX_ID_NIL {
-            println!("RS | Error retrieving index '{}' for space_id {}", name, space.id);
+            // println!("RS | Error retrieving index '{}' for space_id {}", name, space.id);
             unsafe { return Err(handle_tarantool_error()); }
         }
 
-        println!("RS | Found index '{}' with id {} in space_id {}", name, index_id, space.id);
+        // println!("RS | Found index '{}' with id {} in space_id {}", name, index_id, space.id);
 
         Ok(Index {
             id: index_id as i32,
@@ -85,7 +85,7 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn insert(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        println!("RS | insert() called for space_id: {}", space.id);
+        // println!("RS | insert() called for space_id: {}", space.id);
 
         if tup.is_empty() {
             return Err(BoxError::new("Tuple data is empty", "validation error", 1));
@@ -96,7 +96,7 @@ impl ttbox::Host for SyncWasmStates {
 
         let task = Box::new(TxCtx {
             cb: Box::new(move || {
-                println!("RS | Executing insert in TX thread...");
+                // println!("RS | Executing insert in TX thread...");
 
                 unsafe {
                     if let Err(err) = begin_transaction() {
@@ -114,7 +114,7 @@ impl ttbox::Host for SyncWasmStates {
                 if rc != 0 {
                     unsafe { ffi::tnt::box_txn_rollback(); }
                     let err = unsafe { handle_tarantool_error() };
-                    println!("RS | Insert error: {}", err.message);
+                    // println!("RS | Insert error: {}", err.message);
                     let _ = tx.send(Err(err));
                     return;
                 }
@@ -128,7 +128,7 @@ impl ttbox::Host for SyncWasmStates {
                 }
 
                 let tuple_id = result_tuple as u64;
-                println!("RS | Insert successful, tuple_id: {}", tuple_id);
+                // println!("RS | Insert successful, tuple_id: {}", tuple_id);
                 let _ = tx.send(Ok(tuple_id));
             }),
         });
@@ -140,17 +140,17 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn update(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        println!(
-            "RS | update() called for space_id: {}, index_id: {}, index_base: {}",
-            index.space_id, index.id, index.index_base
-        );
+        // println!(
+        //     "RS | update() called for space_id: {}, index_id: {}, index_base: {}",
+        //     index.space_id, index.id, index.index_base
+        // );
 
         if key.is_empty() || ops.is_empty() {
             return Err(BoxError::new("Key or ops data is empty", "validation error", 1));
         }
 
-        println!("RS | update() key (MsgPack): {:?}", hex::encode(&key));
-        println!("RS | update() ops (MsgPack): {:?}", hex::encode(&ops));
+        // println!("RS | update() key (MsgPack): {:?}", hex::encode(&key));
+        // println!("RS | update() ops (MsgPack): {:?}", hex::encode(&ops));
 
         let key_heap = key.clone();
         let ops_heap = ops.clone();
@@ -158,7 +158,7 @@ impl ttbox::Host for SyncWasmStates {
 
         let task = Box::new(TxCtx {
             cb: Box::new(move || {
-                println!("RS | Executing update in TX thread...");
+                // println!("RS | Executing update in TX thread...");
 
                 unsafe {
                     if let Err(err) = begin_transaction() {
@@ -174,7 +174,7 @@ impl ttbox::Host for SyncWasmStates {
 
                 let mut result_tuple: *mut ffi::types::BoxTupleT = std::ptr::null_mut();
 
-                println!("RS | Calling box_update...");
+                // println!("RS | Calling box_update...");
                 let rc = unsafe {
                     ffi::r#box::box_update(
                         index.space_id as u32,
@@ -191,7 +191,7 @@ impl ttbox::Host for SyncWasmStates {
                 if rc != 0 {
                     unsafe { ffi::tnt::box_txn_rollback(); }
                     let err = unsafe { handle_tarantool_error() };
-                    println!("RS | Update error: {}", err.message);
+                    // println!("RS | Update error: {}", err.message);
                     let _ = tx.send(Err(err));
                     return;
                 }
@@ -205,7 +205,7 @@ impl ttbox::Host for SyncWasmStates {
                 }
 
                 let tuple_id = result_tuple as u64;
-                println!("RS | Update successful, tuple_id: {}", tuple_id);
+                // println!("RS | Update successful, tuple_id: {}", tuple_id);
                 let _ = tx.send(Ok(tuple_id));
             }),
         });
@@ -217,20 +217,20 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn replace(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        println!("RS | replace() called for space_id: {}", space.id);
+        // println!("RS | replace() called for space_id: {}", space.id);
 
         if tup.is_empty() {
             return Err(BoxError::new("Tuple data is empty", "validation error", 1));
         }
 
-        println!("RS | replace() tuple (MsgPack): {:?}", hex::encode(&tup));
+        // println!("RS | replace() tuple (MsgPack): {:?}", hex::encode(&tup));
 
         let tup_heap = tup.clone();
         let (tx, rx) = oneshot::channel();
 
         let task = Box::new(TxCtx {
             cb: Box::new(move || {
-                println!("RS | Executing replace in TX thread...");
+                // println!("RS | Executing replace in TX thread...");
 
                 unsafe {
                     if let Err(err) = begin_transaction() {
@@ -243,13 +243,13 @@ impl ttbox::Host for SyncWasmStates {
                 let tup_end = unsafe { tup_start.add(tup_heap.len()) };
                 let mut result_tuple: *mut ffi::types::BoxTupleT = std::ptr::null_mut();
 
-                println!("RS | Calling box_replace...");
+                // println!("RS | Calling box_replace...");
                 let rc = unsafe { ffi::r#box::box_replace(space.id as u32, tup_start, tup_end, &mut result_tuple) };
 
                 if rc != 0 {
                     unsafe { ffi::tnt::box_txn_rollback(); }
                     let err = unsafe { handle_tarantool_error() };
-                    println!("RS | Replace error: {}", err.message);
+                    // println!("RS | Replace error: {}", err.message);
                     let _ = tx.send(Err(err));
                     return;
                 }
@@ -263,7 +263,7 @@ impl ttbox::Host for SyncWasmStates {
                 }
 
                 let tuple_id = result_tuple as u64;
-                println!("RS | Replace successful, tuple_id: {}", tuple_id);
+                // println!("RS | Replace successful, tuple_id: {}", tuple_id);
                 let _ = tx.send(Ok(tuple_id));
             }),
         });
@@ -275,17 +275,17 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn upsert(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        println!(
-            "RS | upsert() called for space_id: {}, index_id: {}, index_base: {}",
-            index.space_id, index.id, index.index_base
-        );
+        // println!(
+        //     "RS | upsert() called for space_id: {}, index_id: {}, index_base: {}",
+        //     index.space_id, index.id, index.index_base
+        // );
 
         if key.is_empty() || ops.is_empty() {
             return Err(BoxError::new("Key or ops data is empty", "validation error", 1));
         }
 
-        println!("RS | upsert() key (MsgPack): {:?}", hex::encode(&key));
-        println!("RS | upsert() ops (MsgPack): {:?}", hex::encode(&ops));
+        // println!("RS | upsert() key (MsgPack): {:?}", hex::encode(&key));
+        // println!("RS | upsert() ops (MsgPack): {:?}", hex::encode(&ops));
 
         let key_heap = key.clone();
         let ops_heap = ops.clone();
@@ -293,7 +293,7 @@ impl ttbox::Host for SyncWasmStates {
 
         let task = Box::new(TxCtx {
             cb: Box::new(move || {
-                println!("RS | Executing upsert in TX thread...");
+                // println!("RS | Executing upsert in TX thread...");
 
                 unsafe {
                     if let Err(err) = begin_transaction() {
@@ -309,7 +309,7 @@ impl ttbox::Host for SyncWasmStates {
 
                 let mut result_tuple: *mut ffi::types::BoxTupleT = std::ptr::null_mut();
 
-                println!("RS | Calling box_upsert...");
+                // println!("RS | Calling box_upsert...");
                 let rc = unsafe {
                     ffi::r#box::box_upsert(
                         index.space_id as u32,
@@ -326,7 +326,7 @@ impl ttbox::Host for SyncWasmStates {
                 if rc != 0 {
                     unsafe { ffi::tnt::box_txn_rollback(); }
                     let err = unsafe { handle_tarantool_error() };
-                    println!("RS | Upsert error: {}", err.message);
+                    // println!("RS | Upsert error: {}", err.message);
                     let _ = tx.send(Err(err));
                     return;
                 }
@@ -340,7 +340,7 @@ impl ttbox::Host for SyncWasmStates {
                 }
 
                 let tuple_id = result_tuple as u64;
-                println!("RS | Upsert successful, tuple_id: {}", tuple_id);
+                // println!("RS | Upsert successful, tuple_id: {}", tuple_id);
                 let _ = tx.send(Ok(tuple_id));
             }),
         });
@@ -352,23 +352,23 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn tt_delete(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        println!(
-            "RS | delete() called for space_id: {}, index_id: {}",
-            index.space_id, index.id
-        );
+        // println!(
+        //     "RS | delete() called for space_id: {}, index_id: {}",
+        //     index.space_id, index.id
+        // );
 
         if key.is_empty() {
             return Err(BoxError::new("Key data is empty", "validation error", 1));
         }
 
-        println!("RS | delete() key (MsgPack): {:?}", hex::encode(&key));
+        // println!("RS | delete() key (MsgPack): {:?}", hex::encode(&key));
 
         let key_heap = key.clone();
         let (tx, rx) = oneshot::channel();
 
         let task = Box::new(TxCtx {
             cb: Box::new(move || {
-                println!("RS | Executing delete in TX thread...");
+                // println!("RS | Executing delete in TX thread...");
 
                 unsafe {
                     if let Err(err) = begin_transaction() {
@@ -382,7 +382,7 @@ impl ttbox::Host for SyncWasmStates {
 
                 let mut result_tuple: *mut ffi::types::BoxTupleT = std::ptr::null_mut();
 
-                println!("RS | Calling box_delete...");
+                // println!("RS | Calling box_delete...");
                 let rc = unsafe {
                     ffi::r#box::box_delete(
                         index.space_id as u32,
@@ -396,7 +396,7 @@ impl ttbox::Host for SyncWasmStates {
                 if rc != 0 {
                     unsafe { ffi::tnt::box_txn_rollback(); }
                     let err = unsafe { handle_tarantool_error() };
-                    println!("RS | Delete error: {}", err.message);
+                    // println!("RS | Delete error: {}", err.message);
                     let _ = tx.send(Err(err));
                     return;
                 }
@@ -410,7 +410,7 @@ impl ttbox::Host for SyncWasmStates {
                 }
 
                 let tuple_id = result_tuple as u64;
-                println!("RS | Delete successful, tuple_id: {}", tuple_id);
+                // println!("RS | Delete successful, tuple_id: {}", tuple_id);
                 let _ = tx.send(Ok(tuple_id));
             }),
         });
@@ -423,13 +423,13 @@ impl ttbox::Host for SyncWasmStates {
     
 
     async fn truncate(&mut self, space: Space) -> Result<(), BoxError> {
-        println!("RS | truncate() called for space_id: {}", space.id);
+        // println!("RS | truncate() called for space_id: {}", space.id);
 
         let (tx, rx) = oneshot::channel();
 
         let task = Box::new(TxCtx {
             cb: Box::new(move || {
-                println!("RS | Executing truncate in TX thread...");
+                // println!("RS | Executing truncate in TX thread...");
 
                 unsafe {
                     if let Err(err) = begin_transaction() {
@@ -443,7 +443,7 @@ impl ttbox::Host for SyncWasmStates {
                 if rc != 0 {
                     unsafe { ffi::tnt::box_txn_rollback(); }
                     let err = unsafe { handle_tarantool_error() };
-                    println!("RS | Truncate error: {}", err.message);
+                    // println!("RS | Truncate error: {}", err.message);
                     let _ = tx.send(Err(err));
                     return;
                 }
@@ -456,7 +456,7 @@ impl ttbox::Host for SyncWasmStates {
                     }
                 }
 
-                println!("RS | Truncate successful");
+                // println!("RS | Truncate successful");
                 let _ = tx.send(Ok(()));
             }),
         });
