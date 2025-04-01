@@ -1,12 +1,14 @@
 use crate::bindings::docs::adder::tuple;
-use crate::bindings::docs::adder::types::{BoxError, BoxTuple, TupleFormat, KeyDef};
+use crate::bindings::docs::adder::types::{BoxError, BoxTuple, TupleFormat, KeyDef, RawPtr};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::TupleIteratorImpl;
+use crate::tx::{tx_push, tx_flush, TxCtx};
 
 use wasmtime_wasi::async_trait;
 use wasmtime::component::Resource;
+use tokio::sync::oneshot;
 
 pub type TupleField = u64;
 
@@ -187,16 +189,47 @@ impl Drop for TupleIteratorImpl {
     }
 }
 
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Send for SendPtr<T> {}
+unsafe impl<T> Sync for SendPtr<T> {}
+
 #[async_trait]
 impl tuple::HostTupleIterator for SyncWasmStates {
     async fn new_tuple_iterator(&mut self, tup: BoxTuple) -> Result<Resource<TupleIteratorImpl>, BoxError> {
-        let iter_ptr: *mut ffi::types::BoxTupleIteratorT = unsafe { ffi::tuple::box_tuple_iterator(tup as *mut _) };
-        if iter_ptr.is_null() {
-            return Err(unsafe { handle_tarantool_error() });
-        }
-
+        let (tx, rx) = oneshot::channel();
+    
+        let task = Box::new(TxCtx {
+            cb: Box::new(move || {
+                println!("RS | Executing new_tuple_iterator in TX thread...");
+    
+                let iter_ptr: *mut ffi::types::BoxTupleIteratorT =
+                    unsafe { ffi::tuple::box_tuple_iterator(tup as *mut _) };
+                if iter_ptr.is_null() {
+                    let err = unsafe { handle_tarantool_error() };
+                    println!("RS | new_tuple_iterator error: {}", err.message);
+                    let _ = tx.send(Err(err));
+                    return;
+                }
+    
+                println!("RS | new_tuple_iterator successful");
+                let _ = tx.send(Ok(SendPtr(iter_ptr)));
+            }),
+        });
+    
+        tx_push(task);
+        tx_flush();
+    
+        let SendPtr(iter_ptr) = rx.await.unwrap_or_else(|_| {
+            Err(BoxError::new(
+                "Failed to receive response from TX thread",
+                "internal error",
+                500,
+            ))
+        })?;
+    
         Ok(self.0.lock().unwrap().table.push(TupleIteratorImpl { iter: iter_ptr }).unwrap())
-    }
+    }    
+        
 
     async fn position(&mut self, self_: Resource<tuple::TupleIterator>,) -> u32 {
         let mut guard = self.0.lock().unwrap();
@@ -237,10 +270,6 @@ impl tuple::HostTupleIterator for SyncWasmStates {
             ))?;
 
         let res = unsafe { ffi::tuple::box_tuple_seek(iter.iter, pos) };
-        if res.is_null() {
-            let err = BoxError::new("Iterator end", "iterator error", 3);
-            return Err(err);
-        }
         Ok(res as TupleField)
     }
 
@@ -257,12 +286,6 @@ impl tuple::HostTupleIterator for SyncWasmStates {
             ))?;
 
         let res = unsafe { ffi::tuple::box_tuple_next(iter.iter) };
-
-        if res.is_null() {
-            let err = BoxError::new("Iterator end", "iterator error", 3);
-            return Err(err);
-        }
-
         Ok(res as u64)
     }
 

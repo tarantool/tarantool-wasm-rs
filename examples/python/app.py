@@ -329,6 +329,42 @@ def test_box_tuple():
     say.say_info("PY | box-tuple test completed")
 
 
+def test_tuple_iterator():
+    say.say_info("PY | Start box-tuple test")
+
+    tf = tuple_format.default()
+    say.say_info(f"PY | Default format (ptr): {hex(tf)}")
+
+    data = encode([1, "abc", {"x": 42}])
+    tup = tt_tuple.new(tf, data)
+    say.say_info(f"PY | Created tuple {[1, 'abc', {'x': 42}]}, (ptr): {hex(tup)}")
+
+    titer = tt_tuple.TupleIterator.new_tuple_iterator(tup)
+    say.say_info("PY | Create tuple iterator")
+
+    while True:
+        field = titer.next()
+        if not field:
+            break
+        say.say_info(f"PY | Iterator pos = {titer.position()}: {decode(ptr=field)}")
+
+    pos = titer.position()
+    say.say_info(f"PY | Position after full iteration: {pos}")
+
+    titer.rewind()
+    say.say_info("PY | Rewound iterator")
+
+    field = titer.next()
+    say.say_info(f"PY | call next, pos: {titer.position()}")
+    say.say_info(f"PY | After rewind, first field: {decode(ptr=field)}")
+
+    res = titer.seek(1)
+    say.say_info(f"PY | call seek(1), pos: {titer.position()}")
+
+    field = titer.next()
+    say.say_info(f"PY | Field at position {titer.position()}: {decode(ptr=field)}")
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
@@ -339,7 +375,8 @@ class Run(exports.Run):
             # test_sequence()
             # test_key_def()
             # test_tuple_format()
-            test_box_tuple()
+            # test_box_tuple()
+            test_tuple_iterator()
 
         except Exception as e:
             say.say_error(str(e))
