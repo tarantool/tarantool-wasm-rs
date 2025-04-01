@@ -148,11 +148,110 @@ interface msgpack {
   };
 
   /// Encodes a JSON-like structure into MsgPack format.
+  ///
+  /// This function accepts a UTF-8 encoded JSON string (as a byte array)
+  /// and returns the equivalent data in MessagePack format.
+  ///
+  /// ### Parameters
+  /// - `data`: A byte array containing a valid UTF-8 encoded JSON string.
+  ///
+  /// ### Returns
+  /// - A byte array containing the same structure encoded in MessagePack format.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import msgpack
+  /// import json
+  ///
+  /// obj = {"key": "value", "num": 123}
+  /// json_bytes = json.dumps(obj).encode('utf-8')
+  /// encoded_obj = msgpack.encode(json_bytes)
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { encode } from 'docs:adder/msgpack@0.1.0';
+  ///
+  /// const obj = { key: "value", num: 123 };
+  /// const jsonString = JSON.stringify(obj);
+  /// const jsonBytes = new TextEncoder().encode(jsonString);
+  /// const encodedObj = await encode(jsonBytes);
+  /// ```
   encode: func(data: list<u8>) -> result<list<u8>, box-error>;
 
   /// Decodes a MsgPack-encoded byte array back into a JSON-like structure.
+  ///
+  /// This function takes a byte array containing data in MessagePack format
+  /// and returns a UTF-8 encoded JSON string as a byte array. You can then
+  /// decode the string and parse it into a native data structure.
+  ///
+  /// ### Parameters
+  /// - `data`: A byte array containing data encoded in MessagePack format.
+  ///
+  /// ### Returns
+  /// - A byte array containing a UTF-8 encoded JSON string.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import msgpack
+  /// import json
+  ///
+  /// msgpack_bytes: bytes = ...
+  /// decoded_json_bytes: bytes = msgpack.decode(msgpack_bytes)
+  /// decoded_json_string = decoded_json_bytes.decode('utf-8')
+  /// obj = json.loads(decoded_json_string)
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { decode } from 'docs:adder/msgpack@0.1.0';
+  ///
+  /// const msgPackBytes = ...; // Uint8Array
+  /// const decodedJsonBytes = await decode(msgPackBytes);
+  /// const decodedJsonString = new TextDecoder().decode(decodedJsonBytes);
+  /// const obj = JSON.parse(decodedJsonString);
+  /// ```
   decode: func(data: list<u8>) -> result<list<u8>, box-error>;
 
+  /// Decodes a MsgPack-encoded value from a raw pointer into a JSON-like structure.
+  ///
+  /// This function is used when the MsgPack data is already located in memory
+  /// (e.g. returned from a low-level API) and referenced via a raw pointer.
+  /// It reads the value starting at the given pointer and returns a UTF-8 encoded
+  /// JSON string as a byte array.
+  ///
+  /// ### Parameters
+  /// - `ptr`: A raw pointer (`u64`) to the beginning of the MsgPack-encoded value.
+  ///
+  /// ### Returns
+  /// - A byte array containing a UTF-8 encoded JSON string.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import msgpack
+  /// import json
+  ///
+  /// ptr: int = ...  # obtained from low-level API
+  /// decoded_json_bytes: bytes = msgpack.decode_from_raw_ptr(ptr)
+  /// decoded_json_string = decoded_json_bytes.decode('utf-8')
+  /// obj = json.loads(decoded_json_string)
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { decodeFromRawPtr } from 'docs:adder/msgpack@0.1.0';
+  ///
+  /// const ptr = ...; // e.g. returned from an iterator
+  /// const decodedJsonBytes = await decodeFromRawPtr(ptr);
+  /// const decodedJsonString = new TextDecoder().decode(decodedJsonBytes);
+  /// const obj = JSON.parse(decodedJsonString);
+  /// ```
   decode-from-raw-ptr: func(ptr: raw-ptr) -> result<list<u8>, box-error>;
 }
 
