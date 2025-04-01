@@ -7,11 +7,16 @@ bindgen!({
     async: true,
     with: {
         "docs:adder/types/iterator": IteratorImpl,
+        "docs:adder/tuple/tuple-iterator": TupleIteratorImpl,
     }
 });
 
 pub struct IteratorImpl {
     iter: *mut ffi::types::BoxIteratorT,
+}
+
+pub struct TupleIteratorImpl {
+    iter: *mut ffi::types::BoxTupleIteratorT,
 }
 
 pub mod ttbox;

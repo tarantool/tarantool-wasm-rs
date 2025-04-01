@@ -118,14 +118,6 @@ interface types {
       next: func() -> result<box-tuple, box-error>;
     }
 
-    // resource tuple-iterator {
-    //     new-tuple-iterator: static func(%tuple: box-tuple) -> result<tuple-iterator, box-error>;
-    //     position: func() -> u32;
-    //     rewind: func();
-    //     seek: func(pos: u32) -> result<tuple-field, box-error>;
-    //     next: func() -> result<tuple-field, box-error>;
-    // }
-
     record sequence {
         id: s32,
     }
@@ -146,11 +138,13 @@ interface types {
     type key-def = u64;
     type tuple-format = u64;
     type tuple-field = u64;
+    type raw-ptr = u64;
 }
 
 interface msgpack {
   use types.{
     box-error,
+    raw-ptr,
   };
 
   /// Encodes a JSON-like structure into MsgPack format.
@@ -158,6 +152,8 @@ interface msgpack {
 
   /// Decodes a MsgPack-encoded byte array back into a JSON-like structure.
   decode: func(data: list<u8>) -> result<list<u8>, box-error>;
+
+  decode-from-raw-ptr: func(ptr: raw-ptr) -> result<list<u8>, box-error>;
 }
 
 interface ttbox {
@@ -410,6 +406,14 @@ interface %tuple {
   validate: func(t: box-tuple, format: tuple-format) -> bool;
   compare-with-key: func(%tuple: box-tuple, key: list<u8>, key-def: key-def) -> s32;
   compare: func(key-def: key-def, left: box-tuple, right: box-tuple) -> s32;
+
+  resource tuple-iterator {
+    new-tuple-iterator: static func(%tuple: box-tuple) -> result<tuple-iterator, box-error>;
+    position: func() -> u32;
+    rewind: func();
+    seek: func(pos: u32) -> result<tuple-field, box-error>;
+    next: func() -> result<tuple-field, box-error>;
+  }
 }
 
 // =================================================================================================

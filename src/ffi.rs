@@ -23,6 +23,12 @@ pub mod types {
         _private: [u8; 0], // Opaque type
     }
 
+
+    #[repr(C)]
+    pub struct BoxTupleIteratorT {
+        _private: [u8; 0], // Opaque type
+    }
+
     #[repr(C)]
     pub struct BoxKeyDefT {
         _private: [u8; 0], // Opaque type
@@ -222,7 +228,7 @@ pub mod index {
 }
 
 pub mod tuple {
-    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT, BoxTupleT};
+    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT, BoxTupleT, BoxTupleIteratorT};
 
     extern "C" {
         pub fn box_key_def_new_v2(
@@ -334,5 +340,18 @@ pub mod tuple {
             multikey_idx: i32,
             key_size_ptr: *mut u32
         ) -> *mut libc::c_char;
+
+
+        pub fn box_tuple_iterator(tuple: *mut BoxTupleT) -> *mut BoxTupleIteratorT;
+
+        pub fn box_tuple_iterator_free(iterator: *mut BoxTupleIteratorT);
+
+        pub fn box_tuple_position(iterator: *mut BoxTupleIteratorT) -> u32;
+
+        pub fn box_tuple_rewind(iterator: *mut BoxTupleIteratorT);
+
+        pub fn box_tuple_seek(iterator: *mut BoxTupleIteratorT, fieldno: u32) -> *const libc::c_char;
+
+        pub fn box_tuple_next(iterator: *mut BoxTupleIteratorT) -> *const libc::c_char;
     }
 }

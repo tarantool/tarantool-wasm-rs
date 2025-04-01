@@ -3,8 +3,10 @@ use crate::bindings::docs::adder::types::{BoxError, BoxTuple, TupleFormat, KeyDe
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::TupleIteratorImpl;
 
 use wasmtime_wasi::async_trait;
+use wasmtime::component::Resource;
 
 pub type TupleField = u64;
 
@@ -169,5 +171,106 @@ impl tuple::Host for SyncWasmStates {
                 key_def as *mut _
             )
         }
+    }
+}
+
+unsafe impl Send for TupleIteratorImpl {}
+unsafe impl Sync for TupleIteratorImpl {}
+
+impl Drop for TupleIteratorImpl {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.iter.is_null() {
+                ffi::tuple::box_tuple_iterator_free(self.iter);
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl tuple::HostTupleIterator for SyncWasmStates {
+    async fn new_tuple_iterator(&mut self, tup: BoxTuple) -> Result<Resource<TupleIteratorImpl>, BoxError> {
+        let iter_ptr: *mut ffi::types::BoxTupleIteratorT = unsafe { ffi::tuple::box_tuple_iterator(tup as *mut _) };
+        if iter_ptr.is_null() {
+            return Err(unsafe { handle_tarantool_error() });
+        }
+
+        Ok(self.0.lock().unwrap().table.push(TupleIteratorImpl { iter: iter_ptr }).unwrap())
+    }
+
+    async fn position(&mut self, self_: Resource<tuple::TupleIterator>,) -> u32 {
+        let mut guard = self.0.lock().unwrap();
+        let iter = guard.table.get_mut(&self_)
+            .map_err(|e| BoxError::new(
+                format!("Resource error: {}", e),
+                "internal".to_string(),
+                2
+            )).unwrap();
+
+        let res = unsafe { ffi::tuple::box_tuple_position(iter.iter) };
+        res
+    }
+
+    async fn rewind(&mut self, self_: Resource<tuple::TupleIterator>,) {
+        let mut guard = self.0.lock().unwrap();
+        let iter = guard.table.get_mut(&self_)
+            .map_err(|e| BoxError::new(
+                format!("Resource error: {}", e),
+                "internal".to_string(),
+                2
+            )).unwrap();
+
+        unsafe { ffi::tuple::box_tuple_rewind(iter.iter) };
+    }
+
+    async fn seek(
+        &mut self,
+        self_: Resource<tuple::TupleIterator>,
+        pos: u32,
+    ) -> Result<TupleField, BoxError> {
+        let mut guard = self.0.lock().unwrap();
+        let iter = guard.table.get_mut(&self_)
+            .map_err(|e| BoxError::new(
+                format!("Resource error: {}", e),
+                "internal".to_string(),
+                2
+            ))?;
+
+        let res = unsafe { ffi::tuple::box_tuple_seek(iter.iter, pos) };
+        if res.is_null() {
+            let err = BoxError::new("Iterator end", "iterator error", 3);
+            return Err(err);
+        }
+        Ok(res as TupleField)
+    }
+
+    async fn next(
+        &mut self,
+        self_: Resource<tuple::TupleIterator>,
+    ) -> Result<TupleField, BoxError> {
+        let mut guard = self.0.lock().unwrap();
+        let iter = guard.table.get_mut(&self_)
+            .map_err(|e| BoxError::new(
+                format!("Resource error: {}", e),
+                "internal".to_string(),
+                2
+            ))?;
+
+        let res = unsafe { ffi::tuple::box_tuple_next(iter.iter) };
+
+        if res.is_null() {
+            let err = BoxError::new("Iterator end", "iterator error", 3);
+            return Err(err);
+        }
+
+        Ok(res as u64)
+    }
+
+    async fn drop(
+        &mut self,
+        self_: Resource<tuple::TupleIterator>
+    ) -> Result<(), wasmtime::Error> {
+        self.0.lock().unwrap().table.delete(self_)?;
+        Ok(())
     }
 }

@@ -17,9 +17,12 @@ def encode(obj):
         raise
 
 
-def decode(msgpack_bytes):
+def decode(*, data = None, ptr = None):
     try:
-        decoded_json_bytes: bytes = msgpack.decode(msgpack_bytes)
+        if ptr:
+            decoded_json_bytes: bytes = msgpack.decode_from_raw_ptr(ptr)
+        elif data:
+            decoded_json_bytes: bytes = msgpack.decode(data)
         decoded_json_string = decoded_json_bytes.decode('utf-8')
         return json.loads(decoded_json_string)
     except Exception as error:
@@ -248,11 +251,11 @@ def test_box_tuple():
     say.say_info("PY | Start box-tuple test")
 
     tf = tuple_format.default()
-    say.say_info(f"PY | Default format: {tf}")
+    say.say_info(f"PY | Default format (ptr): {hex(tf)}")
 
     data = encode([1, "abc", {"x": 42}])
     tup = tt_tuple.new(tf, data)
-    say.say_info(f"PY | Created tuple: {tup}")
+    say.say_info(f"PY | Created tuple {str([1, "abc", {"x": 42}])}, (ptr): {hex(tup)}")
 
     rc = tt_tuple.ref(tup)
     say.say_info(f"PY | tuple.ref() => {rc}")
@@ -264,33 +267,33 @@ def test_box_tuple():
     say.say_info(f"PY | bsize = {size}")
 
     buf = tt_tuple.to_buf(tup)
-    say.say_info(f"PY | to_buf = {decode(buf)}")
+    say.say_info(f"PY | to_buf (decoded) = {decode(data=buf)}")
 
     tf2 = tt_tuple.format(tup)
-    say.say_info(f"PY | format = {tf2}")
+    say.say_info(f"PY | format (ptr) = {hex(tf2)}")
 
     for i in range(fc):
         field = tt_tuple.field(tup, i)
         if isinstance(field, int):
-            say.say_info(f"PY | field[{i}] = {field}")
+            say.say_info(f"PY | field[{i}] = {decode(ptr=field)}")
         else:
             say.say_info(f"PY | field[{i}] error: {field}")
 
     path_result = tt_tuple.field_by_path(tup, "[3].x", 1)
     if isinstance(path_result, int):
-        say.say_info(f"PY | field_by_path = {path_result}")
+        say.say_info(f"PY | field_by_path \"[3].x\" = {decode(ptr=path_result)}")
     else:
         say.say_info(f"PY | field_by_path error: {path_result}")
 
     update_expr = encode([["=", 1, "xyz"]])
     updated = tt_tuple.update(tup, update_expr)
-    updated_val = decode(tt_tuple.to_buf(updated))
-    say.say_info(f"PY | updated tuple = {updated_val}")
+    updated_val = decode(data=tt_tuple.to_buf(updated))
+    say.say_info(f"PY | updated tuple (tuple.update([[\"=\", 1, \"xyz\"]])) = {updated_val}")
 
     upsert_expr = encode([["+", 1, 100]])
     upserted = tt_tuple.upsert(tup, upsert_expr)
-    upserted_val = decode(tt_tuple.to_buf(upserted))
-    say.say_info(f"PY | upserted tuple = {upserted_val}")
+    upserted_val = decode(data=tt_tuple.to_buf(upserted))
+    say.say_info(f"PY | upserted tuple (tuple.upsert([[\"+\", 1, 100]])) = {upserted_val}")
 
     valid = tt_tuple.validate(tup, tf)
     say.say_info(f"PY | validate = {valid}")
@@ -312,6 +315,7 @@ def test_box_tuple():
     another_data = encode([1, "abc", {"x": 42}])
     other = tt_tuple.new(tf, another_data)
     cmp_result = tt_tuple.compare(kd, tup, other)
+    say.say_info(f"PY | tuple = {decode(data=tt_tuple.to_buf(tup))}, other = {decode(data=tt_tuple.to_buf(other))}")
     say.say_info(f"PY | compare(tup, other) = {cmp_result}")
 
     # Compare with key
