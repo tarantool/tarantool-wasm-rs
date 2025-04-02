@@ -47,98 +47,89 @@ world adder {
 
 interface types {
 
-    record box-error {
-        message: string,
-        %type: string,
-        code: u32,
-        payload: option<list<tuple<string, string>>>,
-        file: option<string>,
-        line: option<u32>,
-    }
+  record box-error {
+    message: string,                        // Human-readable message.
+    %type: string,                          // Error type: e.g., "ClientError", "SocketError".
+    code: u32,                              // IPROTO or internal error code.
+    payload: option<list<tuple<string, string>>>,  // Optional additional fields.
+    file: option<string>,                   // File where error originated (if available).
+    line: option<u32>,                      // Line number in the source file.
+  }
 
-    record space {
-        id: s32,
-    }
+  record space {
+    id: s32,  // Unique identifier of the space.
+  }
 
-    record index {
-        id: s32,
-        space-id: s32,
-        index-base: s32,
-    }
+  record index {
+    id: s32,           // Index ID (within space).
+    space-id: s32,     // ID of the parent space.
+    index-base: s32,   // 0 (C-style) or 1 (Lua-style) indexing.
+  }
 
-    type box-tuple = u64;
+  enum log-level {
+    s-fatal,       // Critical failure, Tarantool exits
+    s-syserror,    // System error (errno-based)
+    s-error,       // Recoverable error
+    s-crit,        // Severe error
+    s-warn,        // Warning
+    s-info,        // Informational message
+    s-verbose,     // Verbose message
+    s-debug,       // Debug message
+  }
 
-    enum log-level {
-        s-fatal,
-        s-syserror,
-        s-error,
-        s-crit,
-        s-warn,
-        s-info,
-        s-verbose,
-        s-debug,
-    }
+  record session {
+    id: s64,  // Unique session identifier
+  }
+  
+  enum txn-isolation-level {
+    txn-isolation-default, // take isolation level from global default_isolation_level.
+    txn-isolation-best-effort, // determine isolation level automatically (default).
+    txn-isolation-read-committed, // allow to read committed, but not confirmed changes.
+    txn-isolation-read-confirmed, // allow to read only confirmed changes.
+    txn-isolation-linearizable, // allow to read only the changes confirmed on any cluster node.
+  }
 
-    record session {
-        id: s64,
-    }
+  enum iterator-type {
+    iter-eq,                // Equal
+    iter-req,               // Reverse EQ
+    iter-all,               // Full scan
+    iter-lt, iter-le,       // Less than / less equal
+    iter-ge, iter-gt,       // Greater equal / greater than
+    iter-bits-all-set,      // Bitmask: all bits set
+    iter-bits-any-set,      // Bitmask: any bit set
+    iter-bits-all-not-set,  // Bitmask: all not set
+    iter-overlaps,          // Range overlaps
+    iter-neighbor,          // Spatial index
+    iter-np, iter-pp        // Spatial index variants
+  }
 
-    enum txn-isolation-level {
-      /** take isolation level from global default_isolation_level. */
-      txn-isolation-default,
-      /** determine isolation level automatically (default). */
-      txn-isolation-best-effort,
-      /** allow to read committed, but not confirmed changes. */
-      txn-isolation-read-committed,
-      /** allow to read only confirmed changes. */
-      txn-isolation-read-confirmed,
-      /** allow to read only the changes confirmed on any cluster node. */
-      txn-isolation-linearizable,
-    }
+  resource iterator {
+    new-iterator: static func(index: index, iterator-type: iterator-type, key: list<u8>) -> result<iterator, box-error>;
+    next: func() -> result<box-tuple, box-error>;  // Fetch next tuple.
+  }
 
-    enum iterator-type {
-      iter-eq,
-      iter-req,
-      iter-all,
-      iter-lt,
-      iter-le,
-      iter-ge,
-      iter-gt,
-      iter-bits-all-set,
-      iter-bits-any-set,
-      iter-bits-all-not-set,
-      iter-overlaps,
-      iter-neighbor,
-      iter-np,
-      iter-pp,
-    }
+  record sequence {
+    id: s32,  // Sequence ID
+  }
 
-    resource iterator {
-      new-iterator: static func(index: index, iterator-type: iterator-type, key: list<u8>) -> result<iterator, box-error>;
-      next: func() -> result<box-tuple, box-error>;
-    }
+  flags key-part-flags {
+    is-nullable,    // Allows NULL
+    exclude-null,   // Exclude NULLs in comparison
+  }
 
-    record sequence {
-        id: s32,
-    }
+  record key-part {
+    field-no: u32,                      // Index of field in tuple
+    field-type: string,                 // E.g. "unsigned", "string"
+    collation: option<string>,         // Optional collation name
+    path: option<string>,              // JSON path (for multikeys)
+    %flags: key-part-flags,            // Nullable/exclude-null flags
+  }
 
-    flags key-part-flags {
-      is-nullable,
-      exclude-null,
-    }
-
-    record key-part {
-        field-no: u32,
-        field-type: string,
-        collation: option<string>,
-        path: option<string>,
-        %flags: key-part-flags,
-    }
-
-    type key-def = u64;
-    type tuple-format = u64;
-    type tuple-field = u64;
-    type raw-ptr = u64;
+  type box-tuple = u64;
+  type key-def = u64;
+  type tuple-format = u64;
+  type tuple-field = u64;
+  type raw-ptr = u64;
 }
 
 interface msgpack {
@@ -282,7 +273,6 @@ interface ttbox {
   /// ```
   schema-version: func() -> s64;
 
-
   /// Retrieves a space object by its name.
   ///
   /// This function performs a lookup for a space by name and returns a reference used in subsequent operations.
@@ -303,7 +293,6 @@ interface ttbox {
   /// print("Space ID:", space.id)
   /// ```
   space-by-name: func(name: string) -> result<space, box-error>;
-
 
   /// Retrieves an index object by name within a space.
   ///
@@ -346,14 +335,15 @@ interface ttbox {
   /// from adder.imports import ttbox as box
   /// from adder.imports import tuple as tt_tuple
   /// from adder.imports import msgpack
+  /// import json
   ///
-  /// tup_bytes = msgpack.encode([1, "Alice", 25])
+  /// tup = [1, "Alice", 25]
+  /// tup_bytes = msgpack.encode(json.dumps(tup).encode('utf-8'))
   /// inserted = box.insert(space, tup_bytes)
   /// print("Inserted ptr: ", hex(inserted))
   /// print("Inserted tuple: ", msgpack.decode(tt_tuple.to_buf(inserted)))
   /// ```
   insert: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
-
 
   /// Updates an existing tuple by key in the specified index.
   ///
@@ -375,15 +365,17 @@ interface ttbox {
   /// from adder.imports import ttbox as box
   /// from adder.imports import tuple as tt_tuple
   /// from adder.imports import msgpack
+  /// import json
   ///
-  /// key = msgpack.encode([1])
-  /// ops = msgpack.encode([["=", 2, 26]])
-  /// updated = box.update(index, key, ops)
+  /// key = [1]
+  /// ops = [["=", 2, 26]]
+  /// key_bytes = msgpack.encode(json.dumps(key).encode('utf-8'))
+  /// ops_bytes = msgpack.encode(json.dumps(ops).encode('utf-8'))
+  /// updated = box.update(index, key_bytes, ops_bytes)
   /// print("Updated ptr: ", hex(updated))
   /// print("Updated tuple: ", msgpack.decode(tt_tuple.to_buf(updated)))
   /// ```
   update: func(index: index, key: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
-
 
   /// Replaces an existing tuple or inserts a new one.
   ///
@@ -401,14 +393,15 @@ interface ttbox {
   /// from adder.imports import ttbox as box
   /// from adder.imports import tuple as tt_tuple
   /// from adder.imports import msgpack
+  /// import json
   ///
-  /// tup = msgpack.encode([2, "Bob Jr.", 31])
-  /// replaced = box.replace(space, tup)
+  /// tup = [2, "Bob Jr.", 31]
+  /// tup_bytes = msgpack.encode(json.dumps(tup).encode('utf-8'))
+  /// replaced = box.replace(space, tup_bytes)
   /// print("Replaced ptr: ", hex(replaced))
   /// print("Replaced tuple: ", decode(data=tt_tuple.to_buf(replaced)))
   /// ```
   replace: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
-
 
   /// Performs an UPSERT operation: update if exists, insert otherwise.
   ///
@@ -426,13 +419,15 @@ interface ttbox {
   /// ```python
   /// from adder.imports import ttbox as box
   /// from adder.imports import msgpack
+  /// import json
   ///
-  /// tup = msgpack.encode([6, "Frank", 50])
-  /// ops = msgpack.encode([["+", 2, 1]])
-  /// box.upsert(index, tup, ops)
+  /// tup = [6, "Frank", 50]
+  /// ops = [["+", 2, 1]]
+  /// tup_bytes = msgpack.encode(json.dumps(tup).encode('utf-8'))
+  /// ops_bytes = msgpack.encode(json.dumps(ops).encode('utf-8'))
+  /// box.upsert(index, tup_bytes, ops_bytes)
   /// ```
   upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
-
 
   /// Deletes a tuple by key from the specified index.
   ///
@@ -453,12 +448,13 @@ interface ttbox {
   /// from adder.imports import tuple as tt_tuple
   /// from adder.imports import msgpack
   ///
-  /// deleted = box.tt_delete(index, msgpack.encode([3]))
+  /// key = [3]
+  /// key_bytes = msgpack.encode(json.dumps(key).encode('utf-8'))
+  /// deleted = box.tt_delete(index, key_bytes)
   /// print("Deleted ptr: ", hex(deleted))
   /// print("Deleted tuple: ", msgpack.decode(data=tt_tuple.to_buf(deleted)))
   /// ```
   tt-delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
-
 
   /// Removes all tuples from the space.
   ///
@@ -488,28 +484,329 @@ interface say {
         log-level,
     };
 
-    say: func(level: log-level, msg: string);
-    say-error: func(msg: string);
-    say-crit: func(msg: string);
-    say-warn: func(msg: string);
-    say-info: func(msg: string);
-    say-verbose: func(msg: string);
-    say-debug: func(msg: string);
-    say-syserror: func(msg: string);
+  /// Logs a message with the given log level.
+  ///
+  /// This is the generic logging function. If you know the level at compile time,
+  /// consider using a level-specific function like `say-info` or `say-error`.
+  ///
+  /// ### Parameters
+  /// - `level`: A value from `log-level`, such as `s-info` or `s-error`.
+  /// - `msg`: The message string to log.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  /// from adder.imports.docs_adder_types import LogLevel
+  ///
+  /// say.say(LogLevel.S_WARN, "This is a warning message")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { say } from 'docs:adder/say@0.1.0';
+  ///
+  /// say('s-warn', "This is a warning message");
+  /// ```
+  say: func(level: log-level, msg: string);
+
+  /// Logs an error message.
+  ///
+  /// Equivalent to `say(s-error, msg)`.
+  ///
+  /// ### Parameters
+  /// - `msg`: The error message to log.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  ///
+  /// say.say_error("Something went wrong")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { sayError } from 'docs:adder/say@0.1.0';
+  ///
+  /// sayError("Something went wrong");
+  /// ```
+  say-error: func(msg: string);
+
+  /// Logs a critical error message.
+  ///
+  /// ### Parameters
+  /// - `msg`: The message to log.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  ///
+  /// say.say_crit("Unrecoverable condition encountered")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { sayCrit } from 'docs:adder/say@0.1.0';
+  ///
+  /// sayCrit("Unrecoverable condition encountered");
+  /// ```
+  say-crit: func(msg: string);
+
+  /// Logs a warning message.
+  ///
+  /// ### Parameters
+  /// - `msg`: The message to log.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  ///
+  /// say.say_warn("This is just a warning")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { sayWarn } from 'docs:adder/say@0.1.0';
+  ///
+  /// sayWarn("This is just a warning");
+  /// ```
+  say-warn: func(msg: string);
+
+  /// Logs an informational message.
+  ///
+  /// ### Parameters
+  /// - `msg`: The message to log.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  ///
+  /// say.say_info("Processing started")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { sayInfo } from 'docs:adder/say@0.1.0';
+  ///
+  /// sayInfo("Processing started");
+  /// ```
+  say-info: func(msg: string);
+
+  /// Logs a verbose message for detailed output.
+  ///
+  /// ### Parameters
+  /// - `msg`: The verbose message.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  ///
+  /// say.say_verbose("Detailed output")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { sayVerbose } from 'docs:adder/say@0.1.0';
+  ///
+  /// sayVerbose("Detailed output");
+  /// ```
+  say-verbose: func(msg: string);
+
+  /// Logs a debug message.
+  ///
+  /// ### Parameters
+  /// - `msg`: The debug message.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  ///
+  /// say.say_debug("Debug info")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { sayDebug } from 'docs:adder/say@0.1.0';
+  ///
+  /// sayDebug("Debug info");
+  /// ```
+  say-debug: func(msg: string);
+
+  /// Logs a system-level error message (e.g. related to `errno`).
+  ///
+  /// Typically used for OS-level failures.
+  ///
+  /// ### Parameters
+  /// - `msg`: The system error description.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import say
+  ///
+  /// say.say_syserror("Failed to open file")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { saySyserror } from 'docs:adder/say@0.1.0';
+  ///
+  /// saySyserror("Failed to open file");
+  /// ```
+  say-syserror: func(msg: string);
 }
 
 interface error {
 
     use types.{
-        box-error,
+      box-error,
     };
 
-    error-new: func(message: string, %type: string, code: u32) -> box-error;
-    set: func(err: box-error);
-    last: func() -> option<box-error>;
-    clear: func();
-    to-string: func(err: box-error) -> string;
+  /// Creates a new error object with the given message, type, and error code.
+  ///
+  /// ### Parameters
+  /// - `message`: The error message.
+  /// - `type`: The error type name.
+  /// - `code`: The numeric error code.
+  ///
+  /// ### Returns
+  /// - A new `box-error` object.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import error
+  ///
+  /// err = error.error_new("Something went wrong", "MyError", 42)
+  /// print(error.to_string(err))
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { errorNew, toString } from 'docs:adder/error@0.1.0';
+  ///
+  /// const err = errorNew("Something went wrong", "MyError", 42);
+  /// console.log(toString(err));
+  /// ```
+  error-new: func(message: string, %type: string, code: u32) -> box-error;
 
+  /// Sets the given error as the current "last error".
+  ///
+  /// After calling this, `error.last()` will return the same error until cleared or overwritten.
+  ///
+  /// ### Parameters
+  /// - `err`: The error to set.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import error
+  ///
+  /// error.set(error.error_new("Invalid input", "ValidationError", 1001))
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { set, errorNew } from 'docs:adder/error@0.1.0';
+  ///
+  /// set(errorNew("Invalid input", "ValidationError", 1001));
+  /// ```
+  set: func(err: box-error);
+
+  /// Returns the last error set by the system or user code.
+  ///
+  /// Similar to `errno` in C. Returns `none` if no error is currently set.
+  ///
+  /// ### Returns
+  /// - An optional `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import error
+  ///
+  /// last_error = error.last()
+  /// if last_error:
+  ///     print("Last error:", error.to_string(last_error))
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { last, toString } from 'docs:adder/error@0.1.0';
+  ///
+  /// const err = last();
+  /// if (err !== null) {
+  ///     console.log("Last error:", toString(err));
+  /// }
+  /// ```
+  last: func() -> option<box-error>;
+
+  /// Clears the last error.
+  ///
+  /// This is typically used to reset the error state before performing new operations.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import error
+  ///
+  /// error.clear()
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { clear } from 'docs:adder/error@0.1.0';
+  ///
+  /// clear();
+  /// ```
+  clear: func();
+
+  /// Converts a `box-error` object to a string representation.
+  ///
+  /// The result includes the error type, code, and message.
+  ///
+  /// ### Parameters
+  /// - `err`: The error to stringify.
+  ///
+  /// ### Returns
+  /// - A human-readable string describing the error.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import error
+  ///
+  /// err = error.error_new("Something went wrong", "CustomError", 99)
+  /// print(error.to_string(err))
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { errorNew, toString } from 'docs:adder/error@0.1.0';
+  ///
+  /// const err = errorNew("Oops", "CustomError", 99);
+  /// console.log(toString(err));
+  /// ```
+  to-string: func(err: box-error) -> string;
 }
 
 interface session {
@@ -519,188 +816,1349 @@ interface session {
       box-error,
   };
 
-  // C API: uint64_t box_session_id(void)
-  // https://www.tarantool.io/en/doc/latest/reference/reference_capi/box/#c.box_session_id
+  /// Returns the current session.
+  ///
+  /// The session object uniquely identifies the connection or context
+  /// (e.g. a client connection) from which the current code is executed.
+  ///
+  /// Internally maps to `box_session_id()` in the C API.
+  ///
+  /// ### Returns
+  /// - A `session` object representing the current session.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import session
+  ///
+  /// current = session.current()
+  /// print("Current session ID:", current)
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { current } from 'docs:adder/session@0.1.0';
+  ///
+  /// const sid = current();
+  /// console.log("Session ID:", sid);
+  /// ```
   current: func() -> session;
 
-  // Lua API: box.broadcast(key, value)
-  // https://www.tarantool.io/en/doc/latest/reference/reference_lua/box_events/broadcast/#lua-function.box.broadcast
-  //
-  // Now you can pass any lua object using a string.
-  // Example: broadcast("x", "{a = 2, [2] = 3}")
+  /// Broadcasts a message to all watchers subscribed to the given key.
+  ///
+  /// The `value` is interpreted as a string representation of a Lua object.
+  /// Internally maps to `box.broadcast(key, value)` from Lua.
+  ///
+  /// This is commonly used to implement cross-session communication or reactive UI updates.
+  ///
+  /// ### Parameters
+  /// - `key`: A string event name to broadcast on.
+  /// - `value`: A stringified Lua object, e.g. `"{a = 1}"`.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import session
+  ///
+  /// session.broadcast("chat:update", "{user = 'alice', msg = 'hi!'}")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { broadcast } from 'docs:adder/session@0.1.0';
+  ///
+  /// await broadcast("chat:update", "{user = 'alice', msg = 'hi!'}");
+  /// ```
   broadcast: func(key: string, value: string) -> result<_, box-error>;
 
-  // C API: int box_iproto_send(uint64_t sid, char *header, char *header_end[, char *body, char *body_end])
-  // https://www.tarantool.io/en/doc/latest/reference/reference_capi/box/#c.box_iproto_send
+  /// Sends a raw IPROTO packet to a specific session.
+  ///
+  /// Both the header and body must be valid MsgPack-encoded buffers.
+  ///
+  /// This function is low-level and is used for direct protocol communication over binary sessions.
+  /// It yields internally and only works if the target session supports binary IProto.
+  ///
+  /// Internally maps to `box_iproto_send(...)` from the C API.
+  ///
+  /// ### Parameters
+  /// - `session`: Target session to send to.
+  /// - `header`: MsgPack-encoded map containing the request header.
+  /// - `body`: MsgPack-encoded body (optional but usually required).
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import error, mspack
+  /// import json
+  ///
+  /// hdr = {0x00: 13, 0x01: 123}
+  /// body = {}
+  /// hdr_bytes = msgpack.encode(json.dumps(hdr).encode('utf-8'))
+  /// body_bytes = msgpack.encode(json.dumps(body).encode('utf-8'))
+  /// session.iproto_send(session.current(), hdr_bytes, body_bytes)
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { iprotoSend, current } from 'docs:adder/session@0.1.0';
+  ///
+  /// const header = new Uint8Array([0x82, 0x00, 0x0D, 0x01, 0x7B]);
+  /// const body = new Uint8Array([0x80]);
+  /// await iprotoSend(current(), header, body);
+  /// ```
   iproto-send: func(session: session, header: list<u8>, body: list<u8>) -> result<_, box-error>;
-
 }
 
 interface txn {
 
   use types.{
-      box-error,
-      txn-isolation-level,
+    box-error,
+    txn-isolation-level,
   };
 
   /// Returns the current transaction ID.
   ///
-  /// Transaction id - a non-persistent unique identifier
-  /// of the current transaction. -1 if there is no current
-  /// transaction.
-  /// C API: int64_t box_txn_id(void)
-  /// No doc
+  /// A transaction ID is a non-persistent unique identifier of the current transaction.
+  /// If no transaction is active, the return value is `-1`.
+  ///
+  /// ### Returns
+  /// - A signed 64-bit integer representing the transaction ID, or `-1` if no transaction.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  ///
+  /// tx_id = txn.txn_id()
+  /// if tx_id != -1:
+  ///     print(f"Current TX ID: {tx_id}")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { txnId } from 'docs:adder/txn@0.1.0';
+  ///
+  /// const id = txnId();
+  /// if (id !== -1) console.log("Transaction ID:", id);
+  /// ```
   txn-id: func() -> s64;
 
-  /// Returns the current transaction isolation level.
+  /// Returns the isolation level of the current transaction.
   ///
-  /// Get isolation level of current transaction, one of enum txn_isolation_level
-  /// values (but cannot be TXN_ISOLATION_DEFAULT (which is zero) by design).
-  /// -1 if there is no current transaction.
-  /// C API: int box_txn_isolation(void);
-  /// No doc
+  /// Returns `-1` if there is no active transaction.
+  ///
+  /// ### Returns
+  /// - A `txn-isolation-level` enum value indicating the current isolation level.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  ///
+  /// level = txn.txn_isolation()
+  /// print("Isolation level:", level)
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { txnIsolation } from 'docs:adder/txn@0.1.0';
+  ///
+  /// console.log("Isolation level:", txnIsolation());
+  /// ```
   txn-isolation: func() -> txn-isolation-level;
 
-  /// Return true if there is an active transaction.
+  /// Checks whether a transaction is currently active.
   ///
-  /// C API: bool box_txn(void)
-  /// https://www.tarantool.io/en/doc/latest/reference/reference_capi/txn/#c.box_txn
+  /// ### Returns
+  /// - `true` if a transaction is active; `false` otherwise.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  ///
+  /// if txn.txn():
+  ///     print("Transaction is in progress")
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { txn } from 'docs:adder/txn@0.1.0';
+  ///
+  /// if (txn()) {
+  ///     console.log("Transaction is active");
+  /// }
+  /// ```
   txn: func() -> bool;
 
   /// Begins a new transaction.
   ///
-  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
-  /// Implemented using `box_txn_begin()` from Tarantool C API.
+  /// Must be called before any data manipulation (INSERT, UPDATE, etc.).
+  /// Fails if a transaction is already active in the fiber.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  ///
+  /// txn.begin()
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { begin } from 'docs:adder/txn@0.1.0';
+  ///
+  /// await begin();
+  /// ```
   begin: func() -> result<_, box-error>;
 
   /// Commits the current transaction.
   ///
-  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
-  /// Implemented using `box_txn_commit()` from the Tarantool C API.
+  /// Finalizes and applies all changes. If a disk error occurs, it returns an error.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  ///
+  /// txn.commit()
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { commit } from 'docs:adder/txn@0.1.0';
+  ///
+  /// await commit();
+  /// ```
   commit: func() -> result<_, box-error>;
 
   /// Rolls back the current transaction.
   ///
-  /// If an error occurs, it returns `BoxError` from `box_error_last()`.
-  /// Implemented using `box_txn_rollback()` from the Tarantool C API.
+  /// Discards all changes made within the current transaction.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  ///
+  /// txn.rollback()
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { rollback } from 'docs:adder/txn@0.1.0';
+  ///
+  /// await rollback();
+  /// ```
   rollback: func() -> result<_, box-error>;
 
-  /// Set an isolation @a level for a transaction.
-  /// Must be called before the first DML.
-  /// The level must be of enun txn_isolation_level values.
-  /// @retval 0 if success
-  /// @retval -1 if failed, diag is set.
+  /// Sets the isolation level for the current transaction.
   ///
-  /// C API: int box_txn_set_isolation(uint32_t level)
-  /// No doc
+  /// Must be called before the first DML operation in the transaction.
+  ///
+  /// ### Parameters
+  /// - `isolation`: A `txn-isolation-level` enum value, such as `read-committed`.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  /// from adder.imports.docs_adder_types import TxnIsolationLevel
+  ///
+  /// txn.txn_set_isolation(TxnIsolationLevel.READ_COMMITTED)
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { txnSetIsolation } from 'docs:adder/txn@0.1.0';
+  ///
+  /// await txnSetIsolation('read-committed');
+  /// ```
   txn-set-isolation: func(isolation: txn-isolation-level) -> result<_, box-error>;
 
-  /// Make the transaction synchronous.
+  /// Marks the current transaction as synchronous.
   ///
-  /// C API void box_txn_make_sync(void)
-  /// No doc
+  /// All changes will be synchronized to disk before commit completes.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import txn
+  ///
+  /// txn.txn_make_sync()
+  /// ```
+  ///
+  /// **JavaScript**
+  /// ```js
+  /// import { txnMakeSync } from 'docs:adder/txn@0.1.0';
+  ///
+  /// txnMakeSync();
+  /// ```
   txn-make-sync: func();
-
 }
 
 interface index {
   use types.{
-      index,
-      box-error,
-      box-tuple,
-      iterator-type,
+    index,
+    box-error,
+    box-tuple,
+    iterator-type,
   };
 
+  /// Returns the number of tuples stored in the index.
+  ///
+  /// Internally calls `box_index_len()`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to query.
+  ///
+  /// ### Returns
+  /// - The number of tuples in the index, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import index as tt_index
+  ///
+  /// size = tt_index.len(index)
+  /// print("Index size:", size)
+  /// ```
   len: func(index: index) -> result<s64, box-error>;
-  bsize: func(index: index) -> result<s64, box-error>;
-  random: func(index: index, rnd: u32) -> result<box-tuple, box-error>;
-  get: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
-  min: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
-  max: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
-  count: func(index: index, iter-type: iterator-type, key: list<u8>) -> result<s64, box-error>;
 
+  /// Returns the memory size of the index in bytes.
+  ///
+  /// Internally calls `box_index_bsize()`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to inspect.
+  ///
+  /// ### Returns
+  /// - Size in bytes, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import index as tt_index
+  ///
+  /// size = tt_index.bsize(index)
+  /// print("Index memory size:", size)
+  /// ```
+  bsize: func(index: index) -> result<s64, box-error>;
+
+  /// Returns a random tuple from the index.
+  ///
+  /// If the index is empty, the result will be `null`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to read from.
+  /// - `rnd`: A random seed value.
+  ///
+  /// ### Returns
+  /// - A random tuple or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// tup = tt_index.random(index, 42)
+  /// if tup:
+  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
+  ///     print("Random tuple:", decoded)
+  /// ```
+  random: func(index: index, rnd: u32) -> result<box-tuple, box-error>;
+
+  /// Gets a tuple by key from the index.
+  ///
+  /// The key must be a MsgPack-encoded JSON array like `[1]`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to search.
+  /// - `key`: MsgPack-encoded key (as JSON UTF-8 string).
+  ///
+  /// ### Returns
+  /// - The found tuple or an error.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
+  /// tup = tt_index.get(index, key)
+  /// if tup:
+  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
+  ///     print("Found tuple:", decoded)
+  /// ```
+  get: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+
+  /// Finds the minimal tuple matching the given key.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to search.
+  /// - `key`: MsgPack-encoded key.
+  ///
+  /// ### Returns
+  /// - The smallest matching tuple or an error.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
+  /// tup = tt_index.min(index, key)
+  /// if tup:
+  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
+  ///     print("Min tuple:", decoded)
+  /// ```
+  min: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+
+  /// Finds the maximal tuple matching the given key.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to search.
+  /// - `key`: MsgPack-encoded key.
+  ///
+  /// ### Returns
+  /// - The largest matching tuple or an error.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
+  /// tup = tt_index.max(index, key)
+  /// if tup:
+  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
+  ///     print("Max tuple:", decoded)
+  /// ```
+  max: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+
+  /// Counts the number of tuples matching the given key and iterator type.
+  ///
+  /// ### Parameters
+  /// - `index`: Index to query.
+  /// - `iter-type`: One of `iterator-type` values.
+  /// - `key`: MsgPack-encoded key.
+  ///
+  /// ### Returns
+  /// - Count of matching tuples, or an error.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import index as tt_index, msgpack
+  /// from adder.imports.docs_adder_types import IteratorType
+  /// import json
+  ///
+  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
+  /// count = tt_index.count(index, IteratorType.ITER_EQ, key)
+  /// print("Tuple count:", count)
+  /// ```
+  count: func(index: index, iter-type: iterator-type, key: list<u8>) -> result<s64, box-error>;
 }
 
 interface sequence {
   use types.{
-      sequence,
-      box-error,
+    sequence,
+    box-error,
   };
 
+  /// Generates the next value of the specified sequence.
+  ///
+  /// Internally calls `box_sequence_next()`. This updates the state of the sequence.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  ///
+  /// ### Returns
+  /// - The next value of the sequence as `s64`, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import sequence
+  /// from adder.imports.docs_adder_types import Sequence
+  ///
+  /// seq = Sequence(id=1)
+  /// next_val = sequence.next(seq)
+  /// print("Next value:", next_val)
+  /// ```
   next: func(seq: sequence) -> result<s64, box-error>;
+
+  /// Returns the current value of the specified sequence.
+  ///
+  /// Unlike `next()`, this does **not** increment the sequence.
+  /// Returns an error if the sequence was never accessed via `next()` or `set()`.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  ///
+  /// ### Returns
+  /// - The current value of the sequence as `s64`, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import sequence
+  /// from adder.imports.docs_adder_types import Sequence
+  ///
+  /// seq = Sequence(id=1)
+  /// try:
+  ///     print("Current value:", sequence.current(seq))
+  /// except Exception as e:
+  ///     print("Error (probably uninitialized):", str(e))
+  /// ```
   current: func(seq: sequence) -> result<s64, box-error>;
+
+  /// Sets the sequence to a specific value.
+  ///
+  /// This function is useful when you want to jump to a specific number in the sequence.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  /// - `value`: The new value to assign.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import sequence
+  /// from adder.imports.docs_adder_types import Sequence
+  ///
+  /// seq = Sequence(id=1)
+  /// sequence.set(seq, 42)
+  /// print("Set sequence to 42")
+  /// ```
   set: func(seq: sequence, value: s64) -> result<_, box-error>;
+
+  /// Resets the sequence to its initial state.
+  ///
+  /// This call clears the current sequence value, effectively "forgetting" the state.
+  /// After a reset, calling `current()` will return an error until `next()` or `set()` is called again.
+  ///
+  /// Internally, if no transaction is active, this function starts and commits one.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import sequence
+  /// from adder.imports.docs_adder_types import Sequence
+  ///
+  /// seq = Sequence(id=1)
+  /// sequence.reset(seq)
+  /// print("Sequence reset")
+  /// ```
   reset: func(seq: sequence) -> result<_, box-error>;
 }
-
 
 interface key-def {
 
   use types.{
-      box-error,
-      box-tuple,
-      key-def,
-      key-part,
+    box-error,
+    box-tuple,
+    key-def,
+    key-part,
   };
 
+  /// Creates a new key definition from a list of parts.
+  ///
+  /// Each key part defines one field to be used in a key for indexing or validation.
+  /// The `KeyPart` structure includes field number, type, optional collation, path, and flags.
+  ///
+  /// ### Parameters
+  /// - `parts`: List of `key-part` objects.
+  ///
+  /// ### Returns
+  /// - A new `key-def` object on success, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import key_def
+  /// from adder.imports.docs_adder_types import KeyPart, KeyPartFlags
+  ///
+  /// parts = [
+  ///     KeyPart(field_no=0, field_type="unsigned", collation=None, path=None,
+  ///             flags=KeyPartFlags.IS_NULLABLE),
+  ///     KeyPart(field_no=1, field_type="string", collation="unicode", path=None,
+  ///             flags=KeyPartFlags.EXCLUDE_NULL)
+  /// ]
+  ///
+  /// kd = key_def.new(parts)
+  /// print("Created key-def:", kd)
+  /// ```
   new: func(parts: list<key-part>) -> result<key-def, box-error>;
-  delete: func(key-def: key-def);
-  merge: func(left: key-def, right: key-def) -> result<key-def, box-error>;
-  dup: func(key-def: key-def) -> result<key-def, box-error>;
-  dump-parts: func(key-def: key-def) -> result<list<key-part>, box-error>;
-  validate-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
-  validate-full-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
-  part-count: func(key-def: key-def) -> result<u32, box-error>;
-  extract-key: func(key-def: key-def, %tuple: box-tuple) -> box-tuple;
-  validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
 
+  /// Creates a deep copy of the given key definition.
+  ///
+  /// The returned `key-def` is independent of the original and must be deleted manually.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition to duplicate.
+  ///
+  /// ### Returns
+  /// - A duplicated `key-def`, or a `box-error` on failure.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import key_def
+  ///
+  /// kd_copy = key_def.dup(original_kd)
+  /// print("Duplicated key-def:", kd_copy)
+  /// ```
+  dup: func(key-def: key-def) -> result<key-def, box-error>;
+
+  /// Merges two key definitions into one.
+  ///
+  /// Fields from the right-hand side are appended if they are not duplicates of the left.
+  /// The resulting merged definition can be used for composite index construction.
+  ///
+  /// ### Parameters
+  /// - `left`: The base key definition.
+  /// - `right`: The key definition to append fields from.
+  ///
+  /// ### Returns
+  /// - A new merged `key-def`, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import key_def
+  ///
+  /// merged = key_def.merge(kd1, kd2)
+  /// print("Merged key-def:", merged)
+  /// ```
+  merge: func(left: key-def, right: key-def) -> result<key-def, box-error>;
+
+  /// Deletes a key definition, freeing any associated memory.
+  ///
+  /// You **must** call this for all key definitions you create with `new`, `dup`, or `merge`.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition to delete.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// key_def.delete(kd)
+  /// print("Key definition deleted.")
+  /// ```
+  delete: func(key-def: key-def);
+
+  /// Returns a list of key parts from a given key definition.
+  ///
+  /// Useful for debugging and introspection — lets you inspect fields and their order.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition to inspect.
+  ///
+  /// ### Returns
+  /// - List of `key-part` objects.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import key_def
+  ///
+  /// parts = key_def.dump_parts(kd)
+  /// for part in parts:
+  ///     print("Field:", part.field_no, "Type:", part.field_type)
+  /// ```
+  dump-parts: func(key-def: key-def) -> result<list<key-part>, box-error>;
+
+  /// Validates whether a given key conforms to the key definition.
+  ///
+  /// Checks the number of fields and their types, allowing partial matches
+  /// (e.g. prefix of the full key).
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition to validate against.
+  /// - `key`: MsgPack-encoded key (e.g., `[1, "abc"]`, encoded with `msgpack.encode(json.dumps(...))`)
+  ///
+  /// ### Returns
+  /// - A tuple `(is_valid: bool, size: u32)`
+  ///   - `is_valid`: Whether the key is valid.
+  ///   - `size`: Size of decoded key in bytes (if valid), or 0 if invalid.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import key_def, msgpack
+  /// import json
+  ///
+  /// key = msgpack.encode(json.dumps([1, "abc"]).encode('utf-8'))
+  /// valid, size = key_def.validate_key(kd, key)
+  /// print("Is valid:", valid, "Key size:", size)
+  /// ```
+  validate-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
+
+  /// Validates whether a key **fully** matches the key definition.
+  ///
+  /// Differs from `validate-key` by requiring exact number of parts.
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition to validate against.
+  /// - `key`: MsgPack-encoded key (e.g., `[1, "abc"]`)
+  ///
+  /// ### Returns
+  /// - A tuple `(is_valid: bool, size: u32)` like in `validate-key`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import key_def, msgpack
+  /// import json
+  ///
+  /// key = msgpack.encode(json.dumps([1, "abc"]).encode('utf-8'))
+  /// valid, size = key_def.validate_full_key(kd, key)
+  /// print("Is fully valid:", valid)
+  /// ```
+  validate-full-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
+
+  /// Returns the number of parts in the key definition.
+  ///
+  /// Each part corresponds to one field used in index comparison or validation.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition.
+  ///
+  /// ### Returns
+  /// - Number of parts as `u32`, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// count = key_def.part_count(kd)
+  /// print("Number of key parts:", count)
+  /// ```
+  part-count: func(key-def: key-def) -> result<u32, box-error>;
+
+  /// Extracts a key from a given tuple based on the key definition.
+  ///
+  /// The result is a `box-tuple` containing only the fields specified by the key definition.
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition describing how to extract fields.
+  /// - `tuple`: Source `box-tuple`.
+  ///
+  /// ### Returns
+  /// - A new `box-tuple` with key fields only.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import key_def, tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// tup = tt_tuple.new_default(msgpack.encode(json.dumps([1, "a", 42]).encode('utf-8')))
+  /// extracted = key_def.extract_key(kd, tup)
+  /// print("Extracted key tuple:", extracted)
+  /// ```
+  extract-key: func(key-def: key-def, %tuple: box-tuple) -> box-tuple;
+
+  /// Validates whether the tuple contains all required fields
+  /// and types as specified by the key definition.
+  ///
+  /// This is useful to check if a `box-tuple` is compatible with an index.
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition to validate against.
+  /// - `tuple`: A `box-tuple` to validate.
+  ///
+  /// ### Returns
+  /// - `true` if the tuple satisfies the key definition, otherwise `false`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// is_valid = key_def.validate_tuple(kd, tup)
+  /// print("Tuple is valid for key-def:", is_valid)
+  /// ```
+  validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
 }
 
 interface tuple-format {
   use types.{
-      key-def,
-      box-error,
-      tuple-format
+    key-def,
+    box-error,
+    tuple-format
   };
 
+  /// Returns the default tuple format.
+  ///
+  /// This format is used to create tuples not bound to any specific space.
+  ///
+  /// ### Returns
+  /// - A `tuple-format` object.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple_format
+  ///
+  /// tf = tuple_format.default()
+  /// print("Default format:", tf)
+  /// ```
   default: func() -> tuple-format;
+
+
+  /// Creates a new tuple format based on a list of key definitions.
+  ///
+  /// Key definitions define constraints and structure (field types, paths, etc.).
+  ///
+  /// ### Parameters
+  /// - `key-defs`: A list of key definitions that describe indexable parts.
+  ///
+  /// ### Returns
+  /// - A `tuple-format` object or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple_format, key_def
+  /// from adder.imports.docs_adder_types import KeyPart, KeyPartFlags
+  ///
+  /// parts = [
+  ///     KeyPart(field_no=0, field_type="unsigned", collation=None, path=None,
+  ///             flags=KeyPartFlags.IS_NULLABLE),
+  ///     KeyPart(field_no=1, field_type="string", collation=None, path=None,
+  ///             flags=KeyPartFlags.EXCLUDE_NULL)
+  /// ]
+  ///
+  /// kd = key_def.new(parts)
+  /// tf = tuple_format.new([kd])
+  /// print("Created tuple format:", tf)
+  /// ```
   new: func(key-defs: list<key-def>) -> result<tuple-format, box-error>;
+
+
+  /// Increments the reference counter of the tuple format.
+  ///
+  /// You should call this if you plan to store the format and use it across calls or threads.
+  ///
+  /// ### Parameters
+  /// - `tf`: Tuple format to retain.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple_format
+  ///
+  /// tuple_format.ref(tf)
+  /// print("Referenced tuple format")
+  /// ```
   ref: func(tf: tuple-format);
+
+
+  /// Decrements the reference counter of the tuple format.
+  ///
+  /// Must be called to release the format if it was previously retained via `ref`.
+  ///
+  /// ### Parameters
+  /// - `tf`: Tuple format to release.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple_format
+  ///
+  /// tuple_format.unref(tf)
+  /// print("Unreferenced tuple format")
+  /// ```
   unref: func(tf: tuple-format);
 }
 
 interface %tuple {
 
   use types.{
-      box-error,
-      box-tuple,
-      tuple-field,
-      tuple-format,
-      key-def,
+    box-error,
+    box-tuple,
+    tuple-field,
+    tuple-format,
+    key-def,
   };
 
+  /// Creates a new tuple using the specified format and raw MsgPack data.
+  ///
+  /// The data must be a MsgPack-encoded array (e.g., `[1, "abc", {"x": 42}]`).
+  ///
+  /// ### Parameters
+  /// - `format`: A tuple format object.
+  /// - `data`: MsgPack-encoded data (e.g., via `msgpack.encode(json.dumps(...))`)
+  ///
+  /// ### Returns
+  /// - A new `box-tuple`, or `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple, msgpack, tuple_format
+  /// import json
+  ///
+  /// tf = tuple_format.default()
+  /// data = msgpack.encode(json.dumps([1, "abc", {"x": 42}]).encode('utf-8'))
+  /// tup = tt_tuple.new(tf, data)
+  /// print("Created tuple:", tup)
+  /// ```
   new: func(format: tuple-format, data: list<u8>) -> result<box-tuple, box-error>;
+
+  /// Increases the reference count of the tuple.
+  ///
+  /// Call this if you want to store the tuple beyond the current function scope.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to retain.
+  ///
+  /// ### Returns
+  /// - The new reference count as `s32`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple
+  ///
+  /// rc = tt_tuple.ref(tup)
+  /// print("New reference count:", rc)
+  /// ```
   ref: func(t: box-tuple) -> s32;
+
+  /// Decreases the reference count of the tuple.
+  ///
+  /// If the count reaches zero, the tuple is freed.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to release.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple
+  /// import json
+  ///
+  /// tt_tuple.unref(tup)
+  /// print("Tuple released")
+  /// ```
   unref: func(t: box-tuple);
+
+  /// Returns the number of fields in the tuple (i.e., array size).
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - Field count as `u32`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple
+  /// import json
+  ///
+  /// count = tt_tuple.field_count(tup)
+  /// print("Tuple field count:", count)
+  /// ```
   field-count: func(t: box-tuple) -> u32;
+
+  /// Returns the byte size of the internal MsgPack data.
+  ///
+  /// Useful for buffer allocations.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - Number of bytes used as `u64`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple
+  /// import json
+  ///
+  /// size = tt_tuple.bsize(tup)
+  /// print("Size in bytes:", size)
+  /// ```
   bsize: func(t: box-tuple) -> u64;
+
+  /// Serializes the tuple back to MsgPack byte array.
+  ///
+  /// This data can be passed to `decode` or reused elsewhere.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - A MsgPack-encoded byte array, or `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import msgpack, tuple as tt_tuple
+  /// import json
+  ///
+  /// buf = tt_tuple.to_buf(tup)
+  /// decoded = json.loads(msgpack.decode(buf).decode('utf-8'))
+  /// print("Decoded tuple:", decoded)
+  /// ```
   to-buf: func(t: box-tuple) -> result<list<u8>, box-error>;
+
+  /// Returns the format object associated with the tuple.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - The `tuple-format` used to construct the tuple.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple
+  ///
+  /// tf = tt_tuple.format(tup)
+  /// print("Tuple format:", tf)
+  /// ```
   format: func(t: box-tuple) -> tuple-format;
+
+  /// Returns a pointer to the field at the specified index (zero-based).
+  ///
+  /// The returned value is a pointer to raw MsgPack-encoded data and must be decoded.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  /// - `idx`: Field index (starting from 0).
+  ///
+  /// ### Returns
+  /// - `tuple-field` (pointer), or `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import msgpack, tuple as tt_tuple
+  /// import json
+  ///
+  /// field = tt_tuple.field(tup, 1)
+  /// value = json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8'))
+  /// print("Field[1]:", value)
+  /// ```
   field: func(t: box-tuple, idx: u32) -> result<tuple-field, box-error>;
+
+  /// Returns a pointer to the field by JSON path expression.
+  ///
+  /// Index base:
+  /// - 0 → C-style (zero-based)
+  /// - 1 → Lua-style (one-based)
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  /// - `path`: Path expression (e.g., `"[2].x"`).
+  /// - `index-base`: Either 0 or 1.
+  ///
+  /// ### Returns
+  /// - `tuple-field` (pointer), or `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import msgpack, tuple as tt_tuple
+  /// import json
+  ///
+  /// field = tt_tuple.field_by_path(tup, "[2].x", 1)
+  /// value = json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8'))
+  /// print("Nested field [2].x:", value)
+  /// ```
   field-by-path: func(t: box-tuple, path: string, index-base: s32) -> result<tuple-field, box-error>;
+
+  /// Updates fields in a tuple using the given update expression.
+  ///
+  /// The expression must be a MsgPack-encoded array of operations like:
+  /// `[["=", 1, "new_value"]]`, where the first item is an operation, second is field index, and third is the value.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to update.
+  /// - `expr`: MsgPack-encoded update expression.
+  ///
+  /// ### Returns
+  /// - A new `box-tuple` with applied updates, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// expr = msgpack.encode(json.dumps([["=", 1, "xyz"]]).encode('utf-8'))
+  /// updated = tt_tuple.update(tup, expr)
+  /// print("Updated tuple:", json.loads(msgpack.decode(tt_tuple.to_buf(updated)).decode('utf-8')))
+  /// ```
   update: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
+
+  /// Performs an upsert operation on the tuple using the provided expression.
+  ///
+  /// This operation applies updates if the field exists or appends otherwise.
+  /// Common upsert usage includes incrementing fields: `[["+", 2, 1]]`.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  /// - `expr`: MsgPack-encoded upsert expression.
+  ///
+  /// ### Returns
+  /// - A new `box-tuple` with result, or a `box-error`.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// expr = msgpack.encode(json.dumps([["+", 2, 100]]).encode('utf-8'))
+  /// upserted = tt_tuple.upsert(tup, expr)
+  /// print("Upserted tuple:", json.loads(msgpack.decode(tt_tuple.to_buf(upserted)).decode('utf-8')))
+  /// ```
   upsert: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
+
+  /// Validates a tuple against the given format.
+  ///
+  /// Checks field types and nullability constraints.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to validate.
+  /// - `format`: Tuple format to validate against.
+  ///
+  /// ### Returns
+  /// - `true` if valid, `false` otherwise.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple
+  ///
+  /// valid = tt_tuple.validate(tup, tf)
+  /// print("Tuple is valid:", valid)
+  /// ```
   validate: func(t: box-tuple, format: tuple-format) -> bool;
-  compare-with-key: func(%tuple: box-tuple, key: list<u8>, key-def: key-def) -> s32;
+
+  /// Compares two tuples using a given key definition.
+  ///
+  /// The comparison is lexicographical by key fields.
+  /// Returns:
+  /// - `0` if equal
+  /// - `<0` if `left < right`
+  /// - `>0` if `left > right`
+  ///
+  /// ### Parameters
+  /// - `key-def`: Definition of fields to compare.
+  /// - `left`: First tuple.
+  /// - `right`: Second tuple.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple
+  ///
+  /// result = tt_tuple.compare(kd, tup1, tup2)
+  /// print("Compare result:", result)
+  /// ```
   compare: func(key-def: key-def, left: box-tuple, right: box-tuple) -> s32;
 
+  /// Compares a tuple with a key using the given key definition.
+  ///
+  /// Returns:
+  /// - `0` if key matches tuple
+  /// - `<0` if tuple < key
+  /// - `>0` if tuple > key
+  ///
+  /// ### Parameters
+  /// - `tuple`: Tuple to compare.
+  /// - `key`: MsgPack-encoded key (e.g., `[1]`)
+  /// - `key-def`: Key definition.
+  ///
+  /// ### Examples
+  ///
+  /// **Python**
+  /// ```python
+  /// from adder.imports import tuple as tt_tuple, msgpack
+  /// import json
+  ///
+  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
+  /// result = tt_tuple.compare_with_key(tup, key, kd)
+  /// print("Compare with key:", result)
+  /// ```
+  compare-with-key: func(%tuple: box-tuple, key: list<u8>, key-def: key-def) -> s32;
+
   resource tuple-iterator {
+
+    /// Creates a new iterator over the fields of a tuple.
+    ///
+    /// This allows sequential or random access to MsgPack fields within the tuple.
+    ///
+    /// ### Parameters
+    /// - `tuple`: The tuple to iterate.
+    ///
+    /// ### Returns
+    /// - A new `tuple-iterator` object, or a `box-error`.
+    ///
+    /// ### Examples
+    ///
+    /// **Python**
+    /// ```python
+    /// from adder.imports import tuple as tt_tuple, msgpack, tuple_format
+    /// import json
+    ///
+    /// tf = tuple_format.default()
+    /// tup = tt_tuple.new(tf, msgpack.encode(json.dumps([1, "abc", {"x": 42}]).encode('utf-8')))
+    /// titer = tt_tuple.TupleIterator.new_tuple_iterator(tup)
+    ///
+    /// while True:
+    ///     field = titer.next()
+    ///     if not field:
+    ///         break
+    ///     val = json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8'))
+    ///     print("Field:", val)
+    /// ```
     new-tuple-iterator: static func(%tuple: box-tuple) -> result<tuple-iterator, box-error>;
+
+    /// Returns the current iterator position (index of the next field).
+    ///
+    /// ### Returns
+    /// - The next field index (zero-based).
+    ///
+    /// ### Examples
+    /// ```python
+    /// pos = titer.position()
+    /// print("Iterator position:", pos)
+    /// ```
     position: func() -> u32;
+
+    /// Rewinds the iterator to the beginning of the tuple.
+    ///
+    /// After this call, the next field will be the first.
+    ///
+    /// ### Examples
+    /// ```python
+    /// titer.rewind()
+    /// print("Iterator reset to start")
+    /// ```
     rewind: func();
+
+    /// Seeks to a given field index in the tuple.
+    ///
+    /// The next call to `next()` will return this field.
+    ///
+    /// ### Parameters
+    /// - `pos`: Zero-based field index to seek to.
+    ///
+    /// ### Returns
+    /// - `tuple-field` (pointer) or `box-error`.
+    ///
+    /// ### Examples
+    /// ```python
+    /// titer.seek(1)
+    /// val = json.loads(msgpack.decode_from_raw_ptr(titer.next()).decode('utf-8'))
+    /// print("Field at index 1:", val)
+    /// ```
     seek: func(pos: u32) -> result<tuple-field, box-error>;
+
+    /// Returns the next field in the tuple.
+    ///
+    /// Returns `null` if there are no more fields.
+    ///
+    /// ### Returns
+    /// - `tuple-field` (pointer), or `null` if end is reached.
+    ///
+    /// ### Examples
+    /// ```python
+    /// while True:
+    ///     field = titer.next()
+    ///     if not field:
+    ///         break
+    ///     print("Field:", json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8')))
+    /// ```
     next: func() -> result<tuple-field, box-error>;
-  }
+  }  
 }
 
 // =================================================================================================
