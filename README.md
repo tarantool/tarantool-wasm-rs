@@ -80,6 +80,81 @@ Options:
 
 ```
 
+---
+
+## Example of Usage
+
+### 0. Build the Rust Host Library
+```sh
+git clone git@github.com:mandesero/tarantool-wasm-rs.git
+cd tarantool-wasm-rs
+cargo build
+```
+
+### 1. Generate Bindings
+
+```sh
+componentize-py --wit-path your_path/adder.wit --world adder bindings .
+```
+
+This command generates Python bindings from the WIT interface.
+
+---
+
+### 2. Implement Logic
+
+Create a Python file (e.g. `app.py`):
+
+```python
+from adder import exports
+from adder.imports import *  # imported functions/modules
+from adder.imports.docs_adder_types import *  # imported types (if any)
+
+class Run(exports.Run):
+    def run(self) -> None:
+        # your implementation
+        pass
+```
+
+---
+
+### 3. Build WASM
+
+Build the `.wasm` module from your Python file:
+
+```sh
+componentize-py --wit-path your_path/adder.wit --world adder componentize app -o out.wasm
+```
+
+> Replace `app` with the name of your `.py` file (without the `.py` extension).
+
+---
+
+### 4. Run with Tarantool
+
+Run the generated `.wasm` module inside Tarantool:
+
+```sh
+tarantool run2.lua out.wasm
+```
+
+---
+
+### Note
+
+Due to [tarantool/#11267](https://github.com/tarantool/tarantool/issues/11267), you **must** use a patched version of Tarantool with WebAssembly support:
+
+```sh
+git clone https://github.com/mandesero/tarantool
+cd tarantool
+git checkout wasm
+
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_BACKTRACE=ON -DTARANTOOL_WASM=ON
+make -j
+```
+
+After build, use the resulting `tarantool` binary for running your WASM modules.
 
 ## Useful links
 [Introduction to component model.](https://component-model.bytecodealliance.org/introduction.html)
