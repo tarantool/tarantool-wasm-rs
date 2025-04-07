@@ -4,6 +4,7 @@ use crate::bindings::docs::adder::types::{BoxError, Index, Space};
 use crate::tx::{tx_push, tx_flush, TxCtx};
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
+use crate::executor::Executor;
 
 use wasmtime_wasi::async_trait;
 use tokio::sync::oneshot;
@@ -85,58 +86,36 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn insert(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        // println!("RS | insert() called for space_id: {}", space.id);
-
         if tup.is_empty() {
             return Err(BoxError::new("Tuple data is empty", "validation error", 1));
         }
 
+        let executor_arc = self.executor().ok_or_else(|| {
+            BoxError::new("Executor is not set", "internal error", 500)
+        })?;
+
         let tup_heap = tup.clone();
-        let (tx, rx) = oneshot::channel();
+        let space_copy = space.clone();
 
-        let task = Box::new(TxCtx {
-            cb: Box::new(move || {
-                // println!("RS | Executing insert in TX thread...");
+        let executor = executor_arc.lock().unwrap().clone();
+        
 
-                unsafe {
-                    if let Err(err) = begin_transaction() {
-                        let _ = tx.send(Err(err));
-                        return;
-                    }
-                }
-
+        executor.execute(move || {
                 let start = tup_heap.as_ptr();
                 let end = unsafe { start.add(tup_heap.len()) };
                 let mut result_tuple: *mut ffi::types::BoxTupleT = std::ptr::null_mut();
 
-                let rc = unsafe { ffi::r#box::box_insert(space.id as u32, start, end, &mut result_tuple) };
+                let rc = unsafe {
+                    ffi::r#box::box_insert(space_copy.id as u32, start, end, &mut result_tuple)
+                };
 
                 if rc != 0 {
-                    unsafe { ffi::tnt::box_txn_rollback(); }
-                    let err = unsafe { handle_tarantool_error() };
-                    // println!("RS | Insert error: {}", err.message);
-                    let _ = tx.send(Err(err));
-                    return;
+                    return Err(unsafe { handle_tarantool_error() });
                 }
 
-                unsafe {
-                    if let Err(err) = commit_transaction() {
-                        ffi::tnt::box_txn_rollback();
-                        let _ = tx.send(Err(err));
-                        return;
-                    }
-                }
-
-                let tuple_id = result_tuple as u64;
-                // println!("RS | Insert successful, tuple_id: {}", tuple_id);
-                let _ = tx.send(Ok(tuple_id));
-            }),
-        });
-
-        tx_push(task);
-        tx_flush();
-
-        rx.await.unwrap_or_else(|_| Err(BoxError::new("Failed to receive response from TX thread", "internal error", 500)))
+                Ok(result_tuple as u64)
+            })
+            .await
     }
 
     async fn update(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<BoxTuple, BoxError> {

@@ -17,6 +17,7 @@ use crate::wasm_fiber::WasmFiber;
 use tarantool::trigger::on_shutdown;
 use tarantool::fiber;
 use std::time::Duration;
+use crate::executor::AdaptiveExecutor;
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -26,7 +27,7 @@ pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
     pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
-
+    pub(crate) executor: Option<Arc<Mutex<AdaptiveExecutor>>>,
 }
 
 impl WasmStates {
@@ -36,7 +37,7 @@ impl WasmStates {
         // TODO: make env and stdio configurable
         builder.inherit_stdio().inherit_env();
         let ctx = builder.build();
-        Self {table, ctx, yielder: None}
+        Self {table, ctx, yielder: None, executor: None}
     }
 }
 
@@ -45,6 +46,11 @@ pub(crate) struct SyncWasmStates(pub(crate) Mutex<WasmStates>);
 impl SyncWasmStates {
     pub(crate) fn new() -> Self {
         SyncWasmStates(Mutex::new(WasmStates::new()))
+    }
+
+    pub(crate) fn executor(&self) -> Option<Arc<Mutex<AdaptiveExecutor>>> {
+        let guard = self.0.lock().unwrap();
+        guard.executor.clone()
     }
 
     pub(crate) async fn yield_now(&self) {

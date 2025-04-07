@@ -1,7 +1,7 @@
 use crate::bindings::docs::adder::txn;
 use crate::bindings::docs::adder::types::{BoxError, TxnIsolationLevel};
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::ffi as ffi;
+use crate::{executor, ffi as ffi};
 use crate::bindings::error::handle_tarantool_error;
 
 use wasmtime_wasi::async_trait;
@@ -35,7 +35,16 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn begin(&mut self) -> Result<(), BoxError> {
+        self.yield_now().await;
         let rt = unsafe { ffi::tnt::box_txn_begin() };
+        
+        if let Some(exec) = self.executor() {
+            let mut executor = exec.lock().unwrap();
+            executor.begin_tx();
+        } else {
+            return Err(BoxError::new("?", "?", 999))
+        }
+
         if rt != 0 {
             let err = unsafe { handle_tarantool_error() };
             Err(err)
@@ -46,6 +55,15 @@ impl txn::Host for SyncWasmStates {
 
     async fn commit(&mut self) -> Result<(), BoxError> {
         let rt = unsafe { ffi::tnt::box_txn_commit() };
+        self.yield_now().await;
+
+        if let Some(exec) = self.executor() {
+            let mut executor = exec.lock().unwrap();
+            executor.end_tx();
+        } else {
+            return Err(BoxError::new("?", "?", 999))
+        }
+
         if rt != 0 {
             let err = unsafe { handle_tarantool_error() };
             Err(err)
@@ -56,6 +74,15 @@ impl txn::Host for SyncWasmStates {
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
         let rt = unsafe { ffi::tnt::box_txn_rollback() };
+        self.yield_now().await;
+
+        if let Some(exec) = self.executor() {
+            let mut executor = exec.lock().unwrap();
+            executor.end_tx();
+        } else {
+            return Err(BoxError::new("?", "?", 999))
+        }
+
         if rt != 0 {
             let err = unsafe { handle_tarantool_error() };
             Err(err)

@@ -1,5 +1,5 @@
 from adder import exports
-from adder.imports import say, msgpack
+from adder.imports import say, msgpack, txn
 from adder.imports import tuple as tt_tuple
 from adder.imports import ttbox as box
 from adder.imports.docs_adder_types import Space, Index, Iterator, IteratorType
@@ -50,39 +50,41 @@ def test_box():
         [5, "Eve", 4],
     ]
 
-    # truncate
-    box.truncate(space)
-    say.say_info("PY | Truncated space")
+    say.say_info(f"PY | In tx: {txn.txn()}")
+    txn.begin()
 
-    # insert
+    say.say_info(f"PY | In tx: {txn.txn()}")
+
     for row in test_data:
         tup_bytes = encode(row)
         inserted = box.insert(space, tup_bytes)
         say.say_info(f"PY | Inserted: {row}, tuple ptr = {hex(inserted)}, decoded tuple from ptr {decode(data=tt_tuple.to_buf(inserted))}")
 
+    txn.commit()
+
     # update (update age of id=1 to 26)
-    key = encode([1])
-    ops = encode([["=", 2, 26]])  # Set field at index 2 (age) to 26
-    updated = box.update(index, key, ops)
-    say.say_info(f"PY | Updated tuple with id=1 -> age=26, ptr = {hex(updated)}, decoded tuple from ptr {decode(data=tt_tuple.to_buf(updated))}")
+    # key = encode([1])
+    # ops = encode([["=", 2, 26]])  # Set field at index 2 (age) to 26
+    # updated = box.update(index, key, ops)
+    # say.say_info(f"PY | Updated tuple with id=1 -> age=26, ptr = {hex(updated)}, decoded tuple from ptr {decode(data=tt_tuple.to_buf(updated))}")
 
-    # replace (replace entire tuple for id=2)
-    replaced = box.replace(space, encode([2, "Bob Jr.", 31]))
-    say.say_info(f"PY | Replaced id=2 -> ['Bob Jr.', 31], ptr = {hex(replaced)}, decoded tuple from ptr {decode(data=tt_tuple.to_buf(replaced))}")
+    # # replace (replace entire tuple for id=2)
+    # replaced = box.replace(space, encode([2, "Bob Jr.", 31]))
+    # say.say_info(f"PY | Replaced id=2 -> ['Bob Jr.', 31], ptr = {hex(replaced)}, decoded tuple from ptr {decode(data=tt_tuple.to_buf(replaced))}")
 
-    # upsert (id=6 doesn't exist → insert)
-    upsert_tuple = encode([6, "Frank", 50])
-    upsert_ops = encode([["+", 2, 1]])  # Increase age if exists
-    _ = box.upsert(index, upsert_tuple, upsert_ops)
-    say.say_info(f"PY | Upserted id=6 (inserted)")
+    # # upsert (id=6 doesn't exist → insert)
+    # upsert_tuple = encode([6, "Frank", 50])
+    # upsert_ops = encode([["+", 2, 1]])  # Increase age if exists
+    # _ = box.upsert(index, upsert_tuple, upsert_ops)
+    # say.say_info(f"PY | Upserted id=6 (inserted)")
 
-    # upsert (id=1 exists → increment age)
-    _ = box.upsert(index, encode([1, "Alice", 0]), encode([["+", 2, 1]]))
-    say.say_info(f"PY | Upserted id=1 (age += 1)")
+    # # upsert (id=1 exists → increment age)
+    # _ = box.upsert(index, encode([1, "Alice", 0]), encode([["+", 2, 1]]))
+    # say.say_info(f"PY | Upserted id=1 (age += 1)")
 
-    # tt-delete (delete id=3)
-    deleted = box.tt_delete(index, encode([3]))
-    say.say_info(f"PY | Deleted id=3, ptr = {hex(deleted)}, decoded tuple from ptr {decode(data=tt_tuple.to_buf(deleted))}")
+    # # tt-delete (delete id=3)
+    # deleted = box.tt_delete(index, encode([3]))
+    # say.say_info(f"PY | Deleted id=3, ptr = {hex(deleted)}, decoded tuple from ptr {decode(data=tt_tuple.to_buf(deleted))}")
 
     say.say_info("PY | Space content:")
     t = Iterator.new_iterator(index, IteratorType.ITER_ALL, encode([]))
