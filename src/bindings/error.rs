@@ -5,8 +5,7 @@ use crate::tarantool_wasm::SyncWasmStates;
 use wasmtime_wasi::async_trait;
 use std::ffi::CString;
 
-// TODO: delete
-pub unsafe fn handle_tarantool_error() -> BoxError {
+pub fn handle_tarantool_error() -> BoxError {
     let err = tarantool::error::BoxError::last();
 
     let mut boxed = BoxError::new(

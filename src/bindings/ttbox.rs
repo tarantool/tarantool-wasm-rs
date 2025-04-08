@@ -3,13 +3,12 @@ use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::docs::adder::types::{BoxError, Index, Space};
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::types::validate_msgpack_array;
 
 use wasmtime_wasi::async_trait;
 use tarantool::space::{Space as TarantoolSpace, SpaceId};
 use tarantool::tuple::Tuple as TarantoolTuple;
 use tarantool::index::{Index as TarantoolIndex, IndexId};
-
-use rmpv::decode::read_value;
 
 pub type BoxTuple = u64;
 
@@ -26,17 +25,6 @@ pub unsafe fn commit_transaction() -> Result<(), BoxError> {
         Err(handle_tarantool_error())
     } else {
         Ok(())
-    }
-}
-
-fn validate_msgpack_array(data: &[u8]) -> Result<(), String> {
-    if data.is_empty() {
-        return Err("Tuple data is empty".to_string());
-    }
-    match read_value(&mut &data[..]) {
-        Ok(val) if val.is_array() => Ok(()),
-        Ok(other) => Err(format!("Expected MsgPack array, got {:?}", other)),
-        Err(e) => Err(format!("Invalid MsgPack data: {}", e)),
     }
 }
 

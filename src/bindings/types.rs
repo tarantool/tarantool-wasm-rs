@@ -6,7 +6,18 @@ use crate::bindings::IteratorImpl;
 
 use wasmtime::component::Resource;
 use wasmtime_wasi::async_trait;
+use rmpv::decode::read_value;
 
+pub fn validate_msgpack_array(data: &[u8]) -> Result<(), String> {
+    if data.is_empty() {
+        return Err("Tuple data is empty".to_string());
+    }
+    match read_value(&mut &data[..]) {
+        Ok(val) if val.is_array() => Ok(()),
+        Ok(other) => Err(format!("Expected MsgPack array, got {:?}", other)),
+        Err(e) => Err(format!("Invalid MsgPack data: {}", e)),
+    }
+}
 
 unsafe impl Send for IteratorImpl {}
 unsafe impl Sync for IteratorImpl {}
