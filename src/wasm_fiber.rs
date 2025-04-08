@@ -8,7 +8,6 @@ use tokio::runtime::Builder;
 use wasmtime_wasi::bindings::Command;
 use crate::tarantool_wasm::SyncWasmStates;
 use anyhow::Result;
-use crate::executor::AdaptiveExecutor;
 use std::sync::Mutex;
 
 pub(crate) enum WasmFiberStatus {
@@ -27,12 +26,7 @@ impl WasmFiber {
         let rt = Builder::new_current_thread().enable_time().build().unwrap();
         let (yielder, awaiter) = mpsc::channel(1);
         let finalizer = yielder.clone();
-        {
-            let mut state = store.data().0.lock().unwrap();
-            state.yielder = Some(yielder);
-            let executor = Arc::new(Mutex::new(AdaptiveExecutor::new()));
-            state.executor = Some(executor);
-        }
+        store.data().0.lock().unwrap().yielder = Some(yielder);
 
         rt.spawn(async move {
             let command = Command::instantiate_async(&mut store, &component, &linker).await?;

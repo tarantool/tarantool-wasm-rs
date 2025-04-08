@@ -427,7 +427,7 @@ interface ttbox {
   /// ops_bytes = msgpack.encode(json.dumps(ops).encode('utf-8'))
   /// box.upsert(index, tup_bytes, ops_bytes)
   /// ```
-  upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
+  upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<_, box-error>;
 
   /// Deletes a tuple by key from the specified index.
   ///
@@ -454,7 +454,7 @@ interface ttbox {
   /// print("Deleted ptr: ", hex(deleted))
   /// print("Deleted tuple: ", msgpack.decode(data=tt_tuple.to_buf(deleted)))
   /// ```
-  tt-delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
+  delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
 
   /// Removes all tuples from the space.
   ///

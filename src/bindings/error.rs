@@ -1,31 +1,29 @@
 use crate::bindings::docs::adder::error;
 use crate::bindings::docs::adder::types::BoxError;
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::ffi as ffi;
 
 use wasmtime_wasi::async_trait;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 
+// TODO: delete
 pub unsafe fn handle_tarantool_error() -> BoxError {
-    let err_ptr: *const ffi::types::BoxErrorT = ffi::error::box_error_last();
+    let err = tarantool::error::BoxError::last();
 
-    if err_ptr.is_null() {
-        println!("RS | error: Unknown Tarantool error");
-        return BoxError::new("Unknown Tarantool error", "tarantool error", 0);
+    let mut boxed = BoxError::new(
+        err.message(),
+        err.error_type(),
+        err.error_code(),
+    );
+
+    if let Some(line) = err.line() {
+        boxed = boxed.with_line(line);
     }
 
-    let message = CStr::from_ptr(ffi::error::box_error_message(err_ptr))
-        .to_string_lossy()
-        .into_owned();
+    if let Some(file) = err.file() {
+        boxed = boxed.with_file(file);
+    }
 
-    let type_ = CStr::from_ptr(ffi::error::box_error_type(err_ptr))
-        .to_string_lossy()
-        .into_owned();
-
-    let code = ffi::error::box_error_code(err_ptr);
-
-    println!("RS | error: [{}] {}: {}", code, type_, message);
-    BoxError::new(message, type_, code)
+    boxed
 }
 
 impl BoxError {
@@ -40,7 +38,7 @@ impl BoxError {
         }
     }
 
-    pub fn with_payload(mut self, payload: Vec<(impl Into<String>, impl Into<String>)>) -> Self {
+    pub fn _with_payload(mut self, payload: Vec<(impl Into<String>, impl Into<String>)>) -> Self {
         self.payload = Some(payload.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
         self
     }
@@ -63,33 +61,62 @@ impl error::Host for SyncWasmStates {
     }
 
     async fn set(&mut self, err: BoxError) {
-        println!("RS | Setting error:");
-        println!("RS | - Type: {}", err.type_);
-        println!("RS | - Code: {}", err.code);
-        println!("RS | - Message: {}", err.message);
-
-        // TODO: replace
-        let file = CString::new("rust").unwrap();
-        let format = CString::new(err.message.clone()).unwrap();
-
-        unsafe {
-            ffi::error::box_error_set(file.as_ptr(), 0, err.code, format.as_ptr());
-        }
-
-        println!("RS | Error set successfully");
+        let message_cstr = CString::new(err.message.clone())
+            .expect("Failed to convert error message to CString");
+    
+        let file_line = match (err.file.as_ref(), err.line) {
+            (Some(file), Some(line)) => Some((file.as_str(), line)),
+            _ => None,
+        };
+    
+        tarantool::error::set_last_error(file_line, err.code, &message_cstr);
     }
 
     async fn last(&mut self) -> Option<BoxError> {
-        unsafe { Some(handle_tarantool_error()) }
-    }
-
-    async fn clear(&mut self) {
-        unsafe {
-            ffi::error::box_error_clear();
+        match tarantool::error::BoxError::maybe_last() {
+            Err(err) => {
+                let mut boxed = BoxError::new(
+                    err.message(),
+                    err.error_type(),
+                    err.error_code(),
+                );
+    
+                if let Some(line) = err.line() {
+                    boxed = boxed.with_line(line);
+                }
+    
+                if let Some(file) = err.file() {
+                    boxed = boxed.with_file(file);
+                }
+    
+                Some(boxed)
+            }
+            Ok(_) => None,
         }
     }
 
+    async fn clear(&mut self) {
+        tarantool::error::clear_error();
+    }
+
     async fn to_string(&mut self, err: BoxError) -> String {
-        format!("[{}] {}: {}", err.code, err.type_, err.message)
+        let mut output = format!("[{}] {}: {}", err.code, err.type_, err.message);
+    
+        if let (Some(file), Some(line)) = (err.file.as_ref(), err.line) {
+            output.push_str(&format!(" (at {}:{})", file, line));
+        } else if let Some(file) = err.file.as_ref() {
+            output.push_str(&format!(" (in file {})", file));
+        } else if let Some(line) = err.line {
+            output.push_str(&format!(" (at line {})", line));
+        }
+    
+        if let Some(ref payload) = err.payload {
+            output.push_str("\nPayload:");
+            for (k, v) in payload {
+                output.push_str(&format!("\n  - {}: {}", k, v));
+            }
+        }
+    
+        output
     }
 }

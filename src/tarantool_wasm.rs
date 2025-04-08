@@ -17,7 +17,7 @@ use crate::wasm_fiber::WasmFiber;
 use tarantool::trigger::on_shutdown;
 use tarantool::fiber;
 use std::time::Duration;
-use crate::executor::AdaptiveExecutor;
+use crate::executor::{Executor, TxMode};
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -27,7 +27,8 @@ pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
     pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
-    pub(crate) executor: Option<Arc<Mutex<AdaptiveExecutor>>>,
+    pub(crate) executor: Executor,
+    pub(crate) tx_mode: TxMode,
 }
 
 impl WasmStates {
@@ -37,7 +38,13 @@ impl WasmStates {
         // TODO: make env and stdio configurable
         builder.inherit_stdio().inherit_env();
         let ctx = builder.build();
-        Self {table, ctx, yielder: None, executor: None}
+        Self {
+            table: table,
+            ctx: ctx,
+            yielder: None,
+            executor: Executor::TxPush, // start outside the transaction
+            tx_mode: TxMode::None,
+        }
     }
 }
 
@@ -48,9 +55,22 @@ impl SyncWasmStates {
         SyncWasmStates(Mutex::new(WasmStates::new()))
     }
 
-    pub(crate) fn executor(&self) -> Option<Arc<Mutex<AdaptiveExecutor>>> {
-        let guard = self.0.lock().unwrap();
-        guard.executor.clone()
+    pub fn begin_tx(&mut self) {
+        self.0.lock().unwrap().tx_mode = TxMode::Started;
+        self.0.lock().unwrap().executor = Executor::Direct;
+    }
+
+    pub fn end_tx(&mut self) {
+        self.0.lock().unwrap().tx_mode = TxMode::None;
+        self.0.lock().unwrap().executor = Executor::TxPush;
+    }
+
+    pub fn in_tx(&self) -> bool {
+        self.0.lock().unwrap().tx_mode == TxMode::Started
+    }
+
+    pub fn executor(&self) -> Executor {
+        self.0.lock().unwrap().executor
     }
 
     pub(crate) async fn yield_now(&self) {

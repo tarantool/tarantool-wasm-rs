@@ -1,9 +1,10 @@
 use crate::bindings::docs::adder::txn;
 use crate::bindings::docs::adder::types::{BoxError, TxnIsolationLevel};
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::{executor, ffi as ffi};
 use crate::bindings::error::handle_tarantool_error;
+use crate::ffi;
 
+use tarantool::transaction;
 use wasmtime_wasi::async_trait;
 
 impl From<i32> for TxnIsolationLevel {
@@ -31,64 +32,38 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn txn(&mut self) -> bool {
-        unsafe { ffi::tnt::box_txn() }
+        transaction::is_in_transaction()
     }
 
     async fn begin(&mut self) -> Result<(), BoxError> {
         self.yield_now().await;
-        let rt = unsafe { ffi::tnt::box_txn_begin() };
-        
-        if let Some(exec) = self.executor() {
-            let mut executor = exec.lock().unwrap();
-            executor.begin_tx();
-        } else {
-            return Err(BoxError::new("?", "?", 999))
-        }
+        self.begin_tx();
 
-        if rt != 0 {
-            let err = unsafe { handle_tarantool_error() };
-            Err(err)
-        } else {
-            Ok(())
-        }
+        transaction::begin().map_err(|e| {
+            BoxError::new(e.to_string(), "TransactionError", 1)
+        })
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
-        let rt = unsafe { ffi::tnt::box_txn_commit() };
+        transaction::commit().map_err(|e| {
+            BoxError::new(e.to_string(), "TransactionError", 2)
+        })?;
+
         self.yield_now().await;
+        self.end_tx();
 
-        if let Some(exec) = self.executor() {
-            let mut executor = exec.lock().unwrap();
-            executor.end_tx();
-        } else {
-            return Err(BoxError::new("?", "?", 999))
-        }
-
-        if rt != 0 {
-            let err = unsafe { handle_tarantool_error() };
-            Err(err)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
-        let rt = unsafe { ffi::tnt::box_txn_rollback() };
+        transaction::rollback().map_err(|e| {
+            BoxError::new(e.to_string(), "TransactionError", 2)
+        })?;
+
         self.yield_now().await;
+        self.end_tx();
 
-        if let Some(exec) = self.executor() {
-            let mut executor = exec.lock().unwrap();
-            executor.end_tx();
-        } else {
-            return Err(BoxError::new("?", "?", 999))
-        }
-
-        if rt != 0 {
-            let err = unsafe { handle_tarantool_error() };
-            Err(err)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     async fn txn_set_isolation(&mut self, isolation: TxnIsolationLevel) -> Result<(), BoxError> {
@@ -102,5 +77,4 @@ impl txn::Host for SyncWasmStates {
     async fn txn_make_sync(&mut self) {
         unsafe { ffi::tnt::box_txn_make_sync() }
     }
-    
 }
