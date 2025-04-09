@@ -16,7 +16,7 @@ struct WasmJoinHandle(JoinHandle<Result<()>>);
 
 impl LuaUserData for WasmJoinHandle {}
 impl FromLua for WasmJoinHandle {
-    fn from_lua(value: Value, lua: &'_ Lua) -> std::result::Result<WasmJoinHandle, mlua::Error> {
+    fn from_lua(value: Value, _lua: &'_ Lua) -> std::result::Result<WasmJoinHandle, mlua::Error> {
         value.as_userdata().ok_or(LuaError::runtime("argument is not a join handle"))?.take()
     }
 }
@@ -55,4 +55,3 @@ fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     exports.set("join", lua.create_function(join)?)?;
     Ok(exports)
 }
-

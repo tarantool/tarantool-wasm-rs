@@ -5,14 +5,14 @@ use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 
 use wasmtime_wasi::async_trait;
+use tarantool::tuple::TupleFormat as TarantoolTupleFormat;
 
 pub type TupleFormat = u64;
 
 #[async_trait]
 impl tuple_format::Host for SyncWasmStates {
     async fn default(&mut self) -> TupleFormat {
-        let ptr = unsafe { ffi::tuple::box_tuple_format_default() };
-        ptr as u64
+        TarantoolTupleFormat::default().as_ptr() as TupleFormat
     }
 
     async fn new(&mut self, key_defs: Vec<KeyDef>) -> Result<TupleFormat, BoxError> {
@@ -26,7 +26,7 @@ impl tuple_format::Host for SyncWasmStates {
         };
 
         if ptr.is_null() {
-            Err(unsafe { handle_tarantool_error() })
+            Err(handle_tarantool_error())
         } else {
             Ok(ptr as u64)
         }

@@ -1,35 +1,31 @@
 use crate::bindings::docs::adder::tuple;
-use crate::bindings::docs::adder::types::{BoxError, BoxTuple, TupleFormat, KeyDef, RawPtr};
+use crate::bindings::docs::adder::types::{BoxError, BoxTuple, TupleFormat, KeyDef};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::types::validate_msgpack_array;
 use crate::bindings::TupleIteratorImpl;
-use crate::tx::{tx_push, tx_flush, TxCtx};
 
 use wasmtime_wasi::async_trait;
 use wasmtime::component::Resource;
-use tokio::sync::oneshot;
 
 pub type TupleField = u64;
 
 #[async_trait]
 impl tuple::Host for SyncWasmStates {
-    async fn new(&mut self, format: TupleFormat, data: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        let data_ptr = data.as_ptr();
-        let data_end = unsafe { data_ptr.add(data.len()) };
-
-        let tuple_ptr = unsafe {
-            ffi::tuple::box_tuple_new(format as *mut ffi::types::BoxTupleFormatT, data_ptr as *const _, data_end as *const _)
-        };
-
-        if tuple_ptr.is_null() {
-            Err(unsafe { handle_tarantool_error() })
-        } else {
-            Ok(tuple_ptr as BoxTuple)
+    async fn new(&mut self, data: Vec<u8>) -> Result<BoxTuple, BoxError> {
+        if let Err(e) = validate_msgpack_array(&data) {
+            return Err(BoxError::new(&e, "ValidationError", 1));
         }
+        
+        Ok(unsafe{tarantool::tuple::Tuple::from_slice(&data).as_ptr() as BoxTuple})
     }
 
     async fn update(&mut self, t: BoxTuple, expr: Vec<u8>) -> Result<BoxTuple, BoxError> {
+        if let Err(e) = validate_msgpack_array(&expr) {
+            return Err(BoxError::new(&e, "ValidationError", 1));
+        }
+
         let ptr = unsafe {
             ffi::tuple::box_tuple_update(
                 t as *mut _,
@@ -39,13 +35,16 @@ impl tuple::Host for SyncWasmStates {
         };
 
         if ptr.is_null() {
-            Err(unsafe { handle_tarantool_error() })
-        } else {
-            Ok(ptr as u64)
+            return Err(handle_tarantool_error())
         }
+        Ok(ptr as BoxTuple)
     }
 
     async fn upsert(&mut self, t: BoxTuple, expr: Vec<u8>) -> Result<BoxTuple, BoxError> {
+        if let Err(e) = validate_msgpack_array(&expr) {
+            return Err(BoxError::new(&e, "ValidationError", 1));
+        }
+
         let ptr = unsafe {
             ffi::tuple::box_tuple_upsert(
                 t as *mut _,
@@ -55,46 +54,23 @@ impl tuple::Host for SyncWasmStates {
         };
 
         if ptr.is_null() {
-            Err(unsafe { handle_tarantool_error() })
-        } else {
-            Ok(ptr as u64)
+            return Err(handle_tarantool_error())
         }
+        Ok(ptr as BoxTuple)
     }
 
     async fn to_buf(&mut self, t: BoxTuple) -> Result<Vec<u8>, BoxError> {
-        let mut size: usize = 128;
-        let mut buf = vec![0u8; size];
+        let size: usize =  unsafe { ffi::tuple::box_tuple_bsize(t as *mut _) as u64 } as usize;
+        let mut buf = Vec::with_capacity(size);
 
-        let mut written = unsafe {
-            ffi::tuple::box_tuple_to_buf(
-                t as *mut _,
-                buf.as_mut_ptr() as *mut _,
-                buf.len()
-            )
+        let actual_size = unsafe {
+            ffi::tuple::box_tuple_to_buf(t as *mut _, buf.as_ptr() as _, size)
         };
 
-        if written < 0 {
-            return Err(unsafe { handle_tarantool_error() });
+        if actual_size < 0 {
+            return Err(handle_tarantool_error());
         }
-
-        if written as usize > buf.len() {
-            // Resize and retry
-            size = written as usize;
-            buf = vec![0u8; size];
-            written = unsafe {
-                ffi::tuple::box_tuple_to_buf(
-                    t as *mut _,
-                    buf.as_mut_ptr() as *mut _,
-                    buf.len()
-                )
-            };
-
-            if written < 0 {
-                return Err(unsafe { handle_tarantool_error() });
-            }
-        }
-
-        buf.truncate(written as usize);
+        unsafe { buf.set_len(actual_size as usize) };
         Ok(buf)
     }
 
@@ -115,22 +91,21 @@ impl tuple::Host for SyncWasmStates {
     }
 
     async fn format(&mut self, t: BoxTuple) -> TupleFormat {
-        unsafe { ffi::tuple::box_tuple_format(t as *mut _) as u64 }
+        unsafe { ffi::tuple::box_tuple_format(t as *mut _) as TupleFormat }
     }
 
     async fn field(&mut self, t: BoxTuple, idx: u32) -> Result<TupleField, BoxError> {
         let field_ptr = unsafe { ffi::tuple::box_tuple_field(t as *mut _, idx) };
     
         if field_ptr.is_null() {
-            Err(BoxError::new("Field not found", "tuple error", 1))
-        } else {
-            Ok(field_ptr as TupleField)
+            return Err(BoxError::new("Field not found", "TupleError", 1))
         }
+        Ok(field_ptr as TupleField)
     }
 
     async fn field_by_path(&mut self, t: BoxTuple, path: String, index_base: i32) -> Result<TupleField, BoxError> {
         let c_path = std::ffi::CString::new(path.clone())
-            .map_err(|_| BoxError::new("Invalid path", "validation error", 2))?;
+            .map_err(|_| BoxError::new("Invalid path", "ValidationError", 1))?;
     
         let ptr = unsafe {
             ffi::tuple::box_tuple_field_by_path(
@@ -142,10 +117,9 @@ impl tuple::Host for SyncWasmStates {
         };
     
         if ptr.is_null() {
-            Err(BoxError::new("Field not found", "tuple error", 1))
-        } else {
-            Ok(ptr as TupleField)
+            return Err(BoxError::new(format!("Field '{}' not found", path), "TupleError", 1))
         }
+        Ok(ptr as TupleField)
     }
     
     async fn validate(&mut self, t: BoxTuple, format: TupleFormat) -> bool {
@@ -196,49 +170,31 @@ unsafe impl<T> Sync for SendPtr<T> {}
 #[async_trait]
 impl tuple::HostTupleIterator for SyncWasmStates {
     async fn new_tuple_iterator(&mut self, tup: BoxTuple) -> Result<Resource<TupleIteratorImpl>, BoxError> {
-        let (tx, rx) = oneshot::channel();
-    
-        let task = Box::new(TxCtx {
-            cb: Box::new(move || {
-                println!("RS | Executing new_tuple_iterator in TX thread...");
-    
-                let iter_ptr: *mut ffi::types::BoxTupleIteratorT =
-                    unsafe { ffi::tuple::box_tuple_iterator(tup as *mut _) };
-                if iter_ptr.is_null() {
-                    let err = unsafe { handle_tarantool_error() };
-                    println!("RS | new_tuple_iterator error: {}", err.message);
-                    let _ = tx.send(Err(err));
-                    return;
-                }
-    
-                println!("RS | new_tuple_iterator successful");
-                let _ = tx.send(Ok(SendPtr(iter_ptr)));
-            }),
-        });
-    
-        tx_push(task);
-        tx_flush();
-    
-        let SendPtr(iter_ptr) = rx.await.unwrap_or_else(|_| {
-            Err(BoxError::new(
-                "Failed to receive response from TX thread",
-                "internal error",
-                500,
-            ))
-        })?;
-    
-        Ok(self.0.lock().unwrap().table.push(TupleIteratorImpl { iter: iter_ptr }).unwrap())
-    }    
+        let tup_copy = tup.clone();
+
+        let send_ptr: SendPtr<ffi::types::BoxTupleIteratorT> = self.executor().execute(move || {
+            let ptr = unsafe { ffi::tuple::box_tuple_iterator(tup_copy as *mut _) };
+            if ptr.is_null() {
+                Err(handle_tarantool_error())
+            } else {
+                Ok(SendPtr(ptr))
+            }
+        }).await?;
         
+        let iter_ptr = send_ptr.0;
+        let resource = self.0.lock().unwrap()
+            .table
+            .push(TupleIteratorImpl { iter: iter_ptr })
+            .map_err(|e| BoxError::new(e.to_string(), "ResourceTableError", 1))?;
+        
+        Ok(resource)
+    }    
 
     async fn position(&mut self, self_: Resource<tuple::TupleIterator>,) -> u32 {
         let mut guard = self.0.lock().unwrap();
         let iter = guard.table.get_mut(&self_)
-            .map_err(|e| BoxError::new(
-                format!("Resource error: {}", e),
-                "internal".to_string(),
-                2
-            )).unwrap();
+            .map_err(|e| BoxError::new(e.to_string(), "ResourceTableError", 1))
+            .unwrap();
 
         let res = unsafe { ffi::tuple::box_tuple_position(iter.iter) };
         res
@@ -247,52 +203,31 @@ impl tuple::HostTupleIterator for SyncWasmStates {
     async fn rewind(&mut self, self_: Resource<tuple::TupleIterator>,) {
         let mut guard = self.0.lock().unwrap();
         let iter = guard.table.get_mut(&self_)
-            .map_err(|e| BoxError::new(
-                format!("Resource error: {}", e),
-                "internal".to_string(),
-                2
-            )).unwrap();
+            .map_err(|e| BoxError::new(e.to_string(), "ResourceTableError", 1))
+            .unwrap();
 
         unsafe { ffi::tuple::box_tuple_rewind(iter.iter) };
     }
 
-    async fn seek(
-        &mut self,
-        self_: Resource<tuple::TupleIterator>,
-        pos: u32,
-    ) -> Result<TupleField, BoxError> {
+    async fn seek(&mut self, self_: Resource<tuple::TupleIterator>, pos: u32) -> Result<TupleField, BoxError> {
         let mut guard = self.0.lock().unwrap();
         let iter = guard.table.get_mut(&self_)
-            .map_err(|e| BoxError::new(
-                format!("Resource error: {}", e),
-                "internal".to_string(),
-                2
-            ))?;
+            .map_err(|e| BoxError::new(e.to_string(), "ResourceTableError", 1))?;
 
         let res = unsafe { ffi::tuple::box_tuple_seek(iter.iter, pos) };
         Ok(res as TupleField)
     }
 
-    async fn next(
-        &mut self,
-        self_: Resource<tuple::TupleIterator>,
-    ) -> Result<TupleField, BoxError> {
+    async fn next(&mut self, self_: Resource<tuple::TupleIterator>) -> Result<TupleField, BoxError> {
         let mut guard = self.0.lock().unwrap();
         let iter = guard.table.get_mut(&self_)
-            .map_err(|e| BoxError::new(
-                format!("Resource error: {}", e),
-                "internal".to_string(),
-                2
-            ))?;
+        .map_err(|e| BoxError::new(e.to_string(), "ResourceTableError", 1))?;
 
         let res = unsafe { ffi::tuple::box_tuple_next(iter.iter) };
         Ok(res as u64)
     }
 
-    async fn drop(
-        &mut self,
-        self_: Resource<tuple::TupleIterator>
-    ) -> Result<(), wasmtime::Error> {
+    async fn drop(&mut self, self_: Resource<tuple::TupleIterator>) -> Result<(), wasmtime::Error> {
         self.0.lock().unwrap().table.delete(self_)?;
         Ok(())
     }

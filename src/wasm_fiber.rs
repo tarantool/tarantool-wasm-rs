@@ -8,7 +8,6 @@ use tokio::runtime::Builder;
 use wasmtime_wasi::bindings::Command;
 use crate::tarantool_wasm::SyncWasmStates;
 use anyhow::Result;
-use std::sync::Mutex;
 
 pub(crate) enum WasmFiberStatus {
     Suspended,
@@ -46,11 +45,11 @@ impl WasmFiber {
     fn resume_on_tx(self) -> WasmFiber {
         let (tx, rx) = oneshot::channel();
         let (ret_tx, ret_rx) = oneshot::channel();
-        tx.send(self);
+        let _ = tx.send(self);
         let cb = move || {
             let mut fiber = rx.blocking_recv().unwrap();
             fiber.resume();
-            ret_tx.send(fiber);
+            let _ = ret_tx.send(fiber);
         };
 
         tx_push(

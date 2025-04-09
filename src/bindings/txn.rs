@@ -70,7 +70,7 @@ impl txn::Host for SyncWasmStates {
         let rc = unsafe { ffi::tnt::box_txn_set_isolation(isolation as u32) };
         match rc {
             0 => Ok(()),
-            _ => Err(unsafe{ handle_tarantool_error() })
+            _ => Err(handle_tarantool_error())
         }
     }
 

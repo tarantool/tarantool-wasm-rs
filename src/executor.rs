@@ -26,7 +26,6 @@ impl ExecutorImpl for DirectExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        println!("<<< DirectExecutor >>>");
         task()
     }
 }
@@ -41,7 +40,6 @@ impl ExecutorImpl for TxPushExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        println!("<<< TxPushExecutor >>>");
         let (tx, rx) = oneshot::channel();
 
         let closure = move || {

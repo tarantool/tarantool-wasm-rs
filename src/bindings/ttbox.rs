@@ -2,7 +2,6 @@ use crate::bindings::docs::adder::ttbox;
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::docs::adder::types::{BoxError, Index, Space};
 use crate::ffi as ffi;
-use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::types::validate_msgpack_array;
 
 use wasmtime_wasi::async_trait;
@@ -11,22 +10,6 @@ use tarantool::tuple::Tuple as TarantoolTuple;
 use tarantool::index::{Index as TarantoolIndex, IndexId};
 
 pub type BoxTuple = u64;
-
-pub unsafe fn begin_transaction() -> Result<(), BoxError> {
-    if ffi::tnt::box_txn_begin() != 0 {
-        Err(handle_tarantool_error())
-    } else {
-        Ok(())
-    }
-}
-
-pub unsafe fn commit_transaction() -> Result<(), BoxError> {
-    if ffi::tnt::box_txn_commit() != 0 {
-        Err(handle_tarantool_error())
-    } else {
-        Ok(())
-    }
-}
 
 #[async_trait]
 impl ttbox::Host for SyncWasmStates {

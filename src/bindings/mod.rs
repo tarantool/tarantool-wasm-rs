@@ -12,7 +12,7 @@ bindgen!({
 });
 
 pub struct IteratorImpl {
-    iter: *mut ffi::types::BoxIteratorT,
+    inner: tarantool::index::IndexIterator,
 }
 
 pub struct TupleIteratorImpl {

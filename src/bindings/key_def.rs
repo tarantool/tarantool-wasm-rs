@@ -5,7 +5,7 @@ use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 
 use wasmtime_wasi::async_trait;
-use std::ffi::{CString, NulError};
+use std::ffi::CString;
 use std::mem::ManuallyDrop;
 
 
@@ -39,7 +39,6 @@ fn encode_key_part_flags(flags: &KeyPartFlags) -> u32 {
     result
 }
 
-
 fn decode_key_part_flags(bits: u32) -> KeyPartFlags {
     let mut raw: u8 = 0;
     if bits & (1 << 0) != 0 {
@@ -57,15 +56,13 @@ impl key_def::Host for SyncWasmStates {
 
     async fn new(&mut self, parts: Vec<KeyPart>) -> Result<u64, BoxError> {
         let part_count = parts.len();
-        println!("Creating key_def with {} parts", part_count);
 
         let mut key_parts: Vec<ffi::types::BoxKeyPartDefT> = Vec::with_capacity(part_count);
         let mut c_field_types = Vec::with_capacity(part_count);
         let mut c_collations = Vec::with_capacity(part_count);
         let mut c_paths = Vec::with_capacity(part_count);
 
-        for (i, part) in parts.iter().enumerate() {
-            println!("Part {}: {:?}", i, part);
+        for (_, part) in parts.iter().enumerate() {
 
             let field_type_str = field_type_to_id(&part.field_type)?;
             let field_type_cstr = CString::new(field_type_str)
@@ -113,9 +110,8 @@ impl key_def::Host for SyncWasmStates {
         };
 
         if ptr.is_null() {
-            Err(unsafe { handle_tarantool_error() })
+            Err(handle_tarantool_error())
         } else {
-            println!("Successfully created key_def at ptr: {:?}", ptr);
             Ok(ptr as u64)
         }
     }    
@@ -136,7 +132,7 @@ impl key_def::Host for SyncWasmStates {
         };
 
         if ptr.is_null() {
-            Err(unsafe{ handle_tarantool_error() })
+            Err(handle_tarantool_error())
         } else {
             Ok(ptr as KeyDef)
         }
@@ -160,14 +156,12 @@ impl key_def::Host for SyncWasmStates {
         };
 
         if raw_ptr.is_null() {
-            return Err(unsafe { handle_tarantool_error() });
+            return Err(handle_tarantool_error());
         }
 
         if part_count == 0 {
             return Ok(Vec::new());
         }
-
-        println!("RS | Returned part_count: {}", part_count);
 
         let part_size = std::mem::size_of::<ffi::types::BoxKeyPartDefT>();
 
@@ -231,7 +225,7 @@ impl key_def::Host for SyncWasmStates {
         if rc == 0 {
             Ok((true, key_size))
         } else {
-            Err(unsafe { handle_tarantool_error() })
+            Err(handle_tarantool_error())
         }
     }
 
@@ -250,7 +244,7 @@ impl key_def::Host for SyncWasmStates {
         if rc == 0 {
             Ok((true, key_size))
         } else {
-            Err(unsafe { handle_tarantool_error() })
+            Err(handle_tarantool_error())
         }
     }
 
@@ -262,7 +256,7 @@ impl key_def::Host for SyncWasmStates {
         };
     
         if ptr.is_null() {
-            Err(unsafe { handle_tarantool_error() })
+            Err(handle_tarantool_error())
         } else {
             Ok(count)
         }

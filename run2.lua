@@ -17,6 +17,8 @@ box.space[space_name]:create_index(index_name, {
 })
 log.info("Create index: %s", index_name)
 
+box.schema.sequence.create('id_seq',{min=1000, start=1000})
+
 log.info("Load WASM module...")
 local module = wasm.load(wasm_module_path)
 log.info("Run WASM module...")

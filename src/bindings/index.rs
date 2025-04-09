@@ -1,7 +1,7 @@
 use crate::bindings::docs::adder::index;
 use crate::bindings::docs::adder::types::{BoxError, BoxTuple, Index, IteratorType};
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::bindings::types::validate_msgpack_array;
+use crate::bindings::types::{validate_msgpack_array, convert_iterator_type};
 
 use wasmtime_wasi::async_trait;
 use tarantool::space::SpaceId;
@@ -128,24 +128,9 @@ impl index::Host for SyncWasmStates {
             )
         };
 
-        let iter = match iter_type {
-            IteratorType::IterEq => tarantool::index::IteratorType::Eq,
-            IteratorType::IterReq => tarantool::index::IteratorType::Req,
-            IteratorType::IterAll => tarantool::index::IteratorType::All,
-            IteratorType::IterLt => tarantool::index::IteratorType::LT,
-            IteratorType::IterLe => tarantool::index::IteratorType::LE,
-            IteratorType::IterGe => tarantool::index::IteratorType::GE,
-            IteratorType::IterGt => tarantool::index::IteratorType::GT,
-            IteratorType::IterBitsAllSet => tarantool::index::IteratorType::BitsAllSet,
-            IteratorType::IterBitsAnySet => tarantool::index::IteratorType::BitsAnySet,
-            IteratorType::IterBitsAllNotSet => tarantool::index::IteratorType::BitsAllNotSet,
-            IteratorType::IterOverlaps => tarantool::index::IteratorType::Overlaps,
-            IteratorType::IterNeighbor => tarantool::index::IteratorType::Neighbor,
-            IteratorType::IterNp => tarantool::index::IteratorType::Neighbor,
-            IteratorType::IterPp => tarantool::index::IteratorType::Neighbor,
-        };
-
+        let iter= convert_iterator_type(iter_type)?;
         let tuple = unsafe { TarantoolTuple::from_slice(&key) };
+
         match ind.count(iter, &tuple) {
             Ok(count) => Ok(count as i64),
             Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),

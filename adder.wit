@@ -48,211 +48,204 @@ world adder {
 interface types {
 
   record box-error {
-    message: string,                        // Human-readable message.
-    %type: string,                          // Error type: e.g., "ClientError", "SocketError".
-    code: u32,                              // IPROTO or internal error code.
-    payload: option<list<tuple<string, string>>>,  // Optional additional fields.
-    file: option<string>,                   // File where error originated (if available).
-    line: option<u32>,                      // Line number in the source file.
+    message: string,                              // Human-readable message.
+    %type: string,                                // Error type: e.g., "ClientError", "SocketError".
+    code: u32,                                    // IPROTO or internal error code.
+    payload: option<list<tuple<string, string>>>, // Optional additional fields.
+    file: option<string>,                         // File where error originated (if available).
+    line: option<u32>,                            // Line number in the source file.
   }
 
   record space {
-    id: s32,  // Unique identifier of the space.
+    id: s32,                                      // Unique identifier of the space.
   }
 
   record index {
-    id: s32,           // Index ID (within space).
-    space-id: s32,     // ID of the parent space.
-    index-base: s32,   // 0 (C-style) or 1 (Lua-style) indexing.
+    id: s32,                                      // Index ID (within space).
+    space-id: s32,                                // ID of the parent space.
+    index-base: s32,                              // 0 (C-style) or 1 (Lua-style) indexing.
   }
 
   enum log-level {
-    s-fatal,       // Critical failure, Tarantool exits
-    s-syserror,    // System error (errno-based)
-    s-error,       // Recoverable error
-    s-crit,        // Severe error
-    s-warn,        // Warning
-    s-info,        // Informational message
-    s-verbose,     // Verbose message
-    s-debug,       // Debug message
+    s-fatal,                                      // Critical failure, Tarantool exits
+    s-syserror,                                   // System error (errno-based)
+    s-error,                                      // Recoverable error
+    s-crit,                                       // Severe error
+    s-warn,                                       // Warning
+    s-info,                                       // Informational message
+    s-verbose,                                    // Verbose message
+    s-debug,                                      // Debug message
   }
 
   record session {
-    id: s64,  // Unique session identifier
+    id: s64,                                      // Unique session identifier
   }
   
   enum txn-isolation-level {
-    txn-isolation-default, // take isolation level from global default_isolation_level.
-    txn-isolation-best-effort, // determine isolation level automatically (default).
-    txn-isolation-read-committed, // allow to read committed, but not confirmed changes.
-    txn-isolation-read-confirmed, // allow to read only confirmed changes.
-    txn-isolation-linearizable, // allow to read only the changes confirmed on any cluster node.
+    txn-isolation-default,                        // take isolation level from global default_isolation_level.
+    txn-isolation-best-effort,                    // determine isolation level automatically (default).
+    txn-isolation-read-committed,                 // allow to read committed, but not confirmed changes.
+    txn-isolation-read-confirmed,                 // allow to read only confirmed changes.
+    txn-isolation-linearizable,                   // allow to read only the changes confirmed on any cluster node.
   }
 
   enum iterator-type {
-    iter-eq,                // Equal
-    iter-req,               // Reverse EQ
-    iter-all,               // Full scan
-    iter-lt, iter-le,       // Less than / less equal
-    iter-ge, iter-gt,       // Greater equal / greater than
-    iter-bits-all-set,      // Bitmask: all bits set
-    iter-bits-any-set,      // Bitmask: any bit set
-    iter-bits-all-not-set,  // Bitmask: all not set
-    iter-overlaps,          // Range overlaps
-    iter-neighbor,          // Spatial index
-    iter-np, iter-pp        // Spatial index variants
+    iter-eq,                                      // Equal
+    iter-req,                                     // Reverse EQ
+    iter-all,                                     // Full scan
+    iter-lt, iter-le,                             // Less than / less equal
+    iter-ge, iter-gt,                             // Greater equal / greater than
+    iter-bits-all-set,                            // Bitmask: all bits set
+    iter-bits-any-set,                            // Bitmask: any bit set
+    iter-bits-all-not-set,                        // Bitmask: all not set
+    iter-overlaps,                                // Range overlaps
+    iter-neighbor,                                // Spatial index
+    iter-np, iter-pp                              // Spatial index variants
   }
 
   resource iterator {
     new-iterator: static func(index: index, iterator-type: iterator-type, key: list<u8>) -> result<iterator, box-error>;
-    next: func() -> result<box-tuple, box-error>;  // Fetch next tuple.
+    next: func() -> result<box-tuple, box-error>;
   }
 
   record sequence {
-    id: s32,  // Sequence ID
+    id: s32,                                      // Sequence ID
   }
 
   flags key-part-flags {
-    is-nullable,    // Allows NULL
-    exclude-null,   // Exclude NULLs in comparison
+    is-nullable,                                  // Allows NULL
+    exclude-null,                                 // Exclude NULLs in comparison
   }
 
   record key-part {
-    field-no: u32,                      // Index of field in tuple
-    field-type: string,                 // E.g. "unsigned", "string"
-    collation: option<string>,         // Optional collation name
-    path: option<string>,              // JSON path (for multikeys)
-    %flags: key-part-flags,            // Nullable/exclude-null flags
+    field-no: u32,                                // Index of field in tuple
+    field-type: string,                           // E.g. "unsigned", "string"
+    collation: option<string>,                    // Optional collation name
+    path: option<string>,                         // JSON path (for multikeys)
+    %flags: key-part-flags,                       // Nullable/exclude-null flags
   }
 
   type box-tuple = u64;
   type key-def = u64;
   type tuple-format = u64;
   type tuple-field = u64;
-  type raw-ptr = u64;
 }
 
 interface msgpack {
   use types.{
     box-error,
-    raw-ptr,
   };
 
-  /// Encodes a JSON-like structure into MsgPack format.
+  /// Converts a JSON string into MessagePack format.
   ///
-  /// This function accepts a UTF-8 encoded JSON string (as a byte array)
-  /// and returns the equivalent data in MessagePack format.
+  /// Accepts a UTF-8 encoded JSON string as a byte array and returns the equivalent
+  /// structure encoded in MessagePack format.
+  ///
+  /// This is useful for sending structured data from higher-level languages
+  /// to Tarantool via MessagePack, using familiar JSON as input.
   ///
   /// ### Parameters
   /// - `data`: A byte array containing a valid UTF-8 encoded JSON string.
   ///
   /// ### Returns
-  /// - A byte array containing the same structure encoded in MessagePack format.
+  /// - A byte array containing the structure in MessagePack format.
+  /// 
+  /// ### Raises
+  /// - BoxError
   ///
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import msgpack
-  /// import json
-  ///
-  /// obj = {"key": "value", "num": 123}
+  /// ```
+  /// obj = [1, "Alice", 25]
   /// json_bytes = json.dumps(obj).encode('utf-8')
-  /// encoded_obj = msgpack.encode(json_bytes)
+  /// encoded_msgpack = msgpack.encode(json_bytes)
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { encode } from 'docs:adder/msgpack@0.1.0';
-  ///
-  /// const obj = { key: "value", num: 123 };
-  /// const jsonString = JSON.stringify(obj);
-  /// const jsonBytes = new TextEncoder().encode(jsonString);
-  /// const encodedObj = await encode(jsonBytes);
+  /// ```
+  /// const obj = [1, "Alice", 25];
+  /// const jsonBytes = new TextEncoder().encode(JSON.stringify(obj));
+  /// const encoded = await encode(jsonBytes);
   /// ```
   encode: func(data: list<u8>) -> result<list<u8>, box-error>;
 
-  /// Decodes a MsgPack-encoded byte array back into a JSON-like structure.
+  /// Decodes a MessagePack-encoded byte array into a UTF-8 JSON string.
   ///
-  /// This function takes a byte array containing data in MessagePack format
-  /// and returns a UTF-8 encoded JSON string as a byte array. You can then
-  /// decode the string and parse it into a native data structure.
+  /// This function accepts a byte array containing data in MessagePack format,
+  /// deserializes it into an intermediate structure, and serializes it into a JSON string,
+  /// encoded as UTF-8 bytes.
   ///
   /// ### Parameters
   /// - `data`: A byte array containing data encoded in MessagePack format.
   ///
   /// ### Returns
-  /// - A byte array containing a UTF-8 encoded JSON string.
+  /// - On success, returns a byte array representing a UTF-8 encoded JSON string.
+  ///
+  /// ### Raises
+  /// - BoxError
   ///
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import msgpack
-  /// import json
-  ///
-  /// msgpack_bytes: bytes = ...
-  /// decoded_json_bytes: bytes = msgpack.decode(msgpack_bytes)
-  /// decoded_json_string = decoded_json_bytes.decode('utf-8')
-  /// obj = json.loads(decoded_json_string)
+  /// ```
+  /// decoded_json_bytes = msgpack.decode(msgpack_bytes)
+  /// json_string = decoded_json_bytes.decode('utf-8')
+  /// obj = json.loads(json_string)
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { decode } from 'docs:adder/msgpack@0.1.0';
-  ///
-  /// const msgPackBytes = ...; // Uint8Array
-  /// const decodedJsonBytes = await decode(msgPackBytes);
-  /// const decodedJsonString = new TextDecoder().decode(decodedJsonBytes);
-  /// const obj = JSON.parse(decodedJsonString);
+  /// ```
+  /// const jsonBytes = await decode(msgpackBytes);
+  /// const jsonString = new TextDecoder().decode(jsonBytes);
+  /// const obj = JSON.parse(jsonString);
   /// ```
   decode: func(data: list<u8>) -> result<list<u8>, box-error>;
 
-  /// Decodes a MsgPack-encoded value from a raw pointer into a JSON-like structure.
+  /// Decodes a MessagePack-encoded value from a raw memory pointer into a UTF-8 JSON string.
   ///
-  /// This function is used when the MsgPack data is already located in memory
-  /// (e.g. returned from a low-level API) and referenced via a raw pointer.
-  /// It reads the value starting at the given pointer and returns a UTF-8 encoded
-  /// JSON string as a byte array.
+  /// This function reads and decodes MessagePack data starting at the given memory address,
+  /// which is typically obtained from a low-level system API or runtime interface.
+  /// The resulting value is converted to a JSON string and returned as a UTF-8 encoded byte array.
   ///
   /// ### Parameters
-  /// - `ptr`: A raw pointer (`u64`) to the beginning of the MsgPack-encoded value.
+  /// - `ptr`: A raw memory address (`u64`) pointing to the beginning of a valid MsgPack-encoded value.
   ///
   /// ### Returns
-  /// - A byte array containing a UTF-8 encoded JSON string.
+  /// - On success, returns a byte array containing a UTF-8 encoded JSON string.
+  ///
+  /// ### Raises
+  /// - BoxError
+  ///
+  /// ### Safety
+  /// This function performs an unsafe read from the specified memory location. The pointer must
+  /// refer to a valid region of memory containing a complete MessagePack value of known or bounded size.
   ///
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import msgpack
-  /// import json
-  ///
-  /// ptr: int = ...  # obtained from low-level API
-  /// decoded_json_bytes: bytes = msgpack.decode_from_raw_ptr(ptr)
-  /// decoded_json_string = decoded_json_bytes.decode('utf-8')
-  /// obj = json.loads(decoded_json_string)
+  /// ```
+  /// decoded_json_bytes = msgpack.decode_from_raw_ptr(ptr)
+  /// json_str = decoded_json_bytes.decode('utf-8')
+  /// obj = json.loads(json_str)
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { decodeFromRawPtr } from 'docs:adder/msgpack@0.1.0';
-  ///
-  /// const ptr = ...; // e.g. returned from an iterator
-  /// const decodedJsonBytes = await decodeFromRawPtr(ptr);
-  /// const decodedJsonString = new TextDecoder().decode(decodedJsonBytes);
-  /// const obj = JSON.parse(decodedJsonString);
   /// ```
-  decode-from-raw-ptr: func(ptr: raw-ptr) -> result<list<u8>, box-error>;
+  /// const jsonBytes = await decodeFromRawPtr(ptr);
+  /// const jsonString = new TextDecoder().decode(jsonBytes);
+  /// const obj = JSON.parse(jsonString);
+  /// ```
+  decode-from-raw-ptr: func(ptr: u64) -> result<list<u8>, box-error>;
 }
 
 interface ttbox {
 
   use types.{
-      space,
-      box-error,
-      index,
-      box-tuple
+    space,
+    box-error,
+    index,
+    box-tuple
   };
 
   /// Returns the current schema version of the database.
@@ -261,16 +254,6 @@ interface ttbox {
   ///
   /// ### Returns
   /// - A 64-bit integer representing the current schema version.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  ///
-  /// version = box.schema_version()
-  /// print("Schema version:", version)
-  /// ```
   schema-version: func() -> s64;
 
   /// Retrieves a space object by its name.
@@ -282,16 +265,6 @@ interface ttbox {
   ///
   /// ### Returns
   /// - A space object if found, or an error otherwise.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  ///
-  /// space = box.space_by_name("test_space")
-  /// print("Space ID:", space.id)
-  /// ```
   space-by-name: func(name: string) -> result<space, box-error>;
 
   /// Retrieves an index object by name within a space.
@@ -304,18 +277,7 @@ interface ttbox {
   ///
   /// ### Returns
   /// - An index object if found, or an error otherwise.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  ///
-  /// index = box.index_by_name(space, "primary")
-  /// print("Index ID:", index.id)
-  /// ```
   index-by-name: func(%space: space, name: string) -> result<index, box-error>;
-
 
   /// Inserts a new tuple into a space.
   ///
@@ -327,22 +289,6 @@ interface ttbox {
   ///
   /// ### Returns
   /// - The inserted tuple.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  /// from adder.imports import tuple as tt_tuple
-  /// from adder.imports import msgpack
-  /// import json
-  ///
-  /// tup = [1, "Alice", 25]
-  /// tup_bytes = msgpack.encode(json.dumps(tup).encode('utf-8'))
-  /// inserted = box.insert(space, tup_bytes)
-  /// print("Inserted ptr: ", hex(inserted))
-  /// print("Inserted tuple: ", msgpack.decode(tt_tuple.to_buf(inserted)))
-  /// ```
   insert: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
 
   /// Updates an existing tuple by key in the specified index.
@@ -357,24 +303,6 @@ interface ttbox {
   ///
   /// ### Returns
   /// - The updated tuple.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  /// from adder.imports import tuple as tt_tuple
-  /// from adder.imports import msgpack
-  /// import json
-  ///
-  /// key = [1]
-  /// ops = [["=", 2, 26]]
-  /// key_bytes = msgpack.encode(json.dumps(key).encode('utf-8'))
-  /// ops_bytes = msgpack.encode(json.dumps(ops).encode('utf-8'))
-  /// updated = box.update(index, key_bytes, ops_bytes)
-  /// print("Updated ptr: ", hex(updated))
-  /// print("Updated tuple: ", msgpack.decode(tt_tuple.to_buf(updated)))
-  /// ```
   update: func(index: index, key: list<u8>, ops: list<u8>) -> result<box-tuple, box-error>;
 
   /// Replaces an existing tuple or inserts a new one.
@@ -385,22 +313,6 @@ interface ttbox {
   ///
   /// ### Returns
   /// - The replaced tuple.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  /// from adder.imports import tuple as tt_tuple
-  /// from adder.imports import msgpack
-  /// import json
-  ///
-  /// tup = [2, "Bob Jr.", 31]
-  /// tup_bytes = msgpack.encode(json.dumps(tup).encode('utf-8'))
-  /// replaced = box.replace(space, tup_bytes)
-  /// print("Replaced ptr: ", hex(replaced))
-  /// print("Replaced tuple: ", decode(data=tt_tuple.to_buf(replaced)))
-  /// ```
   replace: func(space: space, tup: list<u8>) -> result<box-tuple, box-error>;
 
   /// Performs an UPSERT operation: update if exists, insert otherwise.
@@ -409,24 +321,6 @@ interface ttbox {
   /// - `index`: The index used for key lookup.
   /// - `tup`: A MsgPack-encoded tuple to insert.
   /// - `ops`: A MsgPack-encoded array of update operations.
-  ///
-  /// ### Returns
-  /// - The previous version of the tuple if it existed; otherwise, `null` if inserted.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  /// from adder.imports import msgpack
-  /// import json
-  ///
-  /// tup = [6, "Frank", 50]
-  /// ops = [["+", 2, 1]]
-  /// tup_bytes = msgpack.encode(json.dumps(tup).encode('utf-8'))
-  /// ops_bytes = msgpack.encode(json.dumps(ops).encode('utf-8'))
-  /// box.upsert(index, tup_bytes, ops_bytes)
-  /// ```
   upsert: func(index: index, tup: list<u8>, ops: list<u8>) -> result<_, box-error>;
 
   /// Deletes a tuple by key from the specified index.
@@ -439,21 +333,6 @@ interface ttbox {
   ///
   /// ### Returns
   /// - The deleted tuple, if found.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  /// from adder.imports import tuple as tt_tuple
-  /// from adder.imports import msgpack
-  ///
-  /// key = [3]
-  /// key_bytes = msgpack.encode(json.dumps(key).encode('utf-8'))
-  /// deleted = box.tt_delete(index, key_bytes)
-  /// print("Deleted ptr: ", hex(deleted))
-  /// print("Deleted tuple: ", msgpack.decode(data=tt_tuple.to_buf(deleted)))
-  /// ```
   delete: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
 
   /// Removes all tuples from the space.
@@ -465,24 +344,14 @@ interface ttbox {
   ///
   /// ### Returns
   /// - `null` on success, or an error.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import ttbox as box
-  ///
-  /// box.truncate(space)
-  /// print("Space cleared")
-  /// ```
   truncate: func(space: space) -> result<_, box-error>;
 }
 
 interface say {
 
-    use types.{
-        log-level,
-    };
+  use types.{
+    log-level,
+  };
 
   /// Logs a message with the given log level.
   ///
@@ -496,24 +365,17 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  /// from adder.imports.docs_adder_types import LogLevel
-  ///
+  /// ```
   /// say.say(LogLevel.S_WARN, "This is a warning message")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { say } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// say('s-warn', "This is a warning message");
   /// ```
   say: func(level: log-level, msg: string);
 
   /// Logs an error message.
-  ///
-  /// Equivalent to `say(s-error, msg)`.
   ///
   /// ### Parameters
   /// - `msg`: The error message to log.
@@ -521,16 +383,12 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  ///
+  /// ```
   /// say.say_error("Something went wrong")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { sayError } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// sayError("Something went wrong");
   /// ```
   say-error: func(msg: string);
@@ -543,16 +401,12 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  ///
+  /// ```
   /// say.say_crit("Unrecoverable condition encountered")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { sayCrit } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// sayCrit("Unrecoverable condition encountered");
   /// ```
   say-crit: func(msg: string);
@@ -565,16 +419,12 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  ///
+  /// ```
   /// say.say_warn("This is just a warning")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { sayWarn } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// sayWarn("This is just a warning");
   /// ```
   say-warn: func(msg: string);
@@ -587,16 +437,12 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  ///
+  /// ```
   /// say.say_info("Processing started")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { sayInfo } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// sayInfo("Processing started");
   /// ```
   say-info: func(msg: string);
@@ -609,16 +455,12 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  ///
+  /// ```
   /// say.say_verbose("Detailed output")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { sayVerbose } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// sayVerbose("Detailed output");
   /// ```
   say-verbose: func(msg: string);
@@ -631,16 +473,12 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  ///
+  /// ```
   /// say.say_debug("Debug info")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { sayDebug } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// sayDebug("Debug info");
   /// ```
   say-debug: func(msg: string);
@@ -655,16 +493,12 @@ interface say {
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import say
-  ///
+  /// ```
   /// say.say_syserror("Failed to open file")
   /// ```
   ///
   /// **JavaScript**
-  /// ```js
-  /// import { saySyserror } from 'docs:adder/say@0.1.0';
-  ///
+  /// ```
   /// saySyserror("Failed to open file");
   /// ```
   say-syserror: func(msg: string);
@@ -672,9 +506,9 @@ interface say {
 
 interface error {
 
-    use types.{
-      box-error,
-    };
+  use types.{
+    box-error,
+  };
 
   /// Creates a new error object with the given message, type, and error code.
   ///
@@ -685,24 +519,6 @@ interface error {
   ///
   /// ### Returns
   /// - A new `box-error` object.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import error
-  ///
-  /// err = error.error_new("Something went wrong", "MyError", 42)
-  /// print(error.to_string(err))
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { errorNew, toString } from 'docs:adder/error@0.1.0';
-  ///
-  /// const err = errorNew("Something went wrong", "MyError", 42);
-  /// console.log(toString(err));
-  /// ```
   error-new: func(message: string, %type: string, code: u32) -> box-error;
 
   /// Sets the given error as the current "last error".
@@ -711,22 +527,6 @@ interface error {
   ///
   /// ### Parameters
   /// - `err`: The error to set.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import error
-  ///
-  /// error.set(error.error_new("Invalid input", "ValidationError", 1001))
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { set, errorNew } from 'docs:adder/error@0.1.0';
-  ///
-  /// set(errorNew("Invalid input", "ValidationError", 1001));
-  /// ```
   set: func(err: box-error);
 
   /// Returns the last error set by the system or user code.
@@ -734,78 +534,21 @@ interface error {
   /// Similar to `errno` in C. Returns `none` if no error is currently set.
   ///
   /// ### Returns
-  /// - An optional `box-error`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import error
-  ///
-  /// last_error = error.last()
-  /// if last_error:
-  ///     print("Last error:", error.to_string(last_error))
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { last, toString } from 'docs:adder/error@0.1.0';
-  ///
-  /// const err = last();
-  /// if (err !== null) {
-  ///     console.log("Last error:", toString(err));
-  /// }
-  /// ```
+  /// - `box-error` or `none` if no error is currently set.
   last: func() -> option<box-error>;
 
   /// Clears the last error.
   ///
   /// This is typically used to reset the error state before performing new operations.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import error
-  ///
-  /// error.clear()
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { clear } from 'docs:adder/error@0.1.0';
-  ///
-  /// clear();
-  /// ```
   clear: func();
 
   /// Converts a `box-error` object to a string representation.
-  ///
-  /// The result includes the error type, code, and message.
   ///
   /// ### Parameters
   /// - `err`: The error to stringify.
   ///
   /// ### Returns
   /// - A human-readable string describing the error.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import error
-  ///
-  /// err = error.error_new("Something went wrong", "CustomError", 99)
-  /// print(error.to_string(err))
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { errorNew, toString } from 'docs:adder/error@0.1.0';
-  ///
-  /// const err = errorNew("Oops", "CustomError", 99);
-  /// console.log(toString(err));
-  /// ```
   to-string: func(err: box-error) -> string;
 }
 
@@ -821,28 +564,8 @@ interface session {
   /// The session object uniquely identifies the connection or context
   /// (e.g. a client connection) from which the current code is executed.
   ///
-  /// Internally maps to `box_session_id()` in the C API.
-  ///
   /// ### Returns
   /// - A `session` object representing the current session.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import session
-  ///
-  /// current = session.current()
-  /// print("Current session ID:", current)
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { current } from 'docs:adder/session@0.1.0';
-  ///
-  /// const sid = current();
-  /// console.log("Session ID:", sid);
-  /// ```
   current: func() -> session;
 
   /// Broadcasts a message to all watchers subscribed to the given key.
@@ -850,38 +573,17 @@ interface session {
   /// The `value` is interpreted as a string representation of a Lua object.
   /// Internally maps to `box.broadcast(key, value)` from Lua.
   ///
-  /// This is commonly used to implement cross-session communication or reactive UI updates.
-  ///
   /// ### Parameters
   /// - `key`: A string event name to broadcast on.
   /// - `value`: A stringified Lua object, e.g. `"{a = 1}"`.
   ///
   /// ### Returns
   /// - `ok` on success, or a `box-error` on failure.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import session
-  ///
-  /// session.broadcast("chat:update", "{user = 'alice', msg = 'hi!'}")
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { broadcast } from 'docs:adder/session@0.1.0';
-  ///
-  /// await broadcast("chat:update", "{user = 'alice', msg = 'hi!'}");
-  /// ```
   broadcast: func(key: string, value: string) -> result<_, box-error>;
 
   /// Sends a raw IPROTO packet to a specific session.
   ///
   /// Both the header and body must be valid MsgPack-encoded buffers.
-  ///
-  /// This function is low-level and is used for direct protocol communication over binary sessions.
-  /// It yields internally and only works if the target session supports binary IProto.
   ///
   /// Internally maps to `box_iproto_send(...)` from the C API.
   ///
@@ -891,30 +593,10 @@ interface session {
   /// - `body`: MsgPack-encoded body (optional but usually required).
   ///
   /// ### Returns
-  /// - `ok` on success, or a `box-error` on failure.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import error, mspack
-  /// import json
-  ///
-  /// hdr = {0x00: 13, 0x01: 123}
-  /// body = {}
-  /// hdr_bytes = msgpack.encode(json.dumps(hdr).encode('utf-8'))
-  /// body_bytes = msgpack.encode(json.dumps(body).encode('utf-8'))
-  /// session.iproto_send(session.current(), hdr_bytes, body_bytes)
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { iprotoSend, current } from 'docs:adder/session@0.1.0';
-  ///
-  /// const header = new Uint8Array([0x82, 0x00, 0x0D, 0x01, 0x7B]);
-  /// const body = new Uint8Array([0x80]);
-  /// await iprotoSend(current(), header, body);
-  /// ```
+  /// - `ok` on success
+  /// 
+  /// ### Raises
+  /// - `box-error`
   iproto-send: func(session: session, header: list<u8>, body: list<u8>) -> result<_, box-error>;
 }
 
@@ -932,25 +614,6 @@ interface txn {
   ///
   /// ### Returns
   /// - A signed 64-bit integer representing the transaction ID, or `-1` if no transaction.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  ///
-  /// tx_id = txn.txn_id()
-  /// if tx_id != -1:
-  ///     print(f"Current TX ID: {tx_id}")
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { txnId } from 'docs:adder/txn@0.1.0';
-  ///
-  /// const id = txnId();
-  /// if (id !== -1) console.log("Transaction ID:", id);
-  /// ```
   txn-id: func() -> s64;
 
   /// Returns the isolation level of the current transaction.
@@ -959,48 +622,12 @@ interface txn {
   ///
   /// ### Returns
   /// - A `txn-isolation-level` enum value indicating the current isolation level.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  ///
-  /// level = txn.txn_isolation()
-  /// print("Isolation level:", level)
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { txnIsolation } from 'docs:adder/txn@0.1.0';
-  ///
-  /// console.log("Isolation level:", txnIsolation());
-  /// ```
   txn-isolation: func() -> txn-isolation-level;
 
   /// Checks whether a transaction is currently active.
   ///
   /// ### Returns
   /// - `true` if a transaction is active; `false` otherwise.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  ///
-  /// if txn.txn():
-  ///     print("Transaction is in progress")
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { txn } from 'docs:adder/txn@0.1.0';
-  ///
-  /// if (txn()) {
-  ///     console.log("Transaction is active");
-  /// }
-  /// ```
   txn: func() -> bool;
 
   /// Begins a new transaction.
@@ -1008,72 +635,24 @@ interface txn {
   /// Must be called before any data manipulation (INSERT, UPDATE, etc.).
   /// Fails if a transaction is already active in the fiber.
   ///
-  /// ### Returns
-  /// - `ok` on success, or a `box-error` on failure.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  ///
-  /// txn.begin()
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { begin } from 'docs:adder/txn@0.1.0';
-  ///
-  /// await begin();
-  /// ```
+  /// ### Raises
+  /// - `box-error
   begin: func() -> result<_, box-error>;
 
   /// Commits the current transaction.
   ///
   /// Finalizes and applies all changes. If a disk error occurs, it returns an error.
   ///
-  /// ### Returns
-  /// - `ok` on success, or a `box-error` on failure.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  ///
-  /// txn.commit()
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { commit } from 'docs:adder/txn@0.1.0';
-  ///
-  /// await commit();
-  /// ```
+  /// ### Raises
+  /// - `box-error
   commit: func() -> result<_, box-error>;
 
   /// Rolls back the current transaction.
   ///
   /// Discards all changes made within the current transaction.
-  ///
-  /// ### Returns
-  /// - `ok` on success, or a `box-error` on failure.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  ///
-  /// txn.rollback()
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { rollback } from 'docs:adder/txn@0.1.0';
-  ///
-  /// await rollback();
-  /// ```
+  /// 
+  /// ### Raises
+  /// - `box-error
   rollback: func() -> result<_, box-error>;
 
   /// Sets the isolation level for the current transaction.
@@ -1083,46 +662,13 @@ interface txn {
   /// ### Parameters
   /// - `isolation`: A `txn-isolation-level` enum value, such as `read-committed`.
   ///
-  /// ### Returns
-  /// - `ok` on success, or a `box-error` on failure.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  /// from adder.imports.docs_adder_types import TxnIsolationLevel
-  ///
-  /// txn.txn_set_isolation(TxnIsolationLevel.READ_COMMITTED)
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { txnSetIsolation } from 'docs:adder/txn@0.1.0';
-  ///
-  /// await txnSetIsolation('read-committed');
-  /// ```
+  /// ### Raises
+  /// - `box-error
   txn-set-isolation: func(isolation: txn-isolation-level) -> result<_, box-error>;
 
   /// Marks the current transaction as synchronous.
   ///
   /// All changes will be synchronized to disk before commit completes.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import txn
-  ///
-  /// txn.txn_make_sync()
-  /// ```
-  ///
-  /// **JavaScript**
-  /// ```js
-  /// import { txnMakeSync } from 'docs:adder/txn@0.1.0';
-  ///
-  /// txnMakeSync();
-  /// ```
   txn-make-sync: func();
 }
 
@@ -1136,28 +682,17 @@ interface index {
 
   /// Returns the number of tuples stored in the index.
   ///
-  /// Internally calls `box_index_len()`.
-  ///
   /// ### Parameters
   /// - `index`: The index to query.
   ///
   /// ### Returns
   /// - The number of tuples in the index, or a `box-error` on failure.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import index as tt_index
-  ///
-  /// size = tt_index.len(index)
-  /// print("Index size:", size)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   len: func(index: index) -> result<s64, box-error>;
 
   /// Returns the memory size of the index in bytes.
-  ///
-  /// Internally calls `box_index_bsize()`.
   ///
   /// ### Parameters
   /// - `index`: The index to inspect.
@@ -1165,20 +700,11 @@ interface index {
   /// ### Returns
   /// - Size in bytes, or a `box-error`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import index as tt_index
-  ///
-  /// size = tt_index.bsize(index)
-  /// print("Index memory size:", size)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   bsize: func(index: index) -> result<s64, box-error>;
 
   /// Returns a random tuple from the index.
-  ///
-  /// If the index is empty, the result will be `null`.
   ///
   /// ### Parameters
   /// - `index`: The index to read from.
@@ -1187,18 +713,8 @@ interface index {
   /// ### Returns
   /// - A random tuple or a `box-error`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// tup = tt_index.random(index, 42)
-  /// if tup:
-  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
-  ///     print("Random tuple:", decoded)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   random: func(index: index, rnd: u32) -> result<box-tuple, box-error>;
 
   /// Gets a tuple by key from the index.
@@ -1212,19 +728,8 @@ interface index {
   /// ### Returns
   /// - The found tuple or an error.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
-  /// tup = tt_index.get(index, key)
-  /// if tup:
-  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
-  ///     print("Found tuple:", decoded)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   get: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
 
   /// Finds the minimal tuple matching the given key.
@@ -1236,19 +741,8 @@ interface index {
   /// ### Returns
   /// - The smallest matching tuple or an error.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
-  /// tup = tt_index.min(index, key)
-  /// if tup:
-  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
-  ///     print("Min tuple:", decoded)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   min: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
 
   /// Finds the maximal tuple matching the given key.
@@ -1260,19 +754,8 @@ interface index {
   /// ### Returns
   /// - The largest matching tuple or an error.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import index as tt_index, tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
-  /// tup = tt_index.max(index, key)
-  /// if tup:
-  ///     decoded = json.loads(msgpack.decode_from_raw_ptr(tt_tuple.to_buf(tup)).decode('utf-8'))
-  ///     print("Max tuple:", decoded)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   max: func(index: index, key: list<u8>) -> result<box-tuple, box-error>;
 
   /// Counts the number of tuples matching the given key and iterator type.
@@ -1285,18 +768,8 @@ interface index {
   /// ### Returns
   /// - Count of matching tuples, or an error.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import index as tt_index, msgpack
-  /// from adder.imports.docs_adder_types import IteratorType
-  /// import json
-  ///
-  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
-  /// count = tt_index.count(index, IteratorType.ITER_EQ, key)
-  /// print("Tuple count:", count)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   count: func(index: index, iter-type: iterator-type, key: list<u8>) -> result<s64, box-error>;
 }
 
@@ -1308,25 +781,16 @@ interface sequence {
 
   /// Generates the next value of the specified sequence.
   ///
-  /// Internally calls `box_sequence_next()`. This updates the state of the sequence.
+  /// This updates the state of the sequence.
   ///
   /// ### Parameters
   /// - `seq`: The target sequence object.
   ///
   /// ### Returns
-  /// - The next value of the sequence as `s64`, or a `box-error` on failure.
+  /// - The next value of the sequence as `s64`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import sequence
-  /// from adder.imports.docs_adder_types import Sequence
-  ///
-  /// seq = Sequence(id=1)
-  /// next_val = sequence.next(seq)
-  /// print("Next value:", next_val)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   next: func(seq: sequence) -> result<s64, box-error>;
 
   /// Returns the current value of the specified sequence.
@@ -1338,21 +802,10 @@ interface sequence {
   /// - `seq`: The target sequence object.
   ///
   /// ### Returns
-  /// - The current value of the sequence as `s64`, or a `box-error`.
+  /// - The current value of the sequence as `s64`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import sequence
-  /// from adder.imports.docs_adder_types import Sequence
-  ///
-  /// seq = Sequence(id=1)
-  /// try:
-  ///     print("Current value:", sequence.current(seq))
-  /// except Exception as e:
-  ///     print("Error (probably uninitialized):", str(e))
-  /// ```
+  /// ### Raises
+  /// - `box-error
   current: func(seq: sequence) -> result<s64, box-error>;
 
   /// Sets the sequence to a specific value.
@@ -1363,20 +816,8 @@ interface sequence {
   /// - `seq`: The target sequence object.
   /// - `value`: The new value to assign.
   ///
-  /// ### Returns
-  /// - `ok` on success, or a `box-error`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import sequence
-  /// from adder.imports.docs_adder_types import Sequence
-  ///
-  /// seq = Sequence(id=1)
-  /// sequence.set(seq, 42)
-  /// print("Set sequence to 42")
-  /// ```
+  /// ### Raises
+  /// - `box-error``
   set: func(seq: sequence, value: s64) -> result<_, box-error>;
 
   /// Resets the sequence to its initial state.
@@ -1389,20 +830,8 @@ interface sequence {
   /// ### Parameters
   /// - `seq`: The target sequence object.
   ///
-  /// ### Returns
-  /// - `ok` on success, or a `box-error`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import sequence
-  /// from adder.imports.docs_adder_types import Sequence
-  ///
-  /// seq = Sequence(id=1)
-  /// sequence.reset(seq)
-  /// print("Sequence reset")
-  /// ```
+  /// ### Raises
+  /// - `box-error
   reset: func(seq: sequence) -> result<_, box-error>;
 }
 
@@ -1424,24 +853,20 @@ interface key-def {
   /// - `parts`: List of `key-part` objects.
   ///
   /// ### Returns
-  /// - A new `key-def` object on success, or a `box-error` on failure.
+  /// - A new `key-def` object on success.
   ///
-  /// ### Examples
+  /// ### Raises
+  /// - `box-error
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import key_def
-  /// from adder.imports.docs_adder_types import KeyPart, KeyPartFlags
-  ///
+  /// ```
   /// parts = [
   ///     KeyPart(field_no=0, field_type="unsigned", collation=None, path=None,
   ///             flags=KeyPartFlags.IS_NULLABLE),
   ///     KeyPart(field_no=1, field_type="string", collation="unicode", path=None,
   ///             flags=KeyPartFlags.EXCLUDE_NULL)
   /// ]
-  ///
   /// kd = key_def.new(parts)
-  /// print("Created key-def:", kd)
   /// ```
   new: func(parts: list<key-part>) -> result<key-def, box-error>;
 
@@ -1453,17 +878,10 @@ interface key-def {
   /// - `key-def`: The key definition to duplicate.
   ///
   /// ### Returns
-  /// - A duplicated `key-def`, or a `box-error` on failure.
+  /// - A duplicated `key-def`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import key_def
-  ///
-  /// kd_copy = key_def.dup(original_kd)
-  /// print("Duplicated key-def:", kd_copy)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   dup: func(key-def: key-def) -> result<key-def, box-error>;
 
   /// Merges two key definitions into one.
@@ -1476,17 +894,10 @@ interface key-def {
   /// - `right`: The key definition to append fields from.
   ///
   /// ### Returns
-  /// - A new merged `key-def`, or a `box-error`.
+  /// - A new merged `key-def`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import key_def
-  ///
-  /// merged = key_def.merge(kd1, kd2)
-  /// print("Merged key-def:", merged)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   merge: func(left: key-def, right: key-def) -> result<key-def, box-error>;
 
   /// Deletes a key definition, freeing any associated memory.
@@ -1496,13 +907,8 @@ interface key-def {
   /// ### Parameters
   /// - `key-def`: The key definition to delete.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// key_def.delete(kd)
-  /// print("Key definition deleted.")
-  /// ```
+  /// ### Raises
+  /// - `box-error
   delete: func(key-def: key-def);
 
   /// Returns a list of key parts from a given key definition.
@@ -1515,16 +921,8 @@ interface key-def {
   /// ### Returns
   /// - List of `key-part` objects.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import key_def
-  ///
-  /// parts = key_def.dump_parts(kd)
-  /// for part in parts:
-  ///     print("Field:", part.field_no, "Type:", part.field_type)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   dump-parts: func(key-def: key-def) -> result<list<key-part>, box-error>;
 
   /// Validates whether a given key conforms to the key definition.
@@ -1541,17 +939,8 @@ interface key-def {
   ///   - `is_valid`: Whether the key is valid.
   ///   - `size`: Size of decoded key in bytes (if valid), or 0 if invalid.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import key_def, msgpack
-  /// import json
-  ///
-  /// key = msgpack.encode(json.dumps([1, "abc"]).encode('utf-8'))
-  /// valid, size = key_def.validate_key(kd, key)
-  /// print("Is valid:", valid, "Key size:", size)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   validate-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
 
   /// Validates whether a key **fully** matches the key definition.
@@ -1565,17 +954,8 @@ interface key-def {
   /// ### Returns
   /// - A tuple `(is_valid: bool, size: u32)` like in `validate-key`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import key_def, msgpack
-  /// import json
-  ///
-  /// key = msgpack.encode(json.dumps([1, "abc"]).encode('utf-8'))
-  /// valid, size = key_def.validate_full_key(kd, key)
-  /// print("Is fully valid:", valid)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   validate-full-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
 
   /// Returns the number of parts in the key definition.
@@ -1586,15 +966,10 @@ interface key-def {
   /// - `key-def`: The key definition.
   ///
   /// ### Returns
-  /// - Number of parts as `u32`, or a `box-error`.
+  /// - Number of parts as `u32`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// count = key_def.part_count(kd)
-  /// print("Number of key parts:", count)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   part-count: func(key-def: key-def) -> result<u32, box-error>;
 
   /// Extracts a key from a given tuple based on the key definition.
@@ -1607,18 +982,6 @@ interface key-def {
   ///
   /// ### Returns
   /// - A new `box-tuple` with key fields only.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import key_def, tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// tup = tt_tuple.new_default(msgpack.encode(json.dumps([1, "a", 42]).encode('utf-8')))
-  /// extracted = key_def.extract_key(kd, tup)
-  /// print("Extracted key tuple:", extracted)
-  /// ```
   extract-key: func(key-def: key-def, %tuple: box-tuple) -> box-tuple;
 
   /// Validates whether the tuple contains all required fields
@@ -1632,18 +995,11 @@ interface key-def {
   ///
   /// ### Returns
   /// - `true` if the tuple satisfies the key definition, otherwise `false`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// is_valid = key_def.validate_tuple(kd, tup)
-  /// print("Tuple is valid for key-def:", is_valid)
-  /// ```
   validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
 }
 
 interface tuple-format {
+
   use types.{
     key-def,
     box-error,
@@ -1656,16 +1012,6 @@ interface tuple-format {
   ///
   /// ### Returns
   /// - A `tuple-format` object.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple_format
-  ///
-  /// tf = tuple_format.default()
-  /// print("Default format:", tf)
-  /// ```
   default: func() -> tuple-format;
 
 
@@ -1677,25 +1023,23 @@ interface tuple-format {
   /// - `key-defs`: A list of key definitions that describe indexable parts.
   ///
   /// ### Returns
-  /// - A `tuple-format` object or a `box-error`.
+  /// - A `tuple-format` object.
+  /// 
+  /// ### Raises
+  /// - `box-error
   ///
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import tuple_format, key_def
-  /// from adder.imports.docs_adder_types import KeyPart, KeyPartFlags
-  ///
+  /// ```
   /// parts = [
   ///     KeyPart(field_no=0, field_type="unsigned", collation=None, path=None,
   ///             flags=KeyPartFlags.IS_NULLABLE),
   ///     KeyPart(field_no=1, field_type="string", collation=None, path=None,
   ///             flags=KeyPartFlags.EXCLUDE_NULL)
   /// ]
-  ///
   /// kd = key_def.new(parts)
   /// tf = tuple_format.new([kd])
-  /// print("Created tuple format:", tf)
   /// ```
   new: func(key-defs: list<key-def>) -> result<tuple-format, box-error>;
 
@@ -1706,16 +1050,6 @@ interface tuple-format {
   ///
   /// ### Parameters
   /// - `tf`: Tuple format to retain.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple_format
-  ///
-  /// tuple_format.ref(tf)
-  /// print("Referenced tuple format")
-  /// ```
   ref: func(tf: tuple-format);
 
 
@@ -1725,15 +1059,6 @@ interface tuple-format {
   ///
   /// ### Parameters
   /// - `tf`: Tuple format to release.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple_format
-  ///
-  /// tuple_format.unref(tf)
-  /// print("Unreferenced tuple format")
   /// ```
   unref: func(tf: tuple-format);
 }
@@ -1758,20 +1083,10 @@ interface %tuple {
   ///
   /// ### Returns
   /// - A new `box-tuple`, or `box-error`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple, msgpack, tuple_format
-  /// import json
-  ///
-  /// tf = tuple_format.default()
-  /// data = msgpack.encode(json.dumps([1, "abc", {"x": 42}]).encode('utf-8'))
-  /// tup = tt_tuple.new(tf, data)
-  /// print("Created tuple:", tup)
-  /// ```
-  new: func(format: tuple-format, data: list<u8>) -> result<box-tuple, box-error>;
+  /// 
+  /// ### Raises
+  /// - `box-error
+  new: func(data: list<u8>) -> result<box-tuple, box-error>;
 
   /// Increases the reference count of the tuple.
   ///
@@ -1782,16 +1097,6 @@ interface %tuple {
   ///
   /// ### Returns
   /// - The new reference count as `s32`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple
-  ///
-  /// rc = tt_tuple.ref(tup)
-  /// print("New reference count:", rc)
-  /// ```
   ref: func(t: box-tuple) -> s32;
 
   /// Decreases the reference count of the tuple.
@@ -1800,17 +1105,6 @@ interface %tuple {
   ///
   /// ### Parameters
   /// - `t`: The tuple to release.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple
-  /// import json
-  ///
-  /// tt_tuple.unref(tup)
-  /// print("Tuple released")
-  /// ```
   unref: func(t: box-tuple);
 
   /// Returns the number of fields in the tuple (i.e., array size).
@@ -1820,17 +1114,6 @@ interface %tuple {
   ///
   /// ### Returns
   /// - Field count as `u32`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple
-  /// import json
-  ///
-  /// count = tt_tuple.field_count(tup)
-  /// print("Tuple field count:", count)
-  /// ```
   field-count: func(t: box-tuple) -> u32;
 
   /// Returns the byte size of the internal MsgPack data.
@@ -1842,17 +1125,6 @@ interface %tuple {
   ///
   /// ### Returns
   /// - Number of bytes used as `u64`.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple
-  /// import json
-  ///
-  /// size = tt_tuple.bsize(tup)
-  /// print("Size in bytes:", size)
-  /// ```
   bsize: func(t: box-tuple) -> u64;
 
   /// Serializes the tuple back to MsgPack byte array.
@@ -1865,17 +1137,8 @@ interface %tuple {
   /// ### Returns
   /// - A MsgPack-encoded byte array, or `box-error`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import msgpack, tuple as tt_tuple
-  /// import json
-  ///
-  /// buf = tt_tuple.to_buf(tup)
-  /// decoded = json.loads(msgpack.decode(buf).decode('utf-8'))
-  /// print("Decoded tuple:", decoded)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   to-buf: func(t: box-tuple) -> result<list<u8>, box-error>;
 
   /// Returns the format object associated with the tuple.
@@ -1886,15 +1149,8 @@ interface %tuple {
   /// ### Returns
   /// - The `tuple-format` used to construct the tuple.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple
-  ///
-  /// tf = tt_tuple.format(tup)
-  /// print("Tuple format:", tf)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   format: func(t: box-tuple) -> tuple-format;
 
   /// Returns a pointer to the field at the specified index (zero-based).
@@ -1908,17 +1164,8 @@ interface %tuple {
   /// ### Returns
   /// - `tuple-field` (pointer), or `box-error`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import msgpack, tuple as tt_tuple
-  /// import json
-  ///
-  /// field = tt_tuple.field(tup, 1)
-  /// value = json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8'))
-  /// print("Field[1]:", value)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   field: func(t: box-tuple, idx: u32) -> result<tuple-field, box-error>;
 
   /// Returns a pointer to the field by JSON path expression.
@@ -1933,18 +1180,17 @@ interface %tuple {
   /// - `index-base`: Either 0 or 1.
   ///
   /// ### Returns
-  /// - `tuple-field` (pointer), or `box-error`.
+  /// - `tuple-field` (pointer).
   ///
+  /// ### Raises
+  /// - `box-error
+  /// 
   /// ### Examples
   ///
   /// **Python**
-  /// ```python
-  /// from adder.imports import msgpack, tuple as tt_tuple
-  /// import json
-  ///
+  /// ```
   /// field = tt_tuple.field_by_path(tup, "[2].x", 1)
   /// value = json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8'))
-  /// print("Nested field [2].x:", value)
   /// ```
   field-by-path: func(t: box-tuple, path: string, index-base: s32) -> result<tuple-field, box-error>;
 
@@ -1960,17 +1206,8 @@ interface %tuple {
   /// ### Returns
   /// - A new `box-tuple` with applied updates, or a `box-error`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// expr = msgpack.encode(json.dumps([["=", 1, "xyz"]]).encode('utf-8'))
-  /// updated = tt_tuple.update(tup, expr)
-  /// print("Updated tuple:", json.loads(msgpack.decode(tt_tuple.to_buf(updated)).decode('utf-8')))
-  /// ```
+  /// ### Raises
+  /// - `box-error
   update: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
 
   /// Performs an upsert operation on the tuple using the provided expression.
@@ -1985,17 +1222,8 @@ interface %tuple {
   /// ### Returns
   /// - A new `box-tuple` with result, or a `box-error`.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// expr = msgpack.encode(json.dumps([["+", 2, 100]]).encode('utf-8'))
-  /// upserted = tt_tuple.upsert(tup, expr)
-  /// print("Upserted tuple:", json.loads(msgpack.decode(tt_tuple.to_buf(upserted)).decode('utf-8')))
-  /// ```
+  /// ### Raises
+  /// - `box-error
   upsert: func(t: box-tuple, expr: list<u8>) -> result<box-tuple, box-error>;
 
   /// Validates a tuple against the given format.
@@ -2009,64 +1237,36 @@ interface %tuple {
   /// ### Returns
   /// - `true` if valid, `false` otherwise.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple
-  ///
-  /// valid = tt_tuple.validate(tup, tf)
-  /// print("Tuple is valid:", valid)
-  /// ```
+  /// ### Raises
+  /// - `box-error
   validate: func(t: box-tuple, format: tuple-format) -> bool;
 
   /// Compares two tuples using a given key definition.
   ///
   /// The comparison is lexicographical by key fields.
-  /// Returns:
-  /// - `0` if equal
-  /// - `<0` if `left < right`
-  /// - `>0` if `left > right`
   ///
   /// ### Parameters
   /// - `key-def`: Definition of fields to compare.
   /// - `left`: First tuple.
   /// - `right`: Second tuple.
-  ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple
-  ///
-  /// result = tt_tuple.compare(kd, tup1, tup2)
-  /// print("Compare result:", result)
-  /// ```
+  /// 
+  /// ### Returns
+  /// - `0` if equal
+  /// - `<0` if `left < right`
+  /// - `>0` if `left > right`
   compare: func(key-def: key-def, left: box-tuple, right: box-tuple) -> s32;
 
   /// Compares a tuple with a key using the given key definition.
-  ///
-  /// Returns:
-  /// - `0` if key matches tuple
-  /// - `<0` if tuple < key
-  /// - `>0` if tuple > key
   ///
   /// ### Parameters
   /// - `tuple`: Tuple to compare.
   /// - `key`: MsgPack-encoded key (e.g., `[1]`)
   /// - `key-def`: Key definition.
   ///
-  /// ### Examples
-  ///
-  /// **Python**
-  /// ```python
-  /// from adder.imports import tuple as tt_tuple, msgpack
-  /// import json
-  ///
-  /// key = msgpack.encode(json.dumps([1]).encode('utf-8'))
-  /// result = tt_tuple.compare_with_key(tup, key, kd)
-  /// print("Compare with key:", result)
-  /// ```
+  /// ### Returns
+  /// - `0` if key matches tuple
+  /// - `<0` if tuple < key
+  /// - `>0` if tuple > key
   compare-with-key: func(%tuple: box-tuple, key: list<u8>, key-def: key-def) -> s32;
 
   resource tuple-iterator {
@@ -2080,48 +1280,20 @@ interface %tuple {
     ///
     /// ### Returns
     /// - A new `tuple-iterator` object, or a `box-error`.
-    ///
-    /// ### Examples
-    ///
-    /// **Python**
-    /// ```python
-    /// from adder.imports import tuple as tt_tuple, msgpack, tuple_format
-    /// import json
-    ///
-    /// tf = tuple_format.default()
-    /// tup = tt_tuple.new(tf, msgpack.encode(json.dumps([1, "abc", {"x": 42}]).encode('utf-8')))
-    /// titer = tt_tuple.TupleIterator.new_tuple_iterator(tup)
-    ///
-    /// while True:
-    ///     field = titer.next()
-    ///     if not field:
-    ///         break
-    ///     val = json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8'))
-    ///     print("Field:", val)
-    /// ```
+    /// 
+    /// ### Raises
+    /// - `box-error
     new-tuple-iterator: static func(%tuple: box-tuple) -> result<tuple-iterator, box-error>;
 
     /// Returns the current iterator position (index of the next field).
     ///
     /// ### Returns
     /// - The next field index (zero-based).
-    ///
-    /// ### Examples
-    /// ```python
-    /// pos = titer.position()
-    /// print("Iterator position:", pos)
-    /// ```
     position: func() -> u32;
 
     /// Rewinds the iterator to the beginning of the tuple.
     ///
     /// After this call, the next field will be the first.
-    ///
-    /// ### Examples
-    /// ```python
-    /// titer.rewind()
-    /// print("Iterator reset to start")
-    /// ```
     rewind: func();
 
     /// Seeks to a given field index in the tuple.
@@ -2132,14 +1304,10 @@ interface %tuple {
     /// - `pos`: Zero-based field index to seek to.
     ///
     /// ### Returns
-    /// - `tuple-field` (pointer) or `box-error`.
+    /// - `tuple-field` pointer.
     ///
-    /// ### Examples
-    /// ```python
-    /// titer.seek(1)
-    /// val = json.loads(msgpack.decode_from_raw_ptr(titer.next()).decode('utf-8'))
-    /// print("Field at index 1:", val)
-    /// ```
+    /// ### Raises
+    /// - `box-error
     seek: func(pos: u32) -> result<tuple-field, box-error>;
 
     /// Returns the next field in the tuple.
@@ -2147,16 +1315,10 @@ interface %tuple {
     /// Returns `null` if there are no more fields.
     ///
     /// ### Returns
-    /// - `tuple-field` (pointer), or `null` if end is reached.
+    /// - `tuple-field` pointer.
     ///
-    /// ### Examples
-    /// ```python
-    /// while True:
-    ///     field = titer.next()
-    ///     if not field:
-    ///         break
-    ///     print("Field:", json.loads(msgpack.decode_from_raw_ptr(field).decode('utf-8')))
-    /// ```
+    /// ### Raises
+    /// - `box-error
     next: func() -> result<tuple-field, box-error>;
   }  
 }

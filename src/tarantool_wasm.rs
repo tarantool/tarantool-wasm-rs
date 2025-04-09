@@ -65,17 +65,13 @@ impl SyncWasmStates {
         self.0.lock().unwrap().executor = Executor::TxPush;
     }
 
-    pub fn in_tx(&self) -> bool {
-        self.0.lock().unwrap().tx_mode == TxMode::Started
-    }
-
     pub fn executor(&self) -> Executor {
         self.0.lock().unwrap().executor
     }
 
     pub(crate) async fn yield_now(&self) {
         let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
-        yielder_handle.send(WasmFiberStatus::Suspended).await;
+        let _ = yielder_handle.send(WasmFiberStatus::Suspended).await;
         tokio::task::yield_now().await;
     }
 }
@@ -178,7 +174,7 @@ where
 
     newset.thread_block()?;
     let handle = thread::Builder::new().name(name).spawn(f);
-    oldset.thread_set_mask();
+    let _ =  oldset.thread_set_mask();
 
     Ok(handle?)
 }
@@ -194,8 +190,8 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
         store.set_epoch_deadline(1);
         store.epoch_deadline_trap();
 
-        let mut fiber = WasmFiber::new(store, linker, component);
-        fiber.block_on();
+        let fiber = WasmFiber::new(store, linker, component);
+        let _ = fiber.block_on();
         Ok::<(), wasmtime::Error>(())
     })?;
     Ok(handle)

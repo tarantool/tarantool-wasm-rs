@@ -1,7 +1,5 @@
 use crate::bindings::docs::adder::types::{self, BoxError, BoxTuple, Index, IteratorType};
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::bindings::error::handle_tarantool_error;
-use crate::ffi;
 use crate::bindings::IteratorImpl;
 
 use wasmtime::component::Resource;
@@ -22,34 +20,30 @@ pub fn validate_msgpack_array(data: &[u8]) -> Result<(), String> {
 unsafe impl Send for IteratorImpl {}
 unsafe impl Sync for IteratorImpl {}
 
-impl Drop for IteratorImpl {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.iter.is_null() {
-                ffi::index::box_iterator_free(self.iter);
-            }
+pub fn convert_iterator_type(t: IteratorType) -> Result<tarantool::index::IteratorType, BoxError> {
+    use tarantool::index::IteratorType as Native;
+
+    Ok(match t {
+        IteratorType::IterEq => Native::Eq,
+        IteratorType::IterReq => Native::Req,
+        IteratorType::IterAll => Native::All,
+        IteratorType::IterLt => Native::LT,
+        IteratorType::IterLe => Native::LE,
+        IteratorType::IterGe => Native::GE,
+        IteratorType::IterGt => Native::GT,
+        IteratorType::IterBitsAllSet => Native::BitsAllSet,
+        IteratorType::IterBitsAnySet => Native::BitsAnySet,
+        IteratorType::IterBitsAllNotSet => Native::BitsAllNotSet,
+        IteratorType::IterOverlaps => Native::Overlaps,
+        IteratorType::IterNeighbor => Native::Neighbor,
+        // need for patch https://github.com/picodata/tarantool-module/blob/e4c78b9b0e59ef45ab6e8a7023aa192b28e330c0/tarantool/src/index.rs#L57
+        // https://github.com/tarantool/tarantool/pull/10028
+        IteratorType::IterNp | IteratorType::IterPp => {
+            return Err(BoxError::new("Unsupported iterator type", "IteratorType", 1))
         }
-    }
+    })
 }
 
-pub fn to_c_iterator(iterator_type: IteratorType) -> i32 {
-    match iterator_type {
-        IteratorType::IterEq => 0,
-        IteratorType::IterReq => 1,
-        IteratorType::IterAll => 2,
-        IteratorType::IterLt => 3,
-        IteratorType::IterLe => 4,
-        IteratorType::IterGe => 5,
-        IteratorType::IterGt => 6,
-        IteratorType::IterBitsAllSet => 7,
-        IteratorType::IterBitsAnySet => 8,
-        IteratorType::IterBitsAllNotSet => 9,
-        IteratorType::IterOverlaps => 10,
-        IteratorType::IterNeighbor => 11,
-        IteratorType::IterNp => 12,
-        IteratorType::IterPp => 13,
-    }
-}
 
 #[async_trait]
 impl types::Host for SyncWasmStates {
@@ -63,24 +57,21 @@ impl types::HostIterator for SyncWasmStates {
         iterator_type: IteratorType,
         key: Vec<u8>,
     ) -> Result<Resource<IteratorImpl>, BoxError> {
-        let start = key.as_ptr();
-        let end = unsafe { start.add(key.len()) };
+        let native_iter_type = convert_iterator_type(iterator_type)?;
+        let tuple = unsafe { tarantool::tuple::Tuple::from_slice(&key) };
 
-        let iter_ptr: *mut ffi::types::BoxIteratorT = unsafe {
-            ffi::index::box_index_iterator(
-                index.space_id as u32,
-                index.id as u32,
-                to_c_iterator(iterator_type),
-                start,
-                end,
+        let ind = unsafe {
+            tarantool::index::Index::from_ids_unchecked(
+                index.space_id as tarantool::space::SpaceId,
+                index.id as tarantool::index::IndexId,
             )
         };
 
-        if iter_ptr.is_null() {
-            return Err(unsafe { handle_tarantool_error() });
-        }
+        let iter = ind
+            .select(native_iter_type, &tuple)
+            .map_err(|e| BoxError::new(&e.to_string(), "IteratorInit", 1))?;
 
-        Ok(self.0.lock().unwrap().table.push(IteratorImpl { iter: iter_ptr }).unwrap())
+        Ok(self.0.lock().unwrap().table.push(IteratorImpl { inner: iter }).unwrap())
     }
 
     async fn next(
@@ -91,19 +82,14 @@ impl types::HostIterator for SyncWasmStates {
         let iter = guard.table.get_mut(&self_)
             .map_err(|e| BoxError::new(
                 format!("Resource error: {}", e),
-                "internal".to_string(),
-                2
+                "internal",
+                2,
             ))?;
-        
-        let mut result_ptr: *mut ffi::types::BoxTupleT = std::ptr::null_mut();
-        let res = unsafe { ffi::index::box_iterator_next(iter.iter, &mut result_ptr) };
 
-        if res != 0 {
-            let err = unsafe { handle_tarantool_error() };
-            return Err(err);
+        match iter.inner.next() {
+            Some(t) => Ok(t.as_ptr() as BoxTuple),
+            None => Err(BoxError::new("No more items", "StopIteration", 0)),
         }
-
-        Ok(result_ptr as u64)
     }
 
     async fn drop(
