@@ -1,7 +1,7 @@
 #!/bin/sh
 
 rm -rf adder
-componentize-py --wit-path ../../../adder.wit --world adder bindings .
+componentize-py --wit-path ../../../wit --world adder bindings .
 
 for file in *.py; do
     [ -e "$file" ] || continue
@@ -10,5 +10,5 @@ for file in *.py; do
     output="${name}.wasm"
 
     echo "$name -> $output"
-    componentize-py --wit-path ../../../adder.wit --world adder componentize $name -o $output
+    componentize-py --wit-path ../../../wit --world adder componentize $name -o $output
 done

@@ -35,6 +35,7 @@ impl WasmStates {
     pub fn new() -> Self {
         let table = ResourceTable::new();
         let mut builder = WasiCtxBuilder::new();
+        builder.allow_ip_name_lookup(true);
         // TODO: make env and stdio configurable
         builder.inherit_stdio().inherit_env();
         let ctx = builder.build();
@@ -133,6 +134,8 @@ impl RuntimeState {
         let _ = key_def::add_to_linker(&mut linker, |state| state);
         let _ = tuple_format::add_to_linker(&mut linker, |state| state);
         let _ = tuple::add_to_linker(&mut linker, |state| state);
+
+        // wasmtime_wasi::bindings::sockets::instance_network::Host
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);

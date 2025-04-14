@@ -2,7 +2,6 @@ use wasmtime::component::bindgen;
 use crate::ffi;
 
 bindgen!({
-    path: "adder.wit",
     world: "adder",
     async: true,
     with: {
