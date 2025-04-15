@@ -22,7 +22,7 @@ pub(crate) struct WasmFiber {
 impl WasmFiber {
     pub fn new(mut store: Store<SyncWasmStates>, linker: Arc<Linker<SyncWasmStates>>, component: Component) -> Self {
         // Timers are needed for clocks to work properly in WASI.
-        let rt = Builder::new_current_thread().enable_time().build().unwrap();
+        let rt = Builder::new_current_thread().enable_time().enable_io().build().unwrap();
         let (yielder, awaiter) = mpsc::channel(1);
         let finalizer = yielder.clone();
         store.data().0.lock().unwrap().yielder = Some(yielder);

@@ -35,9 +35,12 @@ impl WasmStates {
     pub fn new() -> Self {
         let table = ResourceTable::new();
         let mut builder = WasiCtxBuilder::new();
-        builder.allow_ip_name_lookup(true).allow_tcp(true).allow_udp(true);
         // TODO: make env and stdio configurable
-        builder.inherit_stdio().inherit_env();
+        builder.inherit_stdio()
+            .inherit_env()
+            .inherit_network()
+            .allow_ip_name_lookup(true);
+
         let ctx = builder.build();
         Self {
             table: table,
