@@ -1,5 +1,5 @@
 from adder import exports
-from adder.imports import instance_network, stdout, ip_name_lookup, poll, stdin
+from adder.imports import instance_network, stdout, ip_name_lookup, poll, stdin, tcp_create_socket,  network, tcp
 from adder.imports import say
 
 
@@ -30,10 +30,34 @@ def resolve_test():
             pollable.block()
 
 
+def connect_test():
+    net = instance_network.instance_network()
+    peer = network.Ipv4SocketAddress(port=12121, address=(127, 0, 0, 1))
+    socket = tcp_create_socket.create_tcp_socket(network.IpAddressFamily.IPV4)
+    pollable = socket.subscribe()
+    pollables = [pollable]
+    socket.start_connect(net, network.IpSocketAddress_Ipv4(peer))
+    while True:
+        # Проверяем готовность хотя бы одного объекта из списка
+        ready_handles = poll.poll(pollables)  # poll() ожидает завершения
+
+        if ready_handles:
+            in_s, out_s = socket.finish_connect()
+            out_s.blocking_write_and_flush("hello from python wasm\n".encode())
+            msg = in_s.blocking_read(1024)
+            print(f"Msg from server: {msg}")
+            socket.shutdown(tcp.ShutdownType.BOTH)
+            break
+        else:
+            # Блокируем выполнение до готовности
+            pollable.block()
+
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
             resolve_test()
+            connect_test()
 
         except Exception as e:
             say.say_error(str(e))
