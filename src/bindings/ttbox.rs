@@ -1,6 +1,6 @@
-use crate::bindings::docs::adder::ttbox;
+use crate::bindings::tarantool::tarantool::ttbox;
+use crate::bindings::tarantool::tarantool::types::{BoxError, Index, Space};
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::bindings::docs::adder::types::{BoxError, Index, Space};
 use crate::ffi as ffi;
 use crate::bindings::types::validate_msgpack_array;
 

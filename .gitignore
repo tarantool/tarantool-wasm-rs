@@ -1,4 +1,5 @@
-/target
-examples/python/adder
-examples/python/__pycache__
-000*
+target
+.vscode/
+.emmyrc.json
+third-party
+wit/deps

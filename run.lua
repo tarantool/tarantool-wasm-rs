@@ -1,113 +1,27 @@
 local wasm = require('my_module')
 local log = require('log')
 
-local function ensure_space_exists()
-    local space_name = "test_space"
-
-    if box.space[space_name] == nil then
-        log.info("Creating space: %s", space_name)
-        box.schema.space.create(space_name, { if_not_exists = true })
-        box.space[space_name]:create_index('primary', {
-            type = 'tree',
-            parts = {1, 'unsigned'},
-            if_not_exists = true
-        })
-        log.info("Space '%s' successfully created", space_name)
-    else
-        log.info("Space '%s' already exists", space_name)
-    end
-end
-
-local function print_space_contents()
-    local space = box.space.test_space
-    if space then
-        log.info("Dumping contents of 'test_space':")
-        for _, tuple in space:pairs() do
-            log.info("%s", tuple)
-        end
-    else
-        log.info("Space 'test_space' does not exist")
-    end
-end
-
-function print_table(tbl, indent)
-    if type(tbl) ~= "table" then
-        print(string.rep("  ", indent) .. tostring(tbl))
-        return
-    end
-
-    for k, v in pairs(tbl) do
-        local key_str = tostring(k)
-        local indent_str = "  " .. indent
-        
-        if type(v) == "table" then
-            print(indent_str .. key_str .. " = {")
-            print_table(v, indent + 1)
-            print(indent_str .. "}")
-        else
-            print(indent_str .. key_str .. " = " .. tostring(v))
-        end
-    end
-end
-
 box.cfg{}
 box.cfg{log_level=6}
 
-ensure_space_exists()
+local space_name = 'test_space'
+local index_name = 'primary'
+local wasm_module_path = ...
 
-local function on_replace_trigger(old, new, space_name, op)
-    local log = require('log')
-    
-    if op == "INSERT" then
-        log.info("TARANTOOL | INSERT into %s: %s", space_name, new)
-    elseif op == "DELETE" then
-        log.info("TARANTOOL | DELETE from %s: %s", space_name, old)
-    elseif op == "UPDATE" then
-        log.info("TARANTOOL | UPDATE in %s: old = %s, new = %s", space_name, old, new)
-    elseif op == "REPLACE" then
-        log.info("TARANTOOL | REPLACE in %s: old = %s, new = %s", space_name, old, new)
-    elseif op == "UPSERT" then
-        log.info("TARANTOOL | UPSERT in %s: old = %s, new = %s", space_name, old, new)
-    else
-        log.warn("TARANTOOL | Unknown operation %s in %s", op, space_name)
-    end
-end
+box.schema.space.create(space_name, { if_not_exists = true })
+log.info("Create space: %s", space_name)
+box.space[space_name]:create_index(index_name, {
+    type = 'tree',
+    parts = {1, 'unsigned'},
+    if_not_exists = true
+})
+log.info("Create index: %s", index_name)
 
-if box.space.test_space then
-    box.space.test_space:on_replace(on_replace_trigger)
-    log.info("TARANTOOL | on_replace trigger attached to 'test_space'")
-end
+box.schema.sequence.create('id_seq',{min=1000, start=1000})
 
-local function my_callback(value, d)
-    print("Event received! Value:", value, d)
-    print_table(d, "")
-end
-
-box.watch("x", my_callback)
-
-local data = {
-    {1, "Alice", 25},
-    {2, "Bob", 30},
-    {3, "Charlie", 35},
-    {4, "David", 40},
-    {5, "Eve", 4}
-}
-
-for _, tuple in ipairs(data) do
-    box.space.test_space:insert(tuple)
-end
-
-local sq = box.schema.sequence.create("test")
-
-print("Initialized")
-local module = wasm.load("examples/python/py.wasm")
-print("Loaded")
-print(module)
-print("Running")
+log.info("Load WASM module...")
+local module = wasm.load(wasm_module_path)
+log.info("Run WASM module...")
 local handle = wasm.run(module)
 wasm.join(handle)
-print("Finished")
-
-print_space_contents()
-
--- require('console').start()
+log.info("WASM module finished...")

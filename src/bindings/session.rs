@@ -1,6 +1,6 @@
-use crate::bindings::docs::adder::session;
+use crate::bindings::tarantool::tarantool::session;
+use crate::bindings::tarantool::tarantool::types::{BoxError, Session};
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::bindings::docs::adder::types::{BoxError, Session};
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::types::validate_msgpack_array;

@@ -1,6 +1,6 @@
 from adder import exports
 from adder.imports import say, sequence
-from adder.imports.docs_adder_types import Sequence
+from adder.imports.tarantool_tarantool_types import Sequence
 
 def test_sequence():
     say.say_info(f"PY | Test Sequence")

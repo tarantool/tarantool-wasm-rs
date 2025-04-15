@@ -1,7 +1,7 @@
 
 from adder import exports
 from adder.imports import say, key_def, msgpack, tuple_format
-from adder.imports.docs_adder_types import KeyPart, KeyPartFlags
+from adder.imports.tarantool_tarantool_types import KeyPart, KeyPartFlags
 
 def test_tuple_format():
     say.say_info("PY | Test TupleFormat")

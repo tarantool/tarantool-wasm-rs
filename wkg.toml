@@ -1,0 +1,2 @@
+[overrides]
+"tarantool:tarantool" = { path = "third-party/tarantool-wit/wit" }

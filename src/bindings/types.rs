@@ -1,4 +1,4 @@
-use crate::bindings::docs::adder::types::{self, BoxError, BoxTuple, Index, IteratorType};
+use crate::bindings::tarantool::tarantool::types::{self, BoxError, BoxTuple, Index, IteratorType};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::IteratorImpl;
 

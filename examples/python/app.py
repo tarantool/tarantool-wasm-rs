@@ -3,7 +3,7 @@ from adder.imports import say, msgpack, session, txn, sequence, key_def, tuple_f
 from adder.imports import tuple as tt_tuple
 from adder.imports import index as tt_index
 from adder.imports import ttbox as box
-from adder.imports.docs_adder_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType, Sequence, BoxError, KeyPart, KeyPartFlags
+from adder.imports.tarantool_tarantool_types import Space, Index, TxnIsolationLevel, Iterator, IteratorType, Sequence, BoxError, KeyPart, KeyPartFlags
 import adder
 import json
 from time import sleep

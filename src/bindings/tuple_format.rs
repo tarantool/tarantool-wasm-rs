@@ -1,6 +1,6 @@
-use crate::bindings::docs::adder::tuple_format;
+use crate::bindings::tarantool::tarantool::tuple_format;
+use crate::bindings::tarantool::tarantool::types::{BoxError, KeyDef};
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::bindings::docs::adder::types::{BoxError, KeyDef};
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 

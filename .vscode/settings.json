@@ -1,7 +1,0 @@
-{
-    "files.associations": {
-        "module.h": "c",
-        "lauxlib.h": "c",
-        "stdio.h": "c"
-    }
-}

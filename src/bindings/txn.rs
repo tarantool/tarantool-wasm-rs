@@ -1,5 +1,5 @@
-use crate::bindings::docs::adder::txn;
-use crate::bindings::docs::adder::types::{BoxError, TxnIsolationLevel};
+use crate::bindings::tarantool::tarantool::txn;
+use crate::bindings::tarantool::tarantool::types::{BoxError, TxnIsolationLevel};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::error::handle_tarantool_error;
 use crate::ffi;

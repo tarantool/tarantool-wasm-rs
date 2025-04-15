@@ -1,5 +1,5 @@
-use crate::bindings::docs::adder::say;
-use crate::bindings::docs::adder::types::LogLevel;
+use crate::bindings::tarantool::tarantool::say;
+use crate::bindings::tarantool::tarantool::types::LogLevel;
 use crate::tarantool_wasm::SyncWasmStates;
 
 use wasmtime_wasi::async_trait;

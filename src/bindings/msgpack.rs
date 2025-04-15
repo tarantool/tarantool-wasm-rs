@@ -1,6 +1,6 @@
-use crate::bindings::docs::adder::msgpack;
+use crate::bindings::tarantool::tarantool::msgpack;
+use crate::bindings::tarantool::tarantool::types::BoxError;
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::bindings::docs::adder::types::BoxError;
 
 use wasmtime_wasi::async_trait;
 use rmp_serde::{from_slice, to_vec};

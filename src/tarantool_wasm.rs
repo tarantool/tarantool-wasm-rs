@@ -9,7 +9,7 @@ use std::sync::{Mutex, Arc, RwLock};
 use wasmtime::component::Component;
 use wasmtime::Config;
 use tokio::sync::mpsc;
-use crate::bindings::docs::adder::{ttbox, say, error, session, msgpack, txn, types, index, sequence, key_def, tuple_format, tuple};
+use crate::bindings::tarantool::tarantool::{ttbox, say, error, session, msgpack, txn, types, index, sequence, key_def, tuple_format, tuple};
 use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
 use crate::wasm_fiber::WasmFiberStatus;

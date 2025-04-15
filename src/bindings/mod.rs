@@ -5,13 +5,13 @@ bindgen!({
     world: "adder",
     async: true,
     with: {
-        "docs:adder/types/iterator": IteratorImpl,
-        "docs:adder/tuple/tuple-iterator": TupleIteratorImpl,
+        "tarantool:tarantool/types/iterator": IteratorImpl,
+        "tarantool:tarantool/tuple/tuple-iterator": TupleIteratorImpl,
     }
 });
 
 pub struct IteratorImpl {
-    inner: tarantool::index::IndexIterator,
+    inner: ::tarantool::index::IndexIterator,
 }
 
 pub struct TupleIteratorImpl {

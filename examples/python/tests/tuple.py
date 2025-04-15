@@ -1,6 +1,6 @@
 from adder import exports
-from adder.imports import say, docs_adder_error as error, key_def, msgpack, tuple as tt_tuple, tuple_format
-from adder.imports.docs_adder_types import BoxError, KeyPart, KeyPartFlags
+from adder.imports import say, tarantool_tarantool_error as error, key_def, msgpack, tuple as tt_tuple, tuple_format
+from adder.imports.tarantool_tarantool_types import BoxError, KeyPart, KeyPartFlags
 import json
 
 def encode(obj):

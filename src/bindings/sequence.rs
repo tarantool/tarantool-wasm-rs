@@ -1,5 +1,5 @@
-use crate::bindings::docs::adder::sequence;
-use crate::bindings::docs::adder::types::{BoxError, Sequence};
+use crate::bindings::tarantool::tarantool::sequence;
+use crate::bindings::tarantool::tarantool::types::{BoxError, Sequence};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::error::handle_tarantool_error;
 use crate::ffi;

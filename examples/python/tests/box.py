@@ -2,9 +2,8 @@ from adder import exports
 from adder.imports import say, msgpack, txn
 from adder.imports import tuple as tt_tuple
 from adder.imports import ttbox as box
-from adder.imports.docs_adder_types import Space, Index, Iterator, IteratorType
+from adder.imports.tarantool_tarantool_types import Space, Index, Iterator, IteratorType
 import json
-
 
 def encode(obj):
     try:

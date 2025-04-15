@@ -1,5 +1,5 @@
-use crate::bindings::docs::adder::error;
-use crate::bindings::docs::adder::types::BoxError;
+use crate::bindings::tarantool::tarantool::error;
+use crate::bindings::tarantool::tarantool::types::BoxError;
 use crate::tarantool_wasm::SyncWasmStates;
 
 use wasmtime_wasi::async_trait;

@@ -1,0 +1,3 @@
+[submodule "third-party/tarantool-wit"]
+	path = third-party/tarantool-wit
+	url = https://github.com/mandesero/tarantool-wit.git

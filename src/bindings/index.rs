@@ -1,5 +1,5 @@
-use crate::bindings::docs::adder::index;
-use crate::bindings::docs::adder::types::{BoxError, BoxTuple, Index, IteratorType};
+use crate::bindings::tarantool::tarantool::index;
+use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, IteratorType};
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::types::{validate_msgpack_array, convert_iterator_type};
 

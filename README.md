@@ -88,7 +88,7 @@ Options:
 ```sh
 git clone git@github.com:mandesero/tarantool-wasm-rs.git
 cd tarantool-wasm-rs
-cargo build
+just
 ```
 
 ### 1. Generate Bindings
@@ -108,7 +108,7 @@ Create a Python file (e.g. `app.py`):
 ```python
 from adder import exports
 from adder.imports import *  # imported functions/modules
-from adder.imports.docs_adder_types import *  # imported types (if any)
+from adder.imports.tarantool_tarantool_types import *  # imported types (if any)
 
 class Run(exports.Run):
     def run(self) -> None:
@@ -135,7 +135,7 @@ componentize-py --wit-path your_path/adder.wit --world adder componentize app -o
 Run the generated `.wasm` module inside Tarantool:
 
 ```sh
-tarantool run2.lua out.wasm
+tarantool run.lua out.wasm
 ```
 
 ---
