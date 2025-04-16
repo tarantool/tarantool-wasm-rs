@@ -138,8 +138,6 @@ impl RuntimeState {
         let _ = tuple_format::add_to_linker(&mut linker, |state| state);
         let _ = tuple::add_to_linker(&mut linker, |state| state);
 
-        // wasmtime_wasi::bindings::sockets::instance_network::Host
-
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
 

@@ -1,5 +1,5 @@
 use crate::bindings::tarantool::tarantool::say;
-use crate::bindings::tarantool::tarantool::types::LogLevel;
+use crate::bindings::tarantool::tarantool::types::{LogLevel, LogContext};
 use crate::tarantool_wasm::SyncWasmStates;
 
 use wasmtime_wasi::async_trait;
@@ -20,38 +20,53 @@ impl From<LogLevel> for SayLevel {
     }
 }
 
+fn resolve_context(ctx: Option<LogContext>) -> (String, i32) {
+    match ctx {
+        Some(context) => (context.filename, context.line as i32),
+        None => (file!().to_string(), line!() as i32),
+    }
+}
+
 #[async_trait]
 impl say::Host for SyncWasmStates {
-    async fn say(&mut self, level: LogLevel, msg: String) {
+    async fn say(&mut self, level: LogLevel, msg: String, ctx: Option<LogContext>) {
         let log_level: SayLevel = level.into();
-        log::say(log_level, file!(), line!() as i32, None, &msg);
+        let (f, l) = resolve_context(ctx);
+        log::say(log_level, &f, l, None, &msg);
     }
 
-    async fn say_error(&mut self, msg: String) {
-        log::say(SayLevel::Error, file!(), line!() as i32, None, &msg);
+    async fn say_error(&mut self, msg: String, ctx: Option<LogContext>) {
+        let (f, l) = resolve_context(ctx);
+        log::say(SayLevel::Error, &f, l, None, &msg);
     }
 
-    async fn say_crit(&mut self, msg: String) {
-        log::say(SayLevel::Crit, file!(), line!() as i32, None, &msg);
+    async fn say_crit(&mut self, msg: String, ctx: Option<LogContext>) {
+        let (f, l) = resolve_context(ctx);
+        log::say(SayLevel::Crit, &f, l, None, &msg);
     }
 
-    async fn say_warn(&mut self, msg: String) {
-        log::say(SayLevel::Warn, file!(), line!() as i32, None, &msg);
+    async fn say_warn(&mut self, msg: String, ctx: Option<LogContext>) {
+        let (f, l) = resolve_context(ctx);
+        log::say(SayLevel::Warn, &f, l, None, &msg);
     }
 
-    async fn say_info(&mut self, msg: String) {
-        log::say(SayLevel::Info, file!(), line!() as i32, None, &msg);
+    async fn say_info(&mut self, msg: String, ctx: Option<LogContext>) {
+        let (f, l) = resolve_context(ctx);
+        log::say(SayLevel::Info, &f, l, None, &msg);
     }
 
-    async fn say_verbose(&mut self, msg: String) {
-        log::say(SayLevel::Verbose, file!(), line!() as i32, None, &msg);
+    async fn say_verbose(&mut self, msg: String, ctx: Option<LogContext>) {
+        let (f, l) = resolve_context(ctx);
+        log::say(SayLevel::Verbose, &f, l, None, &msg);
     }
 
-    async fn say_debug(&mut self, msg: String) {
-        log::say(SayLevel::Debug, file!(), line!() as i32, None, &msg);
+    async fn say_debug(&mut self, msg: String, ctx: Option<LogContext>) {
+        let (f, l) = resolve_context(ctx);
+        log::say(SayLevel::Debug, &f, l, None, &msg);
     }
 
-    async fn say_syserror(&mut self, msg: String) {
-        log::say(SayLevel::System, file!(), line!() as i32, None, &msg);
+    async fn say_syserror(&mut self, msg: String, ctx: Option<LogContext>) {
+        let (f, l) = resolve_context(ctx);
+        log::say(SayLevel::System, &f, l, None, &msg);
     }
 }

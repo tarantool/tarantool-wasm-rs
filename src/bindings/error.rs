@@ -55,8 +55,15 @@ impl BoxError {
 
 #[async_trait]
 impl error::Host for SyncWasmStates {
-    async fn error_new(&mut self, message: String, type_: String, code: u32) -> BoxError {
-        BoxError::new(message, type_, code)
+    async fn error_new(&mut self, message: String, type_: String, code: u32, file: Option<String>, line: Option<u32>) -> BoxError {
+        let mut err = BoxError::new(message, type_, code);
+        if let Some(file) = file {
+            err = err.with_file(file);
+        }
+        if let Some(line) = line {
+            err = err.with_line(line);
+        }
+        err
     }
 
     async fn set(&mut self, err: BoxError) {
