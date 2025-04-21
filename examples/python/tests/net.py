@@ -1,5 +1,16 @@
 from adder import exports
 from adder.imports import instance_network, stdout, ip_name_lookup, poll, stdin, tcp_create_socket,  network, tcp
+from adder.types import Ok, Err
+from adder.imports.wasi_http_types import (
+    OutgoingRequest,
+    RequestOptions,
+    Method_Get,
+    Fields,
+    OutgoingBody,
+    FutureIncomingResponse,
+    IncomingResponse
+)
+from adder.imports import outgoing_handler
 from adder.imports import say
 
 
@@ -53,11 +64,67 @@ def connect_test():
             pollable.block()
 
 
+def http_test():
+    opts = RequestOptions()
+    opts.set_connect_timeout(5_000_000_000)
+    opts.set_first_byte_timeout(5_000_000_000)
+    opts.set_between_bytes_timeout(5_000_000_000)
+
+    headers = Fields.from_list([
+        ("User-Agent", b"MyWASIClient/1.0"),
+    ])
+
+    req = OutgoingRequest(headers)
+    req.set_method(Method_Get())
+    req.set_path_with_query("/")  
+    req.set_authority("google.com")
+    
+    body = req.body()
+    OutgoingBody.finish(body, None)
+
+    future = outgoing_handler.handle(req, opts)
+    pollable = future.subscribe()
+    poll.poll([pollable])
+
+    opt = future.get()
+    if opt is None:
+        return
+    elif isinstance(opt, Ok):
+        resp = opt.value.value
+        print("Статус:", resp.status())
+        hdrs = resp.headers().entries()
+        print("Headers:")
+        for name, val in hdrs:
+            print(f"  {name}: {val.decode()}")
+        
+        inc_body = resp.consume()
+        stream = inc_body.stream()
+        chunks = []
+        while True:
+            data = stream.blocking_read(1024)
+            if not data:
+                break
+            chunks.append(data)
+        body_bytes = b"".join(chunks)
+        print("Body (first 1024 bytes):")
+        print(body_bytes[:1024].decode(errors="replace"))
+
+    elif isinstance(opt, Err):
+        print("Ошибка HTTP‑клиента:", opt.value)
+    else:
+        return
+
+
+class IncomingHandler(exports.IncomingHandler):
+    def handle(self, request, response_out):
+        print("HTTP HANDLE")
+
 class Run(exports.Run):
     def run(self) -> None:
         try:
             resolve_test()
+            http_test()
             connect_test()
 
         except Exception as e:
-            say.say_error(str(e))
+            say.say_error(str(e), None)

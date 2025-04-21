@@ -18,6 +18,7 @@ use tarantool::trigger::on_shutdown;
 use tarantool::fiber;
 use std::time::Duration;
 use crate::executor::{Executor, TxMode};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -26,6 +27,7 @@ lazy_static! {
 pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
+    pub(crate) http: WasiHttpCtx,
     pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
     pub(crate) executor: Executor,
     pub(crate) tx_mode: TxMode,
@@ -45,6 +47,7 @@ impl WasmStates {
         Self {
             table: table,
             ctx: ctx,
+            http: WasiHttpCtx::new(),
             yielder: None,
             executor: Executor::TxPush, // start outside the transaction
             tx_mode: TxMode::None,
@@ -90,6 +93,16 @@ impl WasiView for SyncWasmStates {
     }
 }
 
+impl WasiHttpView for SyncWasmStates {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.0.get_mut().unwrap().table
+    }
+
+    fn ctx(&mut self) -> &mut WasiHttpCtx {
+        &mut self.0.get_mut().unwrap().http
+    }
+}
+
 struct RuntimeState {
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
@@ -124,6 +137,7 @@ impl RuntimeState {
         let engine = Engine::new(&config).unwrap();
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
         let _ = wasmtime_wasi::add_to_linker_async(&mut linker);
+        let _ = wasmtime_wasi_http::add_only_http_to_linker_async(& mut linker);
 
         let _ = ttbox::add_to_linker(&mut linker, |state| state);
         let _ = say::add_to_linker(&mut linker, |state| state);
