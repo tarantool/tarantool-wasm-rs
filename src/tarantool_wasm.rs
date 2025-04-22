@@ -20,6 +20,8 @@ use std::time::Duration;
 use crate::executor::{Executor, TxMode};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
+use crate::bindings::docs::adder::zlib;
+
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
 }
@@ -151,6 +153,8 @@ impl RuntimeState {
         let _ = key_def::add_to_linker(&mut linker, |state| state);
         let _ = tuple_format::add_to_linker(&mut linker, |state| state);
         let _ = tuple::add_to_linker(&mut linker, |state| state);
+        
+        let _ = zlib::add_to_linker(&mut linker, |state| state);
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);

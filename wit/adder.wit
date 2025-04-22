@@ -1,6 +1,8 @@
 package docs:adder@0.1.0;
 
 world adder {
+  import zlib;
+
   import tarantool:tarantool/types@0.1.0;
   import tarantool:tarantool/msgpack@0.1.0;
   import tarantool:tarantool/ttbox@0.1.0;
@@ -48,4 +50,11 @@ world adder {
   export wasi:http/incoming-handler@0.2.0;
 
   export wasi:cli/run@0.2.0;
+}
+
+interface zlib {
+  compress: func(data: list<u8>, level: u32) -> list<u8>;
+  decompress: func(data: list<u8>) -> list<u8>;
+  crc32: func(data: list<u8>) -> u32;
+  adler32: func(data: list<u8>) -> u32;
 }
