@@ -1,6 +1,15 @@
-import { schemaVersion, spaceByName, indexByName, insert, update, replace, upsert, ttDelete } from 'docs:adder/ttbox@0.1.0';
-import { encode, decode } from 'docs:adder/msgpack@0.1.0';
-import { sayInfo, sayError } from 'docs:adder/say@0.1.0';
+import { schemaVersion, spaceByName, indexByName, insert, update, replace, upsert, delete as _delete } from 'tarantool:tarantool/ttbox@0.1.0';
+import { encode, decode } from 'tarantool:tarantool/msgpack@0.1.0';
+import { sayInfo, sayError } from 'tarantool:tarantool/say@0.1.0';
+import { toBuf } from 'tarantool:tarantool/tuple@0.1.0';
+
+export const incomingHandler = {
+    handle: (request) => {
+      console.log("Handling incoming request", request);
+      return { status: 200 };
+    }
+  };
+  
 
 async function _encode(obj) {
     try {
@@ -25,10 +34,6 @@ async function _decode(msgPackBytes) {
     }
 }
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 export const run = {
     run: async function() {
         try {
@@ -45,9 +50,7 @@ export const run = {
 
             const tupleData = await _encode([1, "bar"]);
             const insertResult = await insert(spaceResult, tupleData);
-            sayInfo(`JS | Insert successful, tuple_id: ${insertResult}`);
-
-            await sleep(5000); // Workaround: Possible issue with 'tx' - requires further investigation
+            sayInfo(`JS | Insert successful, tuple_ptr: ${insertResult}, tuple = ${await _decode(toBuf(insertResult))}`);
 
             const key = await _encode([1]);
             const ops = await _encode([["=", 2, "new_value"]]);

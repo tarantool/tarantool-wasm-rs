@@ -1,5 +1,6 @@
 #!/bin/sh
+jco guest-types -o internal ../../../wit
 jco componentize main.js \
-    --wit ../../adder.wit \
+    --wit ../../../wit \
     --world-name adder \
     --out js.wasm --disable http
