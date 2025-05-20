@@ -5,10 +5,10 @@ import { toBuf } from 'tarantool:tarantool/tuple@0.1.0';
 
 export const incomingHandler = {
     handle: (request) => {
-      console.log("Handling incoming request", request);
-      return { status: 200 };
+        console.log("Handling incoming request", request);
+        return { status: 200 };
     }
-  };
+};
   
 
 async function _encode(obj) {

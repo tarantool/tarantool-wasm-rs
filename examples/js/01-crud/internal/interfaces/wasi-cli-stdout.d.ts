@@ -1,5 +1,5 @@
+/// <reference path="./wasi-io-streams.d.ts" />
 declare module 'wasi:cli/stdout@0.2.0' {
   export function getStdout(): OutputStream;
+  export type OutputStream = import('wasi:io/streams@0.2.0').OutputStream;
 }
-import type { OutputStream } from './wasi-io-streams.js';
-export { OutputStream };
