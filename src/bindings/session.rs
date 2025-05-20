@@ -6,9 +6,8 @@ use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::types::validate_msgpack_array;
 use sha2::{Digest, Sha256};
 
-use wasmtime_wasi::async_trait;
 
-#[async_trait]
+
 impl session::Host for SyncWasmStates {
 
     async fn current(&mut self) -> Session {

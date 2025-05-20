@@ -2,7 +2,6 @@ use crate::bindings::tarantool::tarantool::error;
 use crate::bindings::tarantool::tarantool::types::BoxError;
 use crate::tarantool_wasm::SyncWasmStates;
 
-use wasmtime_wasi::async_trait;
 use std::ffi::CString;
 
 pub fn handle_tarantool_error() -> BoxError {
@@ -53,7 +52,6 @@ impl BoxError {
     }
 }
 
-#[async_trait]
 impl error::Host for SyncWasmStates {
     async fn error_new(&mut self, message: String, type_: String, code: u32, file: Option<String>, line: Option<u32>) -> BoxError {
         let mut err = BoxError::new(message, type_, code);

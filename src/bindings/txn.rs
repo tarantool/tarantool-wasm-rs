@@ -5,7 +5,7 @@ use crate::bindings::error::handle_tarantool_error;
 use crate::ffi;
 
 use tarantool::transaction;
-use wasmtime_wasi::async_trait;
+
 
 impl From<i32> for TxnIsolationLevel {
 
@@ -20,7 +20,6 @@ impl From<i32> for TxnIsolationLevel {
     }
 }
 
-#[async_trait]
 impl txn::Host for SyncWasmStates {
     async fn txn_id(&mut self) -> i64 {
         unsafe { ffi::tnt::box_txn_id() }

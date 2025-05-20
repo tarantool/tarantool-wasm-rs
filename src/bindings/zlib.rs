@@ -1,11 +1,10 @@
 use crate::bindings::docs::adder::zlib;
 use crate::tarantool_wasm::SyncWasmStates;
 
-use wasmtime_wasi::async_trait;
+
 use flate2::{write::{ZlibEncoder, ZlibDecoder}, Compression};
 use std::io::Write;
 
-#[async_trait]
 impl zlib::Host for SyncWasmStates {
     async fn compress(&mut self, data: Vec<u8>, level: u32) -> Vec<u8> {
         let compression = Compression::new(level.min(9));

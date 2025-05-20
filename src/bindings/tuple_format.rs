@@ -4,12 +4,11 @@ use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 
-use wasmtime_wasi::async_trait;
+
 use tarantool::tuple::TupleFormat as TarantoolTupleFormat;
 
 pub type TupleFormat = u64;
 
-#[async_trait]
 impl tuple_format::Host for SyncWasmStates {
     async fn default(&mut self) -> TupleFormat {
         TarantoolTupleFormat::default().as_ptr() as TupleFormat

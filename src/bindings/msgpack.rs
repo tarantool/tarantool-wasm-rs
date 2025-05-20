@@ -2,14 +2,12 @@ use crate::bindings::tarantool::tarantool::msgpack;
 use crate::bindings::tarantool::tarantool::types::BoxError;
 use crate::tarantool_wasm::SyncWasmStates;
 
-use wasmtime_wasi::async_trait;
 use rmp_serde::{from_slice, to_vec};
 use serde_json::Value;
 use std::io::Cursor;
 use libc;
 use rmpv::decode::read_value;
 
-#[async_trait]
 impl msgpack::Host for SyncWasmStates {
 
     async fn encode(&mut self, data: Vec<u8>) -> Result<Vec<u8>, BoxError> {

@@ -4,7 +4,6 @@ use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
 
-use wasmtime_wasi::async_trait;
 use std::ffi::CString;
 use std::mem::ManuallyDrop;
 
@@ -51,7 +50,6 @@ fn decode_key_part_flags(bits: u32) -> KeyPartFlags {
     unsafe { std::mem::transmute(raw) }
 }
 
-#[async_trait]
 impl key_def::Host for SyncWasmStates {
 
     async fn new(&mut self, parts: Vec<KeyPart>) -> Result<u64, BoxError> {

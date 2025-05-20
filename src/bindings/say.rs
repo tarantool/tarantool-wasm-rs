@@ -2,7 +2,6 @@ use crate::bindings::tarantool::tarantool::say;
 use crate::bindings::tarantool::tarantool::types::{LogLevel, LogContext};
 use crate::tarantool_wasm::SyncWasmStates;
 
-use wasmtime_wasi::async_trait;
 use tarantool::log::{self, SayLevel};
 
 impl From<LogLevel> for SayLevel {
@@ -27,7 +26,6 @@ fn resolve_context(ctx: Option<LogContext>) -> (String, i32) {
     }
 }
 
-#[async_trait]
 impl say::Host for SyncWasmStates {
     async fn say(&mut self, level: LogLevel, msg: String, ctx: Option<LogContext>) {
         let log_level: SayLevel = level.into();

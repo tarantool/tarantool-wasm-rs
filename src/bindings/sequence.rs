@@ -4,9 +4,6 @@ use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::error::handle_tarantool_error;
 use crate::ffi;
 
-use wasmtime_wasi::async_trait;
-
-#[async_trait]
 impl sequence::Host for SyncWasmStates {
 
     async fn next(&mut self, seq: Sequence) -> Result<i64, BoxError> {

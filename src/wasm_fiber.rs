@@ -5,7 +5,7 @@ use wasmtime::component::{Component, Linker};
 use crate::tx::{tx_push, tx_flush, TxCtx};
 use std::sync::Arc;
 use tokio::runtime::Builder;
-use wasmtime_wasi::bindings::Command;
+use wasmtime_wasi::p2::bindings::Command;
 use crate::tarantool_wasm::SyncWasmStates;
 use anyhow::Result;
 

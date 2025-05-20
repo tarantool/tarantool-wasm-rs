@@ -4,14 +4,13 @@ use crate::tarantool_wasm::SyncWasmStates;
 use crate::ffi as ffi;
 use crate::bindings::types::validate_msgpack_array;
 
-use wasmtime_wasi::async_trait;
+
 use tarantool::space::{Space as TarantoolSpace, SpaceId};
 use tarantool::tuple::Tuple as TarantoolTuple;
 use tarantool::index::{Index as TarantoolIndex, IndexId};
 
 pub type BoxTuple = u64;
 
-#[async_trait]
 impl ttbox::Host for SyncWasmStates {
     async fn schema_version(&mut self) -> i64 {
         unsafe {

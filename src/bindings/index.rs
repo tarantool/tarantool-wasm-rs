@@ -3,12 +3,10 @@ use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, It
 use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::types::{validate_msgpack_array, convert_iterator_type};
 
-use wasmtime_wasi::async_trait;
 use tarantool::space::SpaceId;
 use tarantool::tuple::Tuple as TarantoolTuple;
 use tarantool::index::{Index as TarantoolIndex, IndexId};
 
-#[async_trait]
 impl index::Host for SyncWasmStates {
     async fn len(&mut self, index: Index) -> Result<i64, BoxError> {
         let ind = unsafe {

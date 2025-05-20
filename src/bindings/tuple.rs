@@ -6,12 +6,11 @@ use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::types::validate_msgpack_array;
 use crate::bindings::TupleIteratorImpl;
 
-use wasmtime_wasi::async_trait;
+
 use wasmtime::component::Resource;
 
 pub type TupleField = u64;
 
-#[async_trait]
 impl tuple::Host for SyncWasmStates {
     async fn new(&mut self, data: Vec<u8>) -> Result<BoxTuple, BoxError> {
         if let Err(e) = validate_msgpack_array(&data) {
@@ -167,7 +166,6 @@ struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
 unsafe impl<T> Sync for SendPtr<T> {}
 
-#[async_trait]
 impl tuple::HostTupleIterator for SyncWasmStates {
     async fn new_tuple_iterator(&mut self, tup: BoxTuple) -> Result<Resource<TupleIteratorImpl>, BoxError> {
         let tup_copy = tup.clone();

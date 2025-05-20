@@ -3,7 +3,7 @@ use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::IteratorImpl;
 
 use wasmtime::component::Resource;
-use wasmtime_wasi::async_trait;
+
 use rmpv::decode::read_value;
 
 pub fn validate_msgpack_array(data: &[u8]) -> Result<(), String> {
@@ -44,12 +44,9 @@ pub fn convert_iterator_type(t: IteratorType) -> Result<tarantool::index::Iterat
     })
 }
 
-
-#[async_trait]
 impl types::Host for SyncWasmStates {
 }
 
-#[async_trait]
 impl types::HostIterator for SyncWasmStates {
     async fn new_iterator(
         &mut self,

@@ -1,5 +1,5 @@
 use wasmtime::component::{ResourceTable, Linker};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::p2::{WasiCtx, WasiCtxBuilder, WasiView, IoView};
 use wasmtime::{Engine, Store};
 use anyhow::Result;
 use lazy_static::lazy_static;
@@ -86,20 +86,18 @@ impl SyncWasmStates {
 }
 
 impl WasiView for SyncWasmStates {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.0.get_mut().unwrap().table
-    }
-
     fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.0.get_mut().unwrap().ctx
     }
 }
 
-impl WasiHttpView for SyncWasmStates {
+impl IoView for SyncWasmStates {
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.0.get_mut().unwrap().table
     }
+}
 
+impl WasiHttpView for SyncWasmStates {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.0.get_mut().unwrap().http
     }
@@ -138,7 +136,7 @@ impl RuntimeState {
         let config = get_configuration();
         let engine = Engine::new(&config).unwrap();
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
-        let _ = wasmtime_wasi::add_to_linker_async(&mut linker);
+        let _ = wasmtime_wasi::p2::add_to_linker_async(&mut linker);
         let _ = wasmtime_wasi_http::add_only_http_to_linker_async(& mut linker);
 
         let _ = ttbox::add_to_linker(&mut linker, |state| state);
