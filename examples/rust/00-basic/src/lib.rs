@@ -8,15 +8,13 @@ struct Component;
 
 impl CliGuest for Component {
     fn run() -> Result<(),()> {
-        println!("Hello from WASI Component!");
+        println!("Hello from Rust WASM!");
         Ok(())
     }
 }
 
 impl HttpGuest for Component {
-    fn handle(request: bindings::exports::wasi::http::incoming_handler::IncomingRequest,response_out: bindings::exports::wasi::http::incoming_handler::ResponseOutparam,) -> () {
-        println!("Hello from WASI Component HTTP handler!");
-    }
+    fn handle(_request: bindings::exports::wasi::http::incoming_handler::IncomingRequest, _response_out: bindings::exports::wasi::http::incoming_handler::ResponseOutparam,) -> () {}
 }
 
 bindings::export!(Component with_types_in bindings);

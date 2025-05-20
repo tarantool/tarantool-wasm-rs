@@ -1,7 +1,7 @@
 [package]
-name = "rust2"
+name = "adder"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 wit-bindgen-rt = { version = "0.42.1", features = ["bitflags"] }
@@ -10,6 +10,6 @@ wit-bindgen-rt = { version = "0.42.1", features = ["bitflags"] }
 crate-type = ["cdylib"]
 
 [package.metadata.component]
-package = "docs:adder"
+package = "component:adder"
 
 [package.metadata.component.dependencies]
