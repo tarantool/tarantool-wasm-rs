@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"runtime"
 
-	incominghandler "example.com/internal/wasi/http/incoming-handler"
-	wasiTypes "example.com/internal/wasi/http/types"
-	"example.com/internal/tarantool/tarantool/say"
-	"example.com/internal/tarantool/tarantool/msgpack"
-	"example.com/internal/tarantool/tarantool/txn"
-	box "example.com/internal/tarantool/tarantool/ttbox"
-	tarantoolTypes "example.com/internal/tarantool/tarantool/types"
-	// "example.com/internal/tarantool/tarantool/tuple"
+	incominghandler "adder-wasm-bindings/internal/wasi/http/incoming-handler"
+	wasiTypes "adder-wasm-bindings/internal/wasi/http/types"
+	"adder-wasm-bindings/internal/tarantool/tarantool/say"
+	"adder-wasm-bindings/internal/tarantool/tarantool/msgpack"
+	"adder-wasm-bindings/internal/tarantool/tarantool/txn"
+	box "adder-wasm-bindings/internal/tarantool/tarantool/ttbox"
+	tarantoolTypes "adder-wasm-bindings/internal/tarantool/tarantool/types"
 	"go.bytecodealliance.org/cm"
 )
 

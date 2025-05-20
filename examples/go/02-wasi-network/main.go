@@ -3,15 +3,15 @@ package main
 import (
 	"fmt"
 
-	incominghandler "example.com/internal/wasi/http/incoming-handler"
-	wasiTypes "example.com/internal/wasi/http/types"
+	incominghandler "adder-wasm-bindings/internal/wasi/http/incoming-handler"
+	wasiTypes "adder-wasm-bindings/internal/wasi/http/types"
 	"go.bytecodealliance.org/cm"
 
-	instNet "example.com/internal/wasi/sockets/instance-network"
-	wasiNet "example.com/internal/wasi/sockets/network"
-	tcpSocket "example.com/internal/wasi/sockets/tcp-create-socket"
-	wasiStreams "example.com/internal/wasi/io/streams"
-	"example.com/internal/wasi/io/poll"
+	instNet "adder-wasm-bindings/internal/wasi/sockets/instance-network"
+	wasiNet "adder-wasm-bindings/internal/wasi/sockets/network"
+	tcpSocket "adder-wasm-bindings/internal/wasi/sockets/tcp-create-socket"
+	wasiStreams "adder-wasm-bindings/internal/wasi/io/streams"
+	"adder-wasm-bindings/internal/wasi/io/poll"
 	
 )
 
@@ -25,7 +25,6 @@ func handleRequest(request wasiTypes.IncomingRequest, responseOut wasiTypes.Resp
 
 type InputStream wasiStreams.InputStream
 type OutputStream wasiStreams.OutputStream
-
 
 func main() {
 	net := instNet.InstanceNetwork()
