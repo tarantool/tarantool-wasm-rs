@@ -7,36 +7,36 @@ name = "wasi:cli"
 registry = "wasi.dev"
 
 [[packages.versions]]
-requirement = "=0.2.0"
-version = "0.2.0"
-digest = "sha256:e7e85458e11caf76554b724ebf4f113259decf0f3b1ee2e2930de096f72114a7"
+requirement = "=0.2.3"
+version = "0.2.3"
+digest = "sha256:8f97d837e1f856a225422869d5c34752204d1befb5a04d0cd80541aec17a20c1"
 
 [[packages]]
 name = "wasi:clocks"
 registry = "wasi.dev"
 
 [[packages.versions]]
-requirement = "=0.2.0"
-version = "0.2.0"
-digest = "sha256:51911098e929732f65d1d84f8dc393299f18a9e8de632d854714f37142efe97b"
+requirement = "=0.2.3"
+version = "0.2.3"
+digest = "sha256:3bbed4e582d6209cf281cfe94e51d64fd0c9507635c5e1c68795f493b6cdada9"
 
 [[packages]]
 name = "wasi:filesystem"
 registry = "wasi.dev"
 
 [[packages.versions]]
-requirement = "=0.2.0"
-version = "0.2.0"
-digest = "sha256:39c6e0f5618a6b6c8bdf5c39035a048f666c0ed5f44fe04ed172f010ab0c36d4"
+requirement = "=0.2.3"
+version = "0.2.3"
+digest = "sha256:a8e65d5b946d9c374ae6832ca6f90316e9b51e6f2a8d9691032cd91e25fe221f"
 
 [[packages]]
 name = "wasi:http"
 registry = "wasi.dev"
 
 [[packages.versions]]
-requirement = "=0.2.0"
-version = "0.2.0"
-digest = "sha256:5a568e6e2d60c1ce51220e1833cdd5b88db9f615720edc762a9b4a6f36b383bd"
+requirement = "=0.2.3"
+version = "0.2.3"
+digest = "sha256:e526c1586efc94cd148e33725139be05c4bb58ba20466d348282bd8dc3999f1d"
 
 [[packages]]
 name = "wasi:io"
@@ -52,15 +52,15 @@ name = "wasi:random"
 registry = "wasi.dev"
 
 [[packages.versions]]
-requirement = "=0.2.0"
-version = "0.2.0"
-digest = "sha256:5d535edc544d06719cf337861b7917c3d565360295e5dc424046dceddb0a0e42"
+requirement = "=0.2.3"
+version = "0.2.3"
+digest = "sha256:90bff11fae5e2df9196ee89cd00d374792dce8afadf5c4c761a834ed760588e3"
 
 [[packages]]
 name = "wasi:sockets"
 registry = "wasi.dev"
 
 [[packages.versions]]
-requirement = "=0.2.0"
-version = "0.2.0"
-digest = "sha256:68640584237d98077cec4631264ff28ed74fe04619ce5dcd8020383df5c3969f"
+requirement = "=0.2.3"
+version = "0.2.3"
+digest = "sha256:dcbe3e55d025d3b3a7ee959c4f74119be0d7d85d1289d4ac6d29a4a37b4d47d7"
