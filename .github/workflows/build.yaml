@@ -8,7 +8,6 @@ on:
 
 jobs:
   build:
-    name: Rust project - latest
     runs-on: ubuntu-latest
 
     steps:
