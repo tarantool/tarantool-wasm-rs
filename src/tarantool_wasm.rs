@@ -19,6 +19,7 @@ use tarantool::fiber;
 use std::time::Duration;
 use crate::executor::{Executor, TxMode};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+use wasmtime_wasi_tls::{LinkOptions, WasiTlsCtx};
 
 use crate::bindings::docs::adder::zlib;
 
@@ -138,6 +139,12 @@ impl RuntimeState {
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
         let _ = wasmtime_wasi::p2::add_to_linker_async(&mut linker);
         let _ = wasmtime_wasi_http::add_only_http_to_linker_async(& mut linker);
+
+        let mut opts = LinkOptions::default();
+        opts.tls(true);
+        let _ = wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
+            WasiTlsCtx::new(&mut h.0.get_mut().unwrap().table)
+        });
 
         let _ = ttbox::add_to_linker(&mut linker, |state| state);
         let _ = say::add_to_linker(&mut linker, |state| state);
