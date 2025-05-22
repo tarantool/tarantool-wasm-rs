@@ -23,39 +23,40 @@ world adder {
   import tarantool:tarantool/sequence@0.1.0;
   import tarantool:tarantool/key-def@0.1.0;
   import tarantool:tarantool/tuple-format@0.1.0;
-  import tarantool:tarantool/%tuple@0.1.0;
-  import wasi:cli/environment@0.2.0;
-  import wasi:cli/exit@0.2.0;
-  import wasi:io/error@0.2.0;
-  import wasi:io/poll@0.2.0;
-  import wasi:io/streams@0.2.0;
-  import wasi:cli/stdin@0.2.0;
-  import wasi:cli/stdout@0.2.0;
-  import wasi:cli/stderr@0.2.0;
-  import wasi:cli/terminal-input@0.2.0;
-  import wasi:cli/terminal-output@0.2.0;
-  import wasi:cli/terminal-stdin@0.2.0;
-  import wasi:cli/terminal-stdout@0.2.0;
-  import wasi:cli/terminal-stderr@0.2.0;
-  import wasi:clocks/monotonic-clock@0.2.0;
-  import wasi:clocks/wall-clock@0.2.0;
-  import wasi:filesystem/types@0.2.0;
-  import wasi:filesystem/preopens@0.2.0;
-  import wasi:sockets/network@0.2.0;
-  import wasi:sockets/instance-network@0.2.0;
-  import wasi:sockets/udp@0.2.0;
-  import wasi:sockets/udp-create-socket@0.2.0;
-  import wasi:sockets/tcp@0.2.0;
-  import wasi:sockets/tcp-create-socket@0.2.0;
-  import wasi:sockets/ip-name-lookup@0.2.0;
-  import wasi:random/random@0.2.0;
-  import wasi:random/insecure@0.2.0;
-  import wasi:random/insecure-seed@0.2.0;
-  import wasi:http/types@0.2.0;
-  import wasi:http/outgoing-handler@0.2.0;
+  import tarantool:tarantool/box-tuple@0.1.0;
+  import wasi:cli/environment@0.2.3;
+  import wasi:cli/exit@0.2.3;
+  import wasi:io/error@0.2.3;
+  import wasi:io/poll@0.2.3;
+  import wasi:io/streams@0.2.3;
+  import wasi:cli/stdin@0.2.3;
+  import wasi:cli/stdout@0.2.3;
+  import wasi:cli/stderr@0.2.3;
+  import wasi:cli/terminal-input@0.2.3;
+  import wasi:cli/terminal-output@0.2.3;
+  import wasi:cli/terminal-stdin@0.2.3;
+  import wasi:cli/terminal-stdout@0.2.3;
+  import wasi:cli/terminal-stderr@0.2.3;
+  import wasi:clocks/monotonic-clock@0.2.3;
+  import wasi:clocks/wall-clock@0.2.3;
+  import wasi:filesystem/types@0.2.3;
+  import wasi:filesystem/preopens@0.2.3;
+  import wasi:sockets/network@0.2.3;
+  import wasi:sockets/instance-network@0.2.3;
+  import wasi:sockets/udp@0.2.3;
+  import wasi:sockets/udp-create-socket@0.2.3;
+  import wasi:sockets/tcp@0.2.3;
+  import wasi:sockets/tcp-create-socket@0.2.3;
+  import wasi:sockets/ip-name-lookup@0.2.3;
+  import wasi:random/random@0.2.3;
+  import wasi:random/insecure@0.2.3;
+  import wasi:random/insecure-seed@0.2.3;
+  import wasi:http/types@0.2.3;
+  import wasi:http/outgoing-handler@0.2.3;
+  import wasi:tls/types@0.2.0-draft;
 
-  export wasi:http/incoming-handler@0.2.0;
-  export wasi:cli/run@0.2.0;
+  export wasi:http/incoming-handler@0.2.3;
+  export wasi:cli/run@0.2.3;
 }
 package tarantool:tarantool@0.1.0 {
   interface types {
@@ -305,7 +306,7 @@ package tarantool:tarantool@0.1.0 {
 
     unref: func(tf: tuple-format);
   }
-  interface %tuple {
+  interface box-tuple {
     use types.{box-error, box-tuple, tuple-field, tuple-format, key-def};
 
     resource tuple-iterator {
@@ -347,7 +348,7 @@ package tarantool:tarantool@0.1.0 {
 }
 
 
-package wasi:io@0.2.0 {
+package wasi:io@0.2.3 {
   interface error {
     resource error {
       to-debug-string: func() -> string;
@@ -394,7 +395,7 @@ package wasi:io@0.2.0 {
 }
 
 
-package wasi:cli@0.2.0 {
+package wasi:cli@0.2.3 {
   interface environment {
     get-environment: func() -> list<tuple<string, string>>;
 
@@ -406,17 +407,17 @@ package wasi:cli@0.2.0 {
     exit: func(status: result);
   }
   interface stdin {
-    use wasi:io/streams@0.2.0.{input-stream};
+    use wasi:io/streams@0.2.3.{input-stream};
 
     get-stdin: func() -> input-stream;
   }
   interface stdout {
-    use wasi:io/streams@0.2.0.{output-stream};
+    use wasi:io/streams@0.2.3.{output-stream};
 
     get-stdout: func() -> output-stream;
   }
   interface stderr {
-    use wasi:io/streams@0.2.0.{output-stream};
+    use wasi:io/streams@0.2.3.{output-stream};
 
     get-stderr: func() -> output-stream;
   }
@@ -447,9 +448,9 @@ package wasi:cli@0.2.0 {
 }
 
 
-package wasi:clocks@0.2.0 {
+package wasi:clocks@0.2.3 {
   interface monotonic-clock {
-    use wasi:io/poll@0.2.0.{pollable};
+    use wasi:io/poll@0.2.3.{pollable};
 
     type instant = u64;
 
@@ -476,10 +477,10 @@ package wasi:clocks@0.2.0 {
 }
 
 
-package wasi:filesystem@0.2.0 {
+package wasi:filesystem@0.2.3 {
   interface types {
-    use wasi:io/streams@0.2.0.{input-stream, output-stream, error};
-    use wasi:clocks/wall-clock@0.2.0.{datetime};
+    use wasi:io/streams@0.2.3.{input-stream, output-stream, error};
+    use wasi:clocks/wall-clock@0.2.3.{datetime};
 
     type filesize = u64;
 
@@ -634,7 +635,7 @@ package wasi:filesystem@0.2.0 {
 }
 
 
-package wasi:sockets@0.2.0 {
+package wasi:sockets@0.2.3 {
   interface network {
     resource network;
 
@@ -699,7 +700,7 @@ package wasi:sockets@0.2.0 {
     instance-network: func() -> network;
   }
   interface udp {
-    use wasi:io/poll@0.2.0.{pollable};
+    use wasi:io/poll@0.2.3.{pollable};
     use network.{network, error-code, ip-socket-address, ip-address-family};
 
     record incoming-datagram {
@@ -746,9 +747,9 @@ package wasi:sockets@0.2.0 {
     create-udp-socket: func(address-family: ip-address-family) -> result<udp-socket, error-code>;
   }
   interface tcp {
-    use wasi:io/streams@0.2.0.{input-stream, output-stream};
-    use wasi:io/poll@0.2.0.{pollable};
-    use wasi:clocks/monotonic-clock@0.2.0.{duration};
+    use wasi:io/streams@0.2.3.{input-stream, output-stream};
+    use wasi:io/poll@0.2.3.{pollable};
+    use wasi:clocks/monotonic-clock@0.2.3.{duration};
     use network.{network, error-code, ip-socket-address, ip-address-family};
 
     enum shutdown-type {
@@ -795,7 +796,7 @@ package wasi:sockets@0.2.0 {
     create-tcp-socket: func(address-family: ip-address-family) -> result<tcp-socket, error-code>;
   }
   interface ip-name-lookup {
-    use wasi:io/poll@0.2.0.{pollable};
+    use wasi:io/poll@0.2.3.{pollable};
     use network.{network, error-code, ip-address};
 
     resource resolve-address-stream {
@@ -808,7 +809,7 @@ package wasi:sockets@0.2.0 {
 }
 
 
-package wasi:random@0.2.0 {
+package wasi:random@0.2.3 {
   interface random {
     get-random-bytes: func(len: u64) -> list<u8>;
 
@@ -825,12 +826,12 @@ package wasi:random@0.2.0 {
 }
 
 
-package wasi:http@0.2.0 {
+package wasi:http@0.2.3 {
   interface types {
-    use wasi:clocks/monotonic-clock@0.2.0.{duration};
-    use wasi:io/streams@0.2.0.{input-stream, output-stream};
-    use wasi:io/error@0.2.0.{error as io-error};
-    use wasi:io/poll@0.2.0.{pollable};
+    use wasi:clocks/monotonic-clock@0.2.3.{duration};
+    use wasi:io/streams@0.2.3.{input-stream, output-stream};
+    use wasi:io/error@0.2.3.{error as io-error};
+    use wasi:io/poll@0.2.3.{pollable};
 
     variant method {
       get,
@@ -916,17 +917,19 @@ package wasi:http@0.2.0 {
 
     type field-key = string;
 
+    type field-name = field-key;
+
     type field-value = list<u8>;
 
     resource fields {
       constructor();
-      from-list: static func(entries: list<tuple<field-key, field-value>>) -> result<fields, header-error>;
-      get: func(name: field-key) -> list<field-value>;
-      has: func(name: field-key) -> bool;
-      set: func(name: field-key, value: list<field-value>) -> result<_, header-error>;
-      delete: func(name: field-key) -> result<_, header-error>;
-      append: func(name: field-key, value: field-value) -> result<_, header-error>;
-      entries: func() -> list<tuple<field-key, field-value>>;
+      from-list: static func(entries: list<tuple<field-name, field-value>>) -> result<fields, header-error>;
+      get: func(name: field-name) -> list<field-value>;
+      has: func(name: field-name) -> bool;
+      set: func(name: field-name, value: list<field-value>) -> result<_, header-error>;
+      delete: func(name: field-name) -> result<_, header-error>;
+      append: func(name: field-name, value: field-value) -> result<_, header-error>;
+      entries: func() -> list<tuple<field-name, field-value>>;
       clone: func() -> fields;
     }
 
@@ -1018,5 +1021,28 @@ package wasi:http@0.2.0 {
     use types.{incoming-request, response-outparam};
 
     handle: func(request: incoming-request, response-out: response-outparam);
+  }
+}
+
+
+package wasi:tls@0.2.0-draft {
+  interface types {
+    use wasi:io/streams@0.2.3.{input-stream, output-stream};
+    use wasi:io/poll@0.2.3.{pollable};
+    use wasi:io/error@0.2.3.{error as io-error};
+
+    resource client-handshake {
+      constructor(server-name: string, input: input-stream, output: output-stream);
+      finish: static func(this: client-handshake) -> future-client-streams;
+    }
+
+    resource client-connection {
+      close-output: func();
+    }
+
+    resource future-client-streams {
+      subscribe: func() -> pollable;
+      get: func() -> option<result<result<tuple<client-connection, input-stream, output-stream>, io-error>>>;
+    }
   }
 }

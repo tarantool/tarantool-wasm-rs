@@ -2,13 +2,13 @@
 /// <reference path="./wasi-io-error.d.ts" />
 /// <reference path="./wasi-io-poll.d.ts" />
 /// <reference path="./wasi-io-streams.d.ts" />
-declare module 'wasi:http/types@0.2.0' {
+declare module 'wasi:http/types@0.2.3' {
   export function httpErrorCode(err: IoError): ErrorCode | undefined;
-  export type Duration = import('wasi:clocks/monotonic-clock@0.2.0').Duration;
-  export type InputStream = import('wasi:io/streams@0.2.0').InputStream;
-  export type OutputStream = import('wasi:io/streams@0.2.0').OutputStream;
-  export type IoError = import('wasi:io/error@0.2.0').Error;
-  export type Pollable = import('wasi:io/poll@0.2.0').Pollable;
+  export type Duration = import('wasi:clocks/monotonic-clock@0.2.3').Duration;
+  export type InputStream = import('wasi:io/streams@0.2.3').InputStream;
+  export type OutputStream = import('wasi:io/streams@0.2.3').OutputStream;
+  export type IoError = import('wasi:io/error@0.2.3').Error;
+  export type Pollable = import('wasi:io/poll@0.2.3').Pollable;
   export type Method = MethodGet | MethodHead | MethodPost | MethodPut | MethodDelete | MethodConnect | MethodOptions | MethodTrace | MethodPatch | MethodOther;
   export interface MethodGet {
     tag: 'get',
@@ -208,6 +208,7 @@ declare module 'wasi:http/types@0.2.0' {
     tag: 'immutable',
   }
   export type FieldKey = string;
+  export type FieldName = FieldKey;
   export type FieldValue = Uint8Array;
   export type Headers = Fields;
   export type Trailers = Fields;
@@ -216,13 +217,13 @@ declare module 'wasi:http/types@0.2.0' {
   
   export class Fields {
     constructor()
-    static fromList(entries: Array<[FieldKey, FieldValue]>): Fields;
-    get(name: FieldKey): Array<FieldValue>;
-    has(name: FieldKey): boolean;
-    set(name: FieldKey, value: Array<FieldValue>): void;
-    'delete'(name: FieldKey): void;
-    append(name: FieldKey, value: FieldValue): void;
-    entries(): Array<[FieldKey, FieldValue]>;
+    static fromList(entries: Array<[FieldName, FieldValue]>): Fields;
+    get(name: FieldName): Array<FieldValue>;
+    has(name: FieldName): boolean;
+    set(name: FieldName, value: Array<FieldValue>): void;
+    'delete'(name: FieldName): void;
+    append(name: FieldName, value: FieldValue): void;
+    entries(): Array<[FieldName, FieldValue]>;
     clone(): Fields;
   }
   

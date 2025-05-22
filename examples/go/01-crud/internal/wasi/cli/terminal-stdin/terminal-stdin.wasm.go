@@ -6,8 +6,8 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.3".
 
-//go:wasmimport wasi:cli/terminal-stdin@0.2.0 get-terminal-stdin
+//go:wasmimport wasi:cli/terminal-stdin@0.2.3 get-terminal-stdin
 //go:noescape
 func wasmimport_GetTerminalStdin(result *cm.Option[TerminalInput])

@@ -6,10 +6,10 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "wasi:http@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:http@0.2.3".
 
-//go:wasmexport wasi:http/incoming-handler@0.2.0#handle
-//export wasi:http/incoming-handler@0.2.0#handle
+//go:wasmexport wasi:http/incoming-handler@0.2.3#handle
+//export wasi:http/incoming-handler@0.2.3#handle
 func wasmexport_Handle(request0 uint32, responseOut0 uint32) {
 	request := cm.Reinterpret[IncomingRequest]((uint32)(request0))
 	responseOut := cm.Reinterpret[ResponseOutparam]((uint32)(responseOut0))

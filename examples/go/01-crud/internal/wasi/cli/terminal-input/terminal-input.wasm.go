@@ -2,8 +2,8 @@
 
 package terminalinput
 
-// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.3".
 
-//go:wasmimport wasi:cli/terminal-input@0.2.0 [resource-drop]terminal-input
+//go:wasmimport wasi:cli/terminal-input@0.2.3 [resource-drop]terminal-input
 //go:noescape
 func wasmimport_TerminalInputResourceDrop(self0 uint32)

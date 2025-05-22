@@ -1,4 +1,4 @@
-declare module 'wasi:io/error@0.2.0' {
+declare module 'wasi:io/error@0.2.3' {
   
   export class Error {
     /**

@@ -9,7 +9,7 @@ use std::sync::{Mutex, Arc, RwLock};
 use wasmtime::component::Component;
 use wasmtime::Config;
 use tokio::sync::mpsc;
-use crate::bindings::tarantool::tarantool::{ttbox, say, error, session, msgpack, txn, types, index, sequence, key_def, tuple_format, tuple};
+use crate::bindings::tarantool::tarantool::{ttbox, say, error, session, msgpack, txn, types, index, sequence, key_def, tuple_format, box_tuple};
 use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
 use crate::wasm_fiber::WasmFiberStatus;
@@ -157,7 +157,7 @@ impl RuntimeState {
         let _ = sequence::add_to_linker(&mut linker, |state| state);
         let _ = key_def::add_to_linker(&mut linker, |state| state);
         let _ = tuple_format::add_to_linker(&mut linker, |state| state);
-        let _ = tuple::add_to_linker(&mut linker, |state| state);
+        let _ = box_tuple::add_to_linker(&mut linker, |state| state);
         
         let _ = zlib::add_to_linker(&mut linker, |state| state);
 

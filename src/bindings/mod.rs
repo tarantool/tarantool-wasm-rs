@@ -6,7 +6,7 @@ bindgen!({
     async: true,
     with: {
         "tarantool:tarantool/types/iterator": IteratorImpl,
-        "tarantool:tarantool/tuple/tuple-iterator": TupleIteratorImpl,
+        "tarantool:tarantool/box-tuple/tuple-iterator": TupleIteratorImpl,
     }
 });
 

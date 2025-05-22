@@ -2,8 +2,8 @@
 
 package stderr
 
-// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.3".
 
-//go:wasmimport wasi:cli/stderr@0.2.0 get-stderr
+//go:wasmimport wasi:cli/stderr@0.2.3 get-stderr
 //go:noescape
 func wasmimport_GetStderr() (result0 uint32)

@@ -2,8 +2,8 @@
 
 package exit
 
-// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.3".
 
-//go:wasmimport wasi:cli/exit@0.2.0 exit
+//go:wasmimport wasi:cli/exit@0.2.3 exit
 //go:noescape
 func wasmimport_Exit(status0 uint32)

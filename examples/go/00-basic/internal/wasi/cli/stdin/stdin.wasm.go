@@ -2,8 +2,8 @@
 
 package stdin
 
-// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:cli@0.2.3".
 
-//go:wasmimport wasi:cli/stdin@0.2.0 get-stdin
+//go:wasmimport wasi:cli/stdin@0.2.3 get-stdin
 //go:noescape
 func wasmimport_GetStdin() (result0 uint32)

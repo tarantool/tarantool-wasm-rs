@@ -1,5 +1,5 @@
 /// <reference path="./tarantool-tarantool-types.d.ts" />
-declare module 'tarantool:tarantool/tuple@0.1.0' {
+declare module 'tarantool:tarantool/box-tuple@0.1.0' {
   export { _new as new };
   declare function _new(data: Uint8Array): BoxTuple;
   export function ref(t: BoxTuple): number;

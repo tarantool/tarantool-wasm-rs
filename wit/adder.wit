@@ -14,7 +14,7 @@ world adder {
   import tarantool:tarantool/sequence@0.1.0;
   import tarantool:tarantool/key-def@0.1.0;
   import tarantool:tarantool/tuple-format@0.1.0;
-  import tarantool:tarantool/%tuple@0.1.0;
+  import tarantool:tarantool/box-tuple@0.1.0;
 
   import wasi:cli/environment@0.2.3;
   import wasi:cli/exit@0.2.3;

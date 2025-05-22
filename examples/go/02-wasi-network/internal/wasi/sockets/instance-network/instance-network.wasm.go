@@ -2,8 +2,8 @@
 
 package instancenetwork
 
-// This file contains wasmimport and wasmexport declarations for "wasi:sockets@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:sockets@0.2.3".
 
-//go:wasmimport wasi:sockets/instance-network@0.2.0 instance-network
+//go:wasmimport wasi:sockets/instance-network@0.2.3 instance-network
 //go:noescape
 func wasmimport_InstanceNetwork() (result0 uint32)

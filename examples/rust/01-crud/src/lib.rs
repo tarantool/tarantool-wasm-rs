@@ -4,7 +4,7 @@ mod bindings;
 use bindings::exports::wasi::cli::run::Guest as CliGuest;
 use bindings::exports::wasi::http::incoming_handler::{Guest as HttpGuest, IncomingRequest, ResponseOutparam};
 
-use bindings::tarantool::tarantool::{ttbox, msgpack, say, tuple};
+use bindings::tarantool::tarantool::{ttbox, msgpack, say, box_tuple};
 
 struct Component;
 
@@ -69,7 +69,7 @@ impl CliGuest for Component {
         };
 
         // Decode inserted tuple
-        let tuple_buf = tuple::to_buf(insert_result);
+        let tuple_buf = box_tuple::to_buf(insert_result);
         match tuple_buf {
             Ok(buf) => {
                 match msgpack::decode(&buf) {

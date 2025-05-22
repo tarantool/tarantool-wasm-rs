@@ -6,7 +6,7 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// Exports represents the caller-defined exports from "wasi:cli/run@0.2.0".
+// Exports represents the caller-defined exports from "wasi:cli/run@0.2.3".
 var Exports struct {
 	// Run represents the caller-defined, exported function "run".
 	//

@@ -1,7 +1,7 @@
 import { schemaVersion, spaceByName, indexByName, insert, update, replace, upsert, delete as _delete } from 'tarantool:tarantool/ttbox@0.1.0';
 import { encode, decode } from 'tarantool:tarantool/msgpack@0.1.0';
 import { sayInfo, sayError } from 'tarantool:tarantool/say@0.1.0';
-import { toBuf } from 'tarantool:tarantool/tuple@0.1.0';
+import { toBuf } from 'tarantool:tarantool/box-tuple@0.1.0';
 
 export const incomingHandler = {
     handle: (request) => {

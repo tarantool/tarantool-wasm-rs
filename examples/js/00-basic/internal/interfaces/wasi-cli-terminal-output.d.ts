@@ -1,4 +1,4 @@
-declare module 'wasi:cli/terminal-output@0.2.0' {
+declare module 'wasi:cli/terminal-output@0.2.3' {
   
   export class TerminalOutput {
     /**

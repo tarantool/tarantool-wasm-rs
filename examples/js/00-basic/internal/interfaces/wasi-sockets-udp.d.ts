@@ -1,11 +1,11 @@
 /// <reference path="./wasi-io-poll.d.ts" />
 /// <reference path="./wasi-sockets-network.d.ts" />
-declare module 'wasi:sockets/udp@0.2.0' {
-  export type Pollable = import('wasi:io/poll@0.2.0').Pollable;
-  export type Network = import('wasi:sockets/network@0.2.0').Network;
-  export type ErrorCode = import('wasi:sockets/network@0.2.0').ErrorCode;
-  export type IpSocketAddress = import('wasi:sockets/network@0.2.0').IpSocketAddress;
-  export type IpAddressFamily = import('wasi:sockets/network@0.2.0').IpAddressFamily;
+declare module 'wasi:sockets/udp@0.2.3' {
+  export type Pollable = import('wasi:io/poll@0.2.3').Pollable;
+  export type Network = import('wasi:sockets/network@0.2.3').Network;
+  export type ErrorCode = import('wasi:sockets/network@0.2.3').ErrorCode;
+  export type IpSocketAddress = import('wasi:sockets/network@0.2.3').IpSocketAddress;
+  export type IpAddressFamily = import('wasi:sockets/network@0.2.3').IpAddressFamily;
   export interface IncomingDatagram {
     data: Uint8Array,
     remoteAddress: IpSocketAddress,

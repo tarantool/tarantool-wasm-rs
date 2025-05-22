@@ -6,20 +6,20 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "wasi:io@0.2.0".
+// This file contains wasmimport and wasmexport declarations for "wasi:io@0.2.3".
 
-//go:wasmimport wasi:io/poll@0.2.0 [resource-drop]pollable
+//go:wasmimport wasi:io/poll@0.2.3 [resource-drop]pollable
 //go:noescape
 func wasmimport_PollableResourceDrop(self0 uint32)
 
-//go:wasmimport wasi:io/poll@0.2.0 [method]pollable.block
+//go:wasmimport wasi:io/poll@0.2.3 [method]pollable.block
 //go:noescape
 func wasmimport_PollableBlock(self0 uint32)
 
-//go:wasmimport wasi:io/poll@0.2.0 [method]pollable.ready
+//go:wasmimport wasi:io/poll@0.2.3 [method]pollable.ready
 //go:noescape
 func wasmimport_PollableReady(self0 uint32) (result0 uint32)
 
-//go:wasmimport wasi:io/poll@0.2.0 poll
+//go:wasmimport wasi:io/poll@0.2.3 poll
 //go:noescape
 func wasmimport_Poll(in0 *Pollable, in1 uint32, result *cm.List[uint32])

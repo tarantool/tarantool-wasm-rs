@@ -1,11 +1,11 @@
 /// <reference path="./wasi-clocks-wall-clock.d.ts" />
 /// <reference path="./wasi-io-streams.d.ts" />
-declare module 'wasi:filesystem/types@0.2.0' {
+declare module 'wasi:filesystem/types@0.2.3' {
   export function filesystemErrorCode(err: Error): ErrorCode | undefined;
-  export type InputStream = import('wasi:io/streams@0.2.0').InputStream;
-  export type OutputStream = import('wasi:io/streams@0.2.0').OutputStream;
-  export type Error = import('wasi:io/streams@0.2.0').Error;
-  export type Datetime = import('wasi:clocks/wall-clock@0.2.0').Datetime;
+  export type InputStream = import('wasi:io/streams@0.2.3').InputStream;
+  export type OutputStream = import('wasi:io/streams@0.2.3').OutputStream;
+  export type Error = import('wasi:io/streams@0.2.3').Error;
+  export type Datetime = import('wasi:clocks/wall-clock@0.2.3').Datetime;
   export type Filesize = bigint;
   /**
    * # Variants

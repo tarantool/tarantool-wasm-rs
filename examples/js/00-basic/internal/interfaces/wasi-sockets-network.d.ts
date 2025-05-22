@@ -1,4 +1,4 @@
-declare module 'wasi:sockets/network@0.2.0' {
+declare module 'wasi:sockets/network@0.2.3' {
   /**
    * # Variants
    * 

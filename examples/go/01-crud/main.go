@@ -6,10 +6,12 @@ import (
 	"runtime"
 
 	incominghandler "adder-wasm-bindings/internal/wasi/http/incoming-handler"
+	"adder-wasm-bindings/internal/wasi/cli/run"
 	wasiTypes "adder-wasm-bindings/internal/wasi/http/types"
 	"adder-wasm-bindings/internal/tarantool/tarantool/say"
 	"adder-wasm-bindings/internal/tarantool/tarantool/msgpack"
 	"adder-wasm-bindings/internal/tarantool/tarantool/txn"
+	tuple "adder-wasm-bindings/internal/tarantool/tarantool/box-tuple"
 	box "adder-wasm-bindings/internal/tarantool/tarantool/ttbox"
 	tarantoolTypes "adder-wasm-bindings/internal/tarantool/tarantool/types"
 	"go.bytecodealliance.org/cm"
@@ -24,10 +26,16 @@ type BoxTuple = tarantoolTypes.BoxTuple
 
 func init() {
 	incominghandler.Exports.Handle = handleRequest
+	run.Exports.Run = wasiRun
 }
 
 func handleRequest(request wasiTypes.IncomingRequest, responseOut wasiTypes.ResponseOutparam) {
 	fmt.Println("Incoming HTTP request!")
+}
+
+func wasiRun() cm.BoolResult {
+	main()
+	return cm.BoolResult(true)
 }
 
 func Encode(obj interface{}) ([]byte, error) {
@@ -75,14 +83,14 @@ func _DecodeFromRawPtr(ptr BoxTuple) (interface{}, error) {
 }
 
 // TODO: https://github.com/mandesero/tarantool-wasm-rs/issues/3
-// func GetTupleSlice(ptr BoxTuple) ([]byte, error) {
-// 	result := tuple.ToBuf(ptr)
-// 	if result.IsOK() {
-// 		tup := *result.OK()
-// 		return tup.Slice(), nil
-// 	}
-// 	return nil, fmt.Errorf("error")
-// }
+func GetTupleSlice(ptr BoxTuple) ([]byte, error) {
+	result := tuple.ToBuf(ptr)
+	if result.IsOK() {
+		tup := *result.OK()
+		return tup.Slice(), nil
+	}
+	return nil, fmt.Errorf("error")
+}
 
 func batchInsert(space Space, batch [][]byte) {
 	var ptr BoxTuple
@@ -91,9 +99,9 @@ func batchInsert(space Space, batch [][]byte) {
 		result := box.Insert(space, cm.ToList(elem))
 		if result.IsOK() {
 			ptr = *result.OK()
-			// raw, _ := GetTupleSlice(ptr)
-			// tup, _ := Decode(raw)
-			say.SayInfo(fmt.Sprintf("%v", ptr), cm.Some(LogContext {Filename: "main.go", Line: 85}))
+			raw, _ := GetTupleSlice(ptr)
+			tup, _ := Decode(raw)
+			say.SayInfo(fmt.Sprintf("%v", tup), cm.Some(LogContext {Filename: "main.go", Line: 104}))
 		}
 	}
 	txn.Commit()
@@ -114,14 +122,14 @@ func main() {
 		space = *result1.OK()
 	}
 
-	say.SayInfo(fmt.Sprintf("%v", space), cm.Some(LogContext {Filename: "main.go", Line: 106}))
+	say.SayInfo(fmt.Sprintf("%v", space), cm.Some(LogContext {Filename: "main.go", Line: 125}))
 
 	tuples := make([][]byte, 5)
 
 	for idx := range 5 {
 		tuples[idx], _ = Encode([]int{idx})
 		t, _ := Decode(tuples[idx])
-		say.SayInfo(fmt.Sprintf("%v", t), cm.Some(LogContext {Filename: "main.go", Line: 133}))
+		say.SayInfo(fmt.Sprintf("%v", t), cm.Some(LogContext {Filename: "main.go", Line: 132}))
 	}
 
 	batchInsert(space, tuples)
@@ -132,7 +140,7 @@ func main() {
 		index = *result2.OK()
 	}
 	
-	say.SayInfo(fmt.Sprintf("%v", index), cm.Some(LogContext {Filename: "main.go", Line: 114}))
+	say.SayInfo(fmt.Sprintf("%v", index), cm.Some(LogContext {Filename: "main.go", Line: 143}))
 	
 	var iter tarantoolTypes.Iterator
 	empty_tuple, _ := Encode([]int{})
@@ -140,7 +148,7 @@ func main() {
 	if result2.IsOK() {
 		iter = *result3.OK()
 	} else {
-		say.SayError(fmt.Sprintf("Iterator Error"), cm.Some(LogContext {Filename: "main.go", Line: 144}))
+		say.SayError(fmt.Sprintf("Iterator Error"), cm.Some(LogContext {Filename: "main.go", Line: 151}))
 		return
 	}
 
@@ -149,7 +157,9 @@ func main() {
 		if r.IsErr() {
 			break
 		}
-		raw := *r.OK()
-		say.SayInfo(fmt.Sprintf("From iter %v", raw), cm.Some(LogContext {Filename: "main.go", Line: 152}))
+		ptr := *r.OK()
+		raw, _ := GetTupleSlice(ptr)
+		tup, _ := Decode(raw)
+		say.SayInfo(fmt.Sprintf("From iter %v", tup), cm.Some(LogContext {Filename: "main.go", Line: 163}))
 	}
 }

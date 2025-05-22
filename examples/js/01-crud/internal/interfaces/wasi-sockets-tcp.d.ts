@@ -2,15 +2,15 @@
 /// <reference path="./wasi-io-poll.d.ts" />
 /// <reference path="./wasi-io-streams.d.ts" />
 /// <reference path="./wasi-sockets-network.d.ts" />
-declare module 'wasi:sockets/tcp@0.2.0' {
-  export type InputStream = import('wasi:io/streams@0.2.0').InputStream;
-  export type OutputStream = import('wasi:io/streams@0.2.0').OutputStream;
-  export type Pollable = import('wasi:io/poll@0.2.0').Pollable;
-  export type Duration = import('wasi:clocks/monotonic-clock@0.2.0').Duration;
-  export type Network = import('wasi:sockets/network@0.2.0').Network;
-  export type ErrorCode = import('wasi:sockets/network@0.2.0').ErrorCode;
-  export type IpSocketAddress = import('wasi:sockets/network@0.2.0').IpSocketAddress;
-  export type IpAddressFamily = import('wasi:sockets/network@0.2.0').IpAddressFamily;
+declare module 'wasi:sockets/tcp@0.2.3' {
+  export type InputStream = import('wasi:io/streams@0.2.3').InputStream;
+  export type OutputStream = import('wasi:io/streams@0.2.3').OutputStream;
+  export type Pollable = import('wasi:io/poll@0.2.3').Pollable;
+  export type Duration = import('wasi:clocks/monotonic-clock@0.2.3').Duration;
+  export type Network = import('wasi:sockets/network@0.2.3').Network;
+  export type ErrorCode = import('wasi:sockets/network@0.2.3').ErrorCode;
+  export type IpSocketAddress = import('wasi:sockets/network@0.2.3').IpSocketAddress;
+  export type IpAddressFamily = import('wasi:sockets/network@0.2.3').IpAddressFamily;
   /**
    * # Variants
    * 
