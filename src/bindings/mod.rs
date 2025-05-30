@@ -32,3 +32,4 @@ pub mod tuple_format;
 pub mod tuple;
 
 pub mod zlib;
+pub mod wlua;

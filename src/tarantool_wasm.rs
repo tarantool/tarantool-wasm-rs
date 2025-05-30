@@ -21,7 +21,7 @@ use crate::executor::{Executor, TxMode};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 use wasmtime_wasi_tls::{LinkOptions, WasiTlsCtx};
 
-use crate::bindings::docs::adder::zlib;
+use crate::bindings::docs::adder::{zlib, wlua};
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -160,6 +160,7 @@ impl RuntimeState {
         let _ = box_tuple::add_to_linker(&mut linker, |state| state);
         
         let _ = zlib::add_to_linker(&mut linker, |state| state);
+        let _ = wlua::add_to_linker(&mut linker, |state| state);
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
