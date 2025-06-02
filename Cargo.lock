@@ -1384,9 +1384,9 @@ dependencies = [
 
 [[package]]
 name = "mlua"
-version = "0.10.3"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3f763c1041eff92ffb5d7169968a327e1ed2ebfe425dac0ee5a35f29082534b"
+checksum = "c1f5f8fbebc7db5f671671134b9321c4b9aa9adeafccfd9a8c020ae45c6a35d0"
 dependencies = [
  "bstr",
  "either",
@@ -1395,13 +1395,14 @@ dependencies = [
  "num-traits",
  "parking_lot",
  "rustc-hash",
+ "rustversion",
 ]
 
 [[package]]
 name = "mlua-sys"
-version = "0.6.6"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63a11d485edf0f3f04a508615d36c7d50d299cf61a7ee6d3e2530651e0a31771"
+checksum = "380c1f7e2099cafcf40e51d3a9f20a346977587aa4d012eae1f043149a728a93"
 dependencies = [
  "cc",
  "cfg-if",
@@ -1836,6 +1837,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustversion"
+version = "1.0.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
+
+[[package]]
 name = "ryu"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2050,9 +2057,9 @@ dependencies = [
 
 [[package]]
 name = "tarantool"
-version = "6.1.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e71c54f8e72874735a455d661962116081bad3a9dd4dfda4f50750dd9ccb45c"
+checksum = "36c580aaef616cef9dd4ac115233a7010ca9661deafd969a7beea5432641dbb2"
 dependencies = [
  "async-trait",
  "base64 0.13.1",
@@ -2082,9 +2089,9 @@ dependencies = [
 
 [[package]]
 name = "tarantool-proc"
-version = "3.2.0"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccb355f2f6ff18bfa0bfad5630230a9c672754e182f30c0dab64d0fe51fc2591"
+checksum = "4dcd7a8954774bcc6ae9b39a53de30223dcbe9342f34c7ef1112e9f029ebe141"
 dependencies = [
  "darling",
  "proc-macro-error",
@@ -2204,9 +2211,9 @@ dependencies = [
 
 [[package]]
 name = "tlua"
-version = "4.0.0"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1d2cb192028f02a2b01a6737e34ed652acb595531b3e14e4f995a522d7837fe"
+checksum = "4af02ef2958d702382c196f60a32be9e625bb869f41fafaff8b2241f066b9a36"
 dependencies = [
  "libc",
  "serde",
@@ -2216,9 +2223,9 @@ dependencies = [
 
 [[package]]
 name = "tlua-derive"
-version = "0.2.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "899e5490e17089fee6c49ceb15d62deee6c20561b3fa9bb9b12c7ed99ecc1214"
+checksum = "332ecbac6aa1a42f48651e6af7e8c6281ef7f0c478ee48ebc557fe4d9f704c83"
 dependencies = [
  "proc-macro2 1.0.92",
  "quote 1.0.37",
@@ -2227,9 +2234,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.45.0"
+version = "1.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2513ca694ef9ede0fb23fe71a4ee4107cb102b9dc1930f6d0fd77aae068ae165"
+checksum = "75ef51a33ef1da925cea3e4eb122833cb377c61439ca401b770f54902b806779"
 dependencies = [
  "backtrace",
  "bytes",

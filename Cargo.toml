@@ -7,10 +7,10 @@ edition = "2021"
 anyhow = "1.0.98"
 lazy_static = "1.5.0"
 minicoroutine = "0.1.3"
-mlua = { version = "0.10.3", features = ["luajit", "module"] }
+mlua = { version = "0.10.5", features = ["luajit", "module"] }
 nix = { version = "0.30.1", features = ["signal"] }
-tarantool = "6.1.0"
-tokio = "1.45.0"
+tarantool = "7.0.0"
+tokio = "1.45.1"
 wasmtime = "33.0.0"
 wasmtime-wasi = "33.0.0"
 wasmtime-wasi-http = "33.0.0"
