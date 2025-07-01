@@ -2,3 +2,5 @@ target
 .vscode/
 .emmyrc.json
 wit/deps
+*.wasm
+*.so
