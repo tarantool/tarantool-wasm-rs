@@ -1,8 +1,10 @@
 use crate::bindings::docs::adder::zlib;
 use crate::tarantool_wasm::SyncWasmStates;
 
-
-use flate2::{write::{ZlibEncoder, ZlibDecoder}, Compression};
+use flate2::{
+    write::{ZlibDecoder, ZlibEncoder},
+    Compression,
+};
 use std::io::Write;
 
 impl zlib::Host for SyncWasmStates {

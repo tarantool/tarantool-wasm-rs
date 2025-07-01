@@ -1,14 +1,12 @@
+use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::tarantool::tarantool::txn;
 use crate::bindings::tarantool::tarantool::types::{BoxError, TxnIsolationLevel};
-use crate::tarantool_wasm::SyncWasmStates;
-use crate::bindings::error::handle_tarantool_error;
 use crate::ffi;
+use crate::tarantool_wasm::SyncWasmStates;
 
 use tarantool::transaction;
 
-
 impl From<i32> for TxnIsolationLevel {
-
     fn from(value: i32) -> Self {
         match value {
             1 => TxnIsolationLevel::TxnIsolationBestEffort,
@@ -38,15 +36,11 @@ impl txn::Host for SyncWasmStates {
         self.yield_now().await;
         self.begin_tx();
 
-        transaction::begin().map_err(|e| {
-            BoxError::new(e.to_string(), "TransactionError", 1)
-        })
+        transaction::begin().map_err(|e| BoxError::new(e.to_string(), "TransactionError", 1))
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
-        transaction::commit().map_err(|e| {
-            BoxError::new(e.to_string(), "TransactionError", 2)
-        })?;
+        transaction::commit().map_err(|e| BoxError::new(e.to_string(), "TransactionError", 2))?;
 
         self.yield_now().await;
         self.end_tx();
@@ -55,9 +49,7 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
-        transaction::rollback().map_err(|e| {
-            BoxError::new(e.to_string(), "TransactionError", 2)
-        })?;
+        transaction::rollback().map_err(|e| BoxError::new(e.to_string(), "TransactionError", 2))?;
 
         self.yield_now().await;
         self.end_tx();
@@ -69,7 +61,7 @@ impl txn::Host for SyncWasmStates {
         let rc = unsafe { ffi::tnt::box_txn_set_isolation(isolation as u32) };
         match rc {
             0 => Ok(()),
-            _ => Err(handle_tarantool_error())
+            _ => Err(handle_tarantool_error()),
         }
     }
 

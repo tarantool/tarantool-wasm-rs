@@ -1,7 +1,6 @@
 use crate::bindings::docs::adder::wlua;
 use crate::tarantool_wasm::SyncWasmStates;
 
-
 impl wlua::Host for SyncWasmStates {
     async fn call(&mut self, code: String) -> String {
         let lua = tarantool::lua_state();
@@ -16,7 +15,7 @@ end
 "#,
             code
         );
-        
+
         if let Err(err) = lua.exec_with(&chunk, ()) {
             return format!("Lua error: {}", err);
         }

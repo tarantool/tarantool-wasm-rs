@@ -1,6 +1,6 @@
-use wasmtime_wasi::async_trait;
-use crate::tx::{tx_push, tx_flush, TxCtx};
+use crate::tx::{tx_flush, tx_push, TxCtx};
 use tokio::sync::oneshot;
+use wasmtime_wasi::async_trait;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxMode {
@@ -47,10 +47,13 @@ impl ExecutorImpl for TxPushExecutor {
             let _ = tx.send(res);
         };
 
-        tx_push(Box::new(TxCtx { cb: Box::new(closure) }));
+        tx_push(Box::new(TxCtx {
+            cb: Box::new(closure),
+        }));
         tx_flush();
 
-        rx.await.unwrap_or_else(|_| panic!("TX thread failed to respond"))
+        rx.await
+            .unwrap_or_else(|_| panic!("TX thread failed to respond"))
     }
 }
 

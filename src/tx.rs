@@ -1,5 +1,5 @@
+use crate::ffi::tnt::{tnt_tx_flush, tnt_tx_push};
 use std::os::raw::c_void;
-use crate::ffi::tnt::{tnt_tx_push, tnt_tx_flush};
 pub struct TxCtx {
     pub cb: Box<dyn FnOnce() + Send>,
 }
@@ -19,4 +19,3 @@ extern "C" fn tx_task_cb(args: *mut c_void) {
     let tx_ctx = unsafe { Box::from_raw(args as *mut TxCtx) };
     (tx_ctx.cb)();
 }
-

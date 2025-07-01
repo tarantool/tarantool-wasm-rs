@@ -12,7 +12,7 @@ pub mod types {
     pub struct BoxTupleT {
         _private: [u8; 0], // Opaque type
     }
-    
+
     #[repr(C)]
     pub struct BoxTupleIteratorT {
         _private: [u8; 0], // Opaque type
@@ -80,7 +80,7 @@ pub mod tnt {
     }
 }
 
-pub mod r#box {    
+pub mod r#box {
     extern "C" {
         pub fn box_schema_version() -> u32;
         pub fn box_sequence_current(seq_id: u32, result: *mut i64) -> i32;
@@ -104,28 +104,33 @@ pub mod session {
 }
 
 pub mod tuple {
-    use crate::ffi::types::{BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT, BoxTupleT, BoxTupleIteratorT};
+    use crate::ffi::types::{
+        BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT, BoxTupleIteratorT, BoxTupleT,
+    };
 
     extern "C" {
-        pub fn box_key_def_new_v2(
-            parts: *mut BoxKeyPartDefT,
-            part_count: u32,
-        ) -> *mut BoxKeyDefT;
+        pub fn box_key_def_new_v2(parts: *mut BoxKeyPartDefT, part_count: u32) -> *mut BoxKeyDefT;
 
         pub fn box_key_def_delete(key_def: *mut BoxKeyDefT);
 
-        pub fn box_key_def_merge(first: *const BoxKeyDefT, second: *const BoxKeyDefT) -> *mut BoxKeyDefT;
+        pub fn box_key_def_merge(
+            first: *const BoxKeyDefT,
+            second: *const BoxKeyDefT,
+        ) -> *mut BoxKeyDefT;
 
         pub fn box_key_def_dup(key_def: *const BoxKeyDefT) -> *mut BoxKeyDefT;
 
-        pub fn box_key_def_dump_parts(key_def: *const BoxKeyDefT, part_count_ptr: *mut u32) -> *mut BoxKeyPartDefT;
+        pub fn box_key_def_dump_parts(
+            key_def: *const BoxKeyDefT,
+            part_count_ptr: *mut u32,
+        ) -> *mut BoxKeyPartDefT;
 
         pub fn box_key_def_validate_key(
             key_def: *const BoxKeyDefT,
             key: *const libc::c_char,
             key_size: *mut u32,
         ) -> i32;
-    
+
         pub fn box_key_def_validate_full_key(
             key_def: *const BoxKeyDefT,
             key: *const libc::c_char,
@@ -146,7 +151,7 @@ pub mod tuple {
             expr: *const u8,
             expr_end: *const u8,
         ) -> *mut BoxTupleT;
-    
+
         pub fn box_tuple_upsert(
             tuple: *mut BoxTupleT,
             expr: *const u8,
@@ -162,7 +167,7 @@ pub mod tuple {
         pub fn box_tuple_ref(tuple: *mut BoxTupleT) -> i32;
 
         pub fn box_tuple_unref(tuple: *mut BoxTupleT);
- 
+
         pub fn box_tuple_field_count(tuple: *mut BoxTupleT) -> u32;
 
         pub fn box_tuple_bsize(tuple: *mut BoxTupleT) -> usize;
@@ -178,35 +183,28 @@ pub mod tuple {
             index_base: i32,
         ) -> *const u8;
 
-        pub fn box_tuple_validate(
-            tuple: *mut BoxTupleT,
-            format: *mut BoxTupleFormatT,
-        ) -> i32;
+        pub fn box_tuple_validate(tuple: *mut BoxTupleT, format: *mut BoxTupleFormatT) -> i32;
 
         pub fn box_tuple_compare(
             tuple_a: *mut BoxTupleT,
             tuple_b: *mut BoxTupleT,
-            key_def: *mut BoxKeyDefT
+            key_def: *mut BoxKeyDefT,
         ) -> i32;
 
         pub fn box_tuple_compare_with_key(
             tuple_a: *mut BoxTupleT,
             key_b: *const libc::c_char,
-            key_def: *mut BoxKeyDefT
+            key_def: *mut BoxKeyDefT,
         ) -> i32;
 
-        pub fn box_key_def_validate_tuple(
-            key_def: *mut BoxKeyDefT,
-            tuple: *mut BoxTupleT
-        ) -> i32;
+        pub fn box_key_def_validate_tuple(key_def: *mut BoxKeyDefT, tuple: *mut BoxTupleT) -> i32;
 
         pub fn box_key_def_extract_key(
             key_def: *mut BoxKeyDefT,
             tuple: *mut BoxTupleT,
             multikey_idx: i32,
-            key_size_ptr: *mut u32
+            key_size_ptr: *mut u32,
         ) -> *mut libc::c_char;
-
 
         pub fn box_tuple_iterator(tuple: *mut BoxTupleT) -> *mut BoxTupleIteratorT;
 
@@ -216,7 +214,10 @@ pub mod tuple {
 
         pub fn box_tuple_rewind(iterator: *mut BoxTupleIteratorT);
 
-        pub fn box_tuple_seek(iterator: *mut BoxTupleIteratorT, fieldno: u32) -> *const libc::c_char;
+        pub fn box_tuple_seek(
+            iterator: *mut BoxTupleIteratorT,
+            fieldno: u32,
+        ) -> *const libc::c_char;
 
         pub fn box_tuple_next(iterator: *mut BoxTupleIteratorT) -> *const libc::c_char;
     }

@@ -7,11 +7,7 @@ use std::ffi::CString;
 pub fn handle_tarantool_error() -> BoxError {
     let err = tarantool::error::BoxError::last();
 
-    let mut boxed = BoxError::new(
-        err.message(),
-        err.error_type(),
-        err.error_code(),
-    );
+    let mut boxed = BoxError::new(err.message(), err.error_type(), err.error_code());
 
     if let Some(line) = err.line() {
         boxed = boxed.with_line(line);
@@ -37,7 +33,12 @@ impl BoxError {
     }
 
     pub fn _with_payload(mut self, payload: Vec<(impl Into<String>, impl Into<String>)>) -> Self {
-        self.payload = Some(payload.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
+        self.payload = Some(
+            payload
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        );
         self
     }
 
@@ -53,7 +54,14 @@ impl BoxError {
 }
 
 impl error::Host for SyncWasmStates {
-    async fn error_new(&mut self, message: String, type_: String, code: u32, file: Option<String>, line: Option<u32>) -> BoxError {
+    async fn error_new(
+        &mut self,
+        message: String,
+        type_: String,
+        code: u32,
+        file: Option<String>,
+        line: Option<u32>,
+    ) -> BoxError {
         let mut err = BoxError::new(message, type_, code);
         if let Some(file) = file {
             err = err.with_file(file);
@@ -65,34 +73,30 @@ impl error::Host for SyncWasmStates {
     }
 
     async fn set(&mut self, err: BoxError) {
-        let message_cstr = CString::new(err.message.clone())
-            .expect("Failed to convert error message to CString");
-    
+        let message_cstr =
+            CString::new(err.message.clone()).expect("Failed to convert error message to CString");
+
         let file_line = match (err.file.as_ref(), err.line) {
             (Some(file), Some(line)) => Some((file.as_str(), line)),
             _ => None,
         };
-    
+
         tarantool::error::set_last_error(file_line, err.code, &message_cstr);
     }
 
     async fn last(&mut self) -> Option<BoxError> {
         match tarantool::error::BoxError::maybe_last() {
             Err(err) => {
-                let mut boxed = BoxError::new(
-                    err.message(),
-                    err.error_type(),
-                    err.error_code(),
-                );
-    
+                let mut boxed = BoxError::new(err.message(), err.error_type(), err.error_code());
+
                 if let Some(line) = err.line() {
                     boxed = boxed.with_line(line);
                 }
-    
+
                 if let Some(file) = err.file() {
                     boxed = boxed.with_file(file);
                 }
-    
+
                 Some(boxed)
             }
             Ok(_) => None,
@@ -105,7 +109,7 @@ impl error::Host for SyncWasmStates {
 
     async fn to_string(&mut self, err: BoxError) -> String {
         let mut output = format!("[{}] {}: {}", err.code, err.type_, err.message);
-    
+
         if let (Some(file), Some(line)) = (err.file.as_ref(), err.line) {
             output.push_str(&format!(" (at {}:{})", file, line));
         } else if let Some(file) = err.file.as_ref() {
@@ -113,14 +117,14 @@ impl error::Host for SyncWasmStates {
         } else if let Some(line) = err.line {
             output.push_str(&format!(" (at line {})", line));
         }
-    
+
         if let Some(ref payload) = err.payload {
             output.push_str("\nPayload:");
             for (k, v) in payload {
                 output.push_str(&format!("\n  - {}: {}", k, v));
             }
         }
-    
+
         output
     }
 }

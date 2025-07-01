@@ -1,6 +1,6 @@
 use crate::bindings::tarantool::tarantool::types::{self, BoxError, BoxTuple, Index, IteratorType};
-use crate::tarantool_wasm::SyncWasmStates;
 use crate::bindings::IteratorImpl;
+use crate::tarantool_wasm::SyncWasmStates;
 
 use wasmtime::component::Resource;
 
@@ -39,13 +39,16 @@ pub fn convert_iterator_type(t: IteratorType) -> Result<tarantool::index::Iterat
         // need for patch https://github.com/picodata/tarantool-module/blob/e4c78b9b0e59ef45ab6e8a7023aa192b28e330c0/tarantool/src/index.rs#L57
         // https://github.com/tarantool/tarantool/pull/10028
         IteratorType::IterNp | IteratorType::IterPp => {
-            return Err(BoxError::new("Unsupported iterator type", "IteratorType", 1))
+            return Err(BoxError::new(
+                "Unsupported iterator type",
+                "IteratorType",
+                1,
+            ))
         }
     })
 }
 
-impl types::Host for SyncWasmStates {
-}
+impl types::Host for SyncWasmStates {}
 
 impl types::HostIterator for SyncWasmStates {
     async fn new_iterator(
@@ -68,20 +71,21 @@ impl types::HostIterator for SyncWasmStates {
             .select(native_iter_type, &tuple)
             .map_err(|e| BoxError::new(&e.to_string(), "IteratorInit", 1))?;
 
-        Ok(self.0.lock().unwrap().table.push(IteratorImpl { inner: iter }).unwrap())
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .table
+            .push(IteratorImpl { inner: iter })
+            .unwrap())
     }
 
-    async fn next(
-        &mut self,
-        self_: Resource<types::Iterator>,
-    ) -> Result<BoxTuple, BoxError> {
+    async fn next(&mut self, self_: Resource<types::Iterator>) -> Result<BoxTuple, BoxError> {
         let mut guard = self.0.lock().unwrap();
-        let iter = guard.table.get_mut(&self_)
-            .map_err(|e| BoxError::new(
-                format!("Resource error: {}", e),
-                "internal",
-                2,
-            ))?;
+        let iter = guard
+            .table
+            .get_mut(&self_)
+            .map_err(|e| BoxError::new(format!("Resource error: {}", e), "internal", 2))?;
 
         match iter.inner.next() {
             Some(t) => Ok(t.as_ptr() as BoxTuple),
@@ -89,10 +93,7 @@ impl types::HostIterator for SyncWasmStates {
         }
     }
 
-    async fn drop(
-        &mut self, 
-        self_: Resource<types::Iterator>
-    ) -> Result<(), wasmtime::Error> {
+    async fn drop(&mut self, self_: Resource<types::Iterator>) -> Result<(), wasmtime::Error> {
         self.0.lock().unwrap().table.delete(self_)?;
         Ok(())
     }

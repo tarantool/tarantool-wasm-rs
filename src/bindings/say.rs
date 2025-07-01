@@ -1,5 +1,5 @@
 use crate::bindings::tarantool::tarantool::say;
-use crate::bindings::tarantool::tarantool::types::{LogLevel, LogContext};
+use crate::bindings::tarantool::tarantool::types::{LogContext, LogLevel};
 use crate::tarantool_wasm::SyncWasmStates;
 
 use tarantool::log::{self, SayLevel};

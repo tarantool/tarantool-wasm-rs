@@ -1,12 +1,13 @@
-use crate::bindings::tarantool::tarantool::key_def;
-use crate::bindings::tarantool::tarantool::types::{BoxError, KeyPart, KeyDef, KeyPartFlags, BoxTuple};
-use crate::tarantool_wasm::SyncWasmStates;
-use crate::ffi as ffi;
 use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::tarantool::tarantool::key_def;
+use crate::bindings::tarantool::tarantool::types::{
+    BoxError, BoxTuple, KeyDef, KeyPart, KeyPartFlags,
+};
+use crate::ffi;
+use crate::tarantool_wasm::SyncWasmStates;
 
 use std::ffi::CString;
 use std::mem::ManuallyDrop;
-
 
 fn field_type_to_id(field_type: &str) -> Result<&'static str, BoxError> {
     match field_type {
@@ -20,7 +21,11 @@ fn field_type_to_id(field_type: &str) -> Result<&'static str, BoxError> {
         "scalar" => Ok("scalar"),
         "decimal" => Ok("decimal"),
         "array" => Ok("array"),
-        _ => Err(BoxError::new("Unsupported field type", "validation error", 2)),
+        _ => Err(BoxError::new(
+            "Unsupported field type",
+            "validation error",
+            2,
+        )),
     }
 }
 
@@ -51,7 +56,6 @@ fn decode_key_part_flags(bits: u32) -> KeyPartFlags {
 }
 
 impl key_def::Host for SyncWasmStates {
-
     async fn new(&mut self, parts: Vec<KeyPart>) -> Result<u64, BoxError> {
         let part_count = parts.len();
 
@@ -61,7 +65,6 @@ impl key_def::Host for SyncWasmStates {
         let mut c_paths = Vec::with_capacity(part_count);
 
         for (_, part) in parts.iter().enumerate() {
-
             let field_type_str = field_type_to_id(&part.field_type)?;
             let field_type_cstr = CString::new(field_type_str)
                 .map_err(|_| BoxError::new("Invalid field_type", "validation error", 2))?;
@@ -103,16 +106,15 @@ impl key_def::Host for SyncWasmStates {
             });
         }
 
-        let ptr = unsafe {
-            ffi::tuple::box_key_def_new_v2(key_parts.as_mut_ptr(), part_count as u32)
-        };
+        let ptr =
+            unsafe { ffi::tuple::box_key_def_new_v2(key_parts.as_mut_ptr(), part_count as u32) };
 
         if ptr.is_null() {
             Err(handle_tarantool_error())
         } else {
             Ok(ptr as u64)
         }
-    }    
+    }
 
     async fn delete(&mut self, key_def: KeyDef) {
         let ptr = key_def as *mut ffi::types::BoxKeyDefT;
@@ -125,9 +127,7 @@ impl key_def::Host for SyncWasmStates {
         let ptr_left = left as *const ffi::types::BoxKeyDefT;
         let ptr_right = right as *const ffi::types::BoxKeyDefT;
 
-        let ptr = unsafe {
-            ffi::tuple::box_key_def_merge(ptr_left, ptr_right)
-        };
+        let ptr = unsafe { ffi::tuple::box_key_def_merge(ptr_left, ptr_right) };
 
         if ptr.is_null() {
             Err(handle_tarantool_error())
@@ -141,9 +141,7 @@ impl key_def::Host for SyncWasmStates {
         if ptr.is_null() {
             return Err(BoxError::new("Invalid key_def", "internal error", 1));
         }
-        let new_ptr = unsafe {
-            ffi::tuple::box_key_def_dup(ptr)
-        };
+        let new_ptr = unsafe { ffi::tuple::box_key_def_dup(ptr) };
         Ok(new_ptr as KeyDef)
     }
 
@@ -166,7 +164,7 @@ impl key_def::Host for SyncWasmStates {
         // Copy raw bytes
         let src = raw_ptr as *const u8;
         let mut result = Vec::with_capacity(part_count as usize);
-    
+
         for i in 0..part_count {
             let offset = i as isize * part_size as isize;
             let part_ptr = unsafe { src.offset(offset) as *const ffi::types::BoxKeyPartDefT };
@@ -177,14 +175,18 @@ impl key_def::Host for SyncWasmStates {
             let flags = decode_key_part_flags(part.flags);
 
             let field_type = unsafe {
-                std::ffi::CStr::from_ptr(part.field_type).to_string_lossy().to_string()
+                std::ffi::CStr::from_ptr(part.field_type)
+                    .to_string_lossy()
+                    .to_string()
             };
 
             let collation = if part.collation.is_null() {
                 None
             } else {
                 Some(unsafe {
-                    std::ffi::CStr::from_ptr(part.collation).to_string_lossy().to_string()
+                    std::ffi::CStr::from_ptr(part.collation)
+                        .to_string_lossy()
+                        .to_string()
                 })
             };
 
@@ -192,7 +194,9 @@ impl key_def::Host for SyncWasmStates {
                 None
             } else {
                 Some(unsafe {
-                    std::ffi::CStr::from_ptr(part.path).to_string_lossy().to_string()
+                    std::ffi::CStr::from_ptr(part.path)
+                        .to_string_lossy()
+                        .to_string()
                 })
             };
 
@@ -204,20 +208,20 @@ impl key_def::Host for SyncWasmStates {
                 flags,
             });
         }
-    
+
         Ok(result)
     }
-    
-    async fn validate_key(&mut self, key_def: KeyDef, key: Vec<u8>) -> Result<(bool, u32), BoxError> {
+
+    async fn validate_key(
+        &mut self,
+        key_def: KeyDef,
+        key: Vec<u8>,
+    ) -> Result<(bool, u32), BoxError> {
         let key_ptr = key.as_ptr() as *const libc::c_char;
         let mut key_size: u32 = 0;
 
         let rc = unsafe {
-            ffi::tuple::box_key_def_validate_key(
-                key_def as *const _,
-                key_ptr,
-                &mut key_size,
-            )
+            ffi::tuple::box_key_def_validate_key(key_def as *const _, key_ptr, &mut key_size)
         };
 
         if rc == 0 {
@@ -227,16 +231,16 @@ impl key_def::Host for SyncWasmStates {
         }
     }
 
-    async fn validate_full_key(&mut self, key_def: KeyDef, key: Vec<u8>) -> Result<(bool, u32), BoxError> {
+    async fn validate_full_key(
+        &mut self,
+        key_def: KeyDef,
+        key: Vec<u8>,
+    ) -> Result<(bool, u32), BoxError> {
         let key_ptr = key.as_ptr() as *const libc::c_char;
         let mut key_size: u32 = 0;
 
         let rc = unsafe {
-            ffi::tuple::box_key_def_validate_full_key(
-                key_def as *const _,
-                key_ptr,
-                &mut key_size,
-            )
+            ffi::tuple::box_key_def_validate_full_key(key_def as *const _, key_ptr, &mut key_size)
         };
 
         if rc == 0 {
@@ -248,11 +252,11 @@ impl key_def::Host for SyncWasmStates {
 
     async fn part_count(&mut self, key_def: u64) -> Result<u32, BoxError> {
         let mut count: u32 = 0;
-    
+
         let ptr = unsafe {
             ffi::tuple::box_key_def_dump_parts(key_def as *const _, &mut count as *mut _)
         };
-    
+
         if ptr.is_null() {
             Err(handle_tarantool_error())
         } else {
@@ -261,12 +265,7 @@ impl key_def::Host for SyncWasmStates {
     }
 
     async fn validate_tuple(&mut self, key_def: KeyDef, tuple: BoxTuple) -> bool {
-        unsafe {
-            ffi::tuple::box_key_def_validate_tuple(
-                key_def as *mut _,
-                tuple as *mut _
-            ) == 0
-        }
+        unsafe { ffi::tuple::box_key_def_validate_tuple(key_def as *mut _, tuple as *mut _) == 0 }
     }
 
     async fn extract_key(&mut self, key_def: KeyDef, tuple: BoxTuple) -> BoxTuple {
@@ -276,7 +275,7 @@ impl key_def::Host for SyncWasmStates {
                 key_def as *mut _,
                 tuple as *mut _,
                 -1, // multikey_idx = -1
-                &mut size as *mut _
+                &mut size as *mut _,
             )
         };
 

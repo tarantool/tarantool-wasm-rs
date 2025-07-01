@@ -1,5 +1,5 @@
-use wasmtime::component::bindgen;
 use crate::ffi;
+use wasmtime::component::bindgen;
 
 bindgen!({
     world: "adder",
@@ -18,18 +18,18 @@ pub struct TupleIteratorImpl {
     iter: *mut ffi::types::BoxTupleIteratorT,
 }
 
-pub mod ttbox;
+pub mod error;
+pub mod index;
+pub mod key_def;
 pub mod msgpack;
 pub mod say;
-pub mod error;
+pub mod sequence;
 pub mod session;
+pub mod ttbox;
+pub mod tuple;
+pub mod tuple_format;
 pub mod txn;
 pub mod types;
-pub mod index;
-pub mod sequence;
-pub mod key_def;
-pub mod tuple_format;
-pub mod tuple;
 
-pub mod zlib;
 pub mod wlua;
+pub mod zlib;

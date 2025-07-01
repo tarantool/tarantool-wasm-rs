@@ -1,27 +1,30 @@
-use wasmtime::component::{ResourceTable, Linker};
-use wasmtime_wasi::p2::{WasiCtx, WasiCtxBuilder, WasiView, IoView};
-use wasmtime::{Engine, Store};
+use crate::bindings::tarantool::tarantool::{
+    box_tuple, error, index, key_def, msgpack, say, sequence, session, ttbox, tuple_format, txn,
+    types,
+};
+use crate::executor::{Executor, TxMode};
+use crate::wasm_fiber::WasmFiber;
+use crate::wasm_fiber::WasmFiberStatus;
 use anyhow::Result;
 use lazy_static::lazy_static;
-use std::thread;
-use std::collections::HashMap;
-use std::sync::{Mutex, Arc, RwLock};
-use wasmtime::component::Component;
-use wasmtime::Config;
-use tokio::sync::mpsc;
-use crate::bindings::tarantool::tarantool::{ttbox, say, error, session, msgpack, txn, types, index, sequence, key_def, tuple_format, box_tuple};
-use std::thread::JoinHandle;
 use nix::sys::signal::{SigSet, Signal};
-use crate::wasm_fiber::WasmFiberStatus;
-use crate::wasm_fiber::WasmFiber;
-use tarantool::trigger::on_shutdown;
-use tarantool::fiber;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+use std::thread::JoinHandle;
 use std::time::Duration;
-use crate::executor::{Executor, TxMode};
+use tarantool::fiber;
+use tarantool::trigger::on_shutdown;
+use tokio::sync::mpsc;
+use wasmtime::component::Component;
+use wasmtime::component::{Linker, ResourceTable};
+use wasmtime::Config;
+use wasmtime::{Engine, Store};
+use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 use wasmtime_wasi_tls::{LinkOptions, WasiTlsCtx};
 
-use crate::bindings::docs::adder::{zlib, wlua};
+use crate::bindings::docs::adder::{wlua, zlib};
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -41,7 +44,8 @@ impl WasmStates {
         let table = ResourceTable::new();
         let mut builder = WasiCtxBuilder::new();
         // TODO: make env and stdio configurable
-        builder.inherit_stdio()
+        builder
+            .inherit_stdio()
             .inherit_env()
             .inherit_network()
             .allow_ip_name_lookup(true);
@@ -107,29 +111,29 @@ impl WasiHttpView for SyncWasmStates {
 struct RuntimeState {
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
-    pub modules: RwLock<HashMap<String, Component>>
+    pub modules: RwLock<HashMap<String, Component>>,
 }
 
 fn get_configuration() -> Config {
-        let mut config = Config::new();
-        /*
-         * Async support is required to implement rescheduling into the TX
-         * thread. In non-async mode WASM is heavily dependent on the
-         * thread-local storage. In async mode it changes to the task-local
-         * storage. This way we can run our module within a Tokio runtime
-         * task and reschedule that task instead.
-         */
-        config.async_support(true);
+    let mut config = Config::new();
+    /*
+     * Async support is required to implement rescheduling into the TX
+     * thread. In non-async mode WASM is heavily dependent on the
+     * thread-local storage. In async mode it changes to the task-local
+     * storage. This way we can run our module within a Tokio runtime
+     * task and reschedule that task instead.
+     */
+    config.async_support(true);
 
-        /*
-         * We use epoch-based interruptions to implement graceful shutdown.
-         * Epoch is a global tick counter managed by the engine. We can setup
-         * a limiting epoch for each module, after which it will halt. With
-         * that technique we can set the limit at 1 tick for all modules and
-         * then halt all modules at once by incrementing the epoch.
-         */
-        config.epoch_interruption(true);
-        config
+    /*
+     * We use epoch-based interruptions to implement graceful shutdown.
+     * Epoch is a global tick counter managed by the engine. We can setup
+     * a limiting epoch for each module, after which it will halt. With
+     * that technique we can set the limit at 1 tick for all modules and
+     * then halt all modules at once by incrementing the epoch.
+     */
+    config.epoch_interruption(true);
+    config
 }
 
 impl RuntimeState {
@@ -138,13 +142,14 @@ impl RuntimeState {
         let engine = Engine::new(&config).unwrap();
         let mut linker = Linker::<SyncWasmStates>::new(&engine);
         let _ = wasmtime_wasi::p2::add_to_linker_async(&mut linker);
-        let _ = wasmtime_wasi_http::add_only_http_to_linker_async(& mut linker);
+        let _ = wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker);
 
         let mut opts = LinkOptions::default();
         opts.tls(true);
-        let _ = wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
-            WasiTlsCtx::new(&mut h.0.get_mut().unwrap().table)
-        });
+        let _ =
+            wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
+                WasiTlsCtx::new(&mut h.0.get_mut().unwrap().table)
+            });
 
         let _ = ttbox::add_to_linker(&mut linker, |state| state);
         let _ = say::add_to_linker(&mut linker, |state| state);
@@ -158,7 +163,7 @@ impl RuntimeState {
         let _ = key_def::add_to_linker(&mut linker, |state| state);
         let _ = tuple_format::add_to_linker(&mut linker, |state| state);
         let _ = box_tuple::add_to_linker(&mut linker, |state| state);
-        
+
         let _ = zlib::add_to_linker(&mut linker, |state| state);
         let _ = wlua::add_to_linker(&mut linker, |state| state);
 
@@ -172,16 +177,24 @@ impl RuntimeState {
             fiber::sleep(Duration::new(1, 0));
         });
 
-        RuntimeState { engine, linker: linker_ref, modules }
+        RuntimeState {
+            engine,
+            linker: linker_ref,
+            modules,
+        }
     }
 }
 
 pub fn tt_wasm_load_module(path: String) -> Result<String> {
     match Component::from_file(&runtime_state.engine, path.clone()) {
         Ok(module) => {
-            runtime_state.modules.write().unwrap().insert(path.clone(), module);
+            runtime_state
+                .modules
+                .write()
+                .unwrap()
+                .insert(path.clone(), module);
             Ok(path)
-        },
+        }
         Err(e) => Err(e),
     }
 }
@@ -202,14 +215,20 @@ where
 
     newset.thread_block()?;
     let handle = thread::Builder::new().name(name).spawn(f);
-    let _ =  oldset.thread_set_mask();
+    let _ = oldset.thread_set_mask();
 
     Ok(handle?)
 }
 
 pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let component = runtime_state.modules.read().unwrap().get(&module_uid).unwrap().clone();
+        let component = runtime_state
+            .modules
+            .read()
+            .unwrap()
+            .get(&module_uid)
+            .unwrap()
+            .clone();
         let linker = runtime_state.linker.clone();
 
         let wasi_view = SyncWasmStates::new();

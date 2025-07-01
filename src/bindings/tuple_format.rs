@@ -1,9 +1,8 @@
+use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::tarantool::tarantool::tuple_format;
 use crate::bindings::tarantool::tarantool::types::{BoxError, KeyDef};
+use crate::ffi;
 use crate::tarantool_wasm::SyncWasmStates;
-use crate::ffi as ffi;
-use crate::bindings::error::handle_tarantool_error;
-
 
 use tarantool::tuple::TupleFormat as TarantoolTupleFormat;
 
@@ -20,9 +19,8 @@ impl tuple_format::Host for SyncWasmStates {
             .map(|&k| k as *const ffi::types::BoxKeyDefT)
             .collect();
 
-        let ptr = unsafe {
-            ffi::tuple::box_tuple_format_new(key_ptrs.as_ptr(), key_ptrs.len() as u16)
-        };
+        let ptr =
+            unsafe { ffi::tuple::box_tuple_format_new(key_ptrs.as_ptr(), key_ptrs.len() as u16) };
 
         if ptr.is_null() {
             Err(handle_tarantool_error())
