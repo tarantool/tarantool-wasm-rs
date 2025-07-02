@@ -57,7 +57,7 @@ fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
     }
 }
 
-#[mlua::lua_module]
+#[mlua::lua_module(name = "wasm")]
 fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
     exports.set("load", lua.create_function(load)?)?;
