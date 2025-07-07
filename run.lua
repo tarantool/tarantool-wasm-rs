@@ -1,4 +1,4 @@
-local wasm = require('my_module')
+local wasm = require('wasm')
 local log = require('log')
 
 box.cfg{}

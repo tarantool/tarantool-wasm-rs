@@ -17,7 +17,7 @@ use tarantool::fiber;
 use tarantool::trigger::on_shutdown;
 use tokio::sync::mpsc;
 use wasmtime::component::Component;
-use wasmtime::component::{Linker, ResourceTable};
+use wasmtime::component::{HasData, Linker, ResourceTable};
 use wasmtime::Config;
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
@@ -108,6 +108,10 @@ impl WasiHttpView for SyncWasmStates {
     }
 }
 
+impl HasData for SyncWasmStates {
+    type Data<'a> = &'a mut SyncWasmStates;
+}
+
 struct RuntimeState {
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
@@ -151,21 +155,28 @@ impl RuntimeState {
                 WasiTlsCtx::new(&mut h.0.get_mut().unwrap().table)
             });
 
-        let _ = ttbox::add_to_linker(&mut linker, |state| state);
-        let _ = say::add_to_linker(&mut linker, |state| state);
-        let _ = error::add_to_linker(&mut linker, |state| state);
-        let _ = session::add_to_linker(&mut linker, |state| state);
-        let _ = msgpack::add_to_linker(&mut linker, |state| state);
-        let _ = txn::add_to_linker(&mut linker, |state| state);
-        let _ = types::add_to_linker(&mut linker, |state| state);
-        let _ = index::add_to_linker(&mut linker, |state| state);
-        let _ = sequence::add_to_linker(&mut linker, |state| state);
-        let _ = key_def::add_to_linker(&mut linker, |state| state);
-        let _ = tuple_format::add_to_linker(&mut linker, |state| state);
-        let _ = box_tuple::add_to_linker(&mut linker, |state| state);
-
-        let _ = zlib::add_to_linker(&mut linker, |state| state);
-        let _ = wlua::add_to_linker(&mut linker, |state| state);
+        let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = txn::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = types::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = index::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            key_def::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| {
+                state
+            });
+        let _ =
+            box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = wlua::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);

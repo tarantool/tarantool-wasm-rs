@@ -17,6 +17,7 @@ pub(crate) enum WasmFiberStatus {
 pub(crate) struct WasmFiber {
     rt: tokio::runtime::Runtime,
     awaiter: mpsc::Receiver<WasmFiberStatus>,
+    _yielder: mpsc::Sender<WasmFiberStatus>,
 }
 
 impl WasmFiber {
@@ -31,22 +32,39 @@ impl WasmFiber {
             .enable_io()
             .build()
             .unwrap();
+
         let (yielder, awaiter) = mpsc::channel(1);
-        let finalizer = yielder.clone();
+
+        let fiber_sender = yielder.clone();
+        let _yielder = yielder.clone();
+
         store.data().0.lock().unwrap().yielder = Some(yielder);
 
         rt.spawn(async move {
             let command = Command::instantiate_async(&mut store, &component, &linker).await?;
             let result = command.wasi_cli_run().call_run(&mut store).await;
-            finalizer.send(WasmFiberStatus::Finished).await?;
-            Ok::<Result<(), ()>, wasmtime::Error>(result?)
+
+            let _ = fiber_sender.send(WasmFiberStatus::Finished).await;
+            Ok::<_, wasmtime::Error>(result?)
         });
-        WasmFiber { rt, awaiter }
+
+        WasmFiber {
+            rt,
+            awaiter,
+            _yielder,
+        }
     }
 
     fn resume(&mut self) -> WasmFiberStatus {
-        self.rt
-            .block_on(async { self.awaiter.recv().await.unwrap() })
+        self.rt.block_on(async {
+            match self.awaiter.recv().await {
+                Some(status) => status,
+                None => {
+                    eprintln!("Fatal: yielder channel dropped before sending status");
+                    WasmFiberStatus::Finished
+                }
+            }
+        })
     }
 
     fn resume_on_tx(self) -> WasmFiber {
