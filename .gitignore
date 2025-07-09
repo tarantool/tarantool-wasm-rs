@@ -4,3 +4,7 @@ target
 wit/deps
 *.wasm
 *.so
+__pycache__/
+.rocks/
+!test/wasm.so
+!test/**/*.wasm

@@ -3,20 +3,20 @@ cargo_build := "cargo build"
 wkg_fetch := "wkg wit fetch"
 wkg_build := "wkg wit build"
 git_submodule_update := "git submodule update --init --recursive"
-add_registry_patch := "./add_tarantool_registry.sh"
-link_shared_lib := "ln -sf target/debug/libtarantool_wasm_rs.so my_module.so"
+add_registry_patch := "./scripts/add_tarantool_registry.sh"
+build_tarantool_with_wasm := "./scripts/build_tarantool_wasm.sh"
+custom_tarantool_bin := "third-party/tarantool/build/src"
 
 # Default task to run when calling `just`
 all:
     echo "Checking if wkg is installed..."
     sh -c "if ! command -v wkg > /dev/null; then cargo install wkg; fi"
-    echo "Updating submodules, patching wkg config, fetching and building WIT dependencies, building Rust project, and creating symlink..."
+    echo "Updating submodules, patching wkg config, fetching and building WIT dependencies, building Rust project..."
     sh -c "{{git_submodule_update}}"
     sh -c "{{add_registry_patch}}"
     sh -c "{{wkg_fetch}}"
     sh -c "{{wkg_build}}"
     sh -c "{{cargo_build}}"
-    sh -c "{{link_shared_lib}}"
 
 # Task to update submodules
 submodules:
@@ -38,6 +38,20 @@ wit-build:
 build:
     sh -c "{{cargo_build}}"
 
-# Task to create symlink for the shared library
-link:
-    sh -c "{{link_shared_lib}}"
+# Build Tarantool with WASM support
+build-tarantool:
+    sh -c {{build_tarantool_with_wasm}}
+
+# One-time setup: install luatest using custom tarantool
+install-luatest:
+    export PATH="{{custom_tarantool_bin}}:$PATH" && \
+    if ! command -v luatest > /dev/null; then \
+        echo "Installing luatest with custom tarantool..."; \
+        tt rocks install luatest; \
+    else \
+        echo "luatest already installed"; \
+    fi
+
+# Run tests with proper PATH for tarantool and luatest
+test:
+    PATH="{{custom_tarantool_bin}}:$PWD/.rocks/bin:$PATH" luatest -v

@@ -1,0 +1,8 @@
+package docs:adder@0.1.0;
+
+world adder {
+  export t-s64: func(x: s64) -> s64;
+  export t-u64: func(x: u64) -> u64;
+  export t-bool: func(x: bool) -> bool;
+  export t-string: func(x: string) -> string;
+}

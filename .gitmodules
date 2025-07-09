@@ -1,3 +1,6 @@
 [submodule "third-party/wasi-tls"]
 	path = third-party/wasi-tls
 	url = https://github.com/WebAssembly/wasi-tls
+[submodule "third-party/tarantool"]
+	path = third-party/tarantool
+	url = https://github.com/tarantool/tarantool

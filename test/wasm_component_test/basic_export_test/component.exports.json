@@ -1,0 +1,42 @@
+[
+  {
+    "name": "t-s64",
+    "params": [
+      [
+        "x",
+        "s64"
+      ]
+    ],
+    "result": "s64"
+  },
+  {
+    "name": "t-u64",
+    "params": [
+      [
+        "x",
+        "u64"
+      ]
+    ],
+    "result": "u64"
+  },
+  {
+    "name": "t-bool",
+    "params": [
+      [
+        "x",
+        "bool"
+      ]
+    ],
+    "result": "bool"
+  },
+  {
+    "name": "t-string",
+    "params": [
+      [
+        "x",
+        "string"
+      ]
+    ],
+    "result": "string"
+  }
+]
