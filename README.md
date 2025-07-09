@@ -5,6 +5,7 @@
 1. **[tarawasm](https://github.com/mandesero/tarawasm)** – A CLI utility for working with WebAssembly (WASM) modules written in guest languages. Currently supports Python, Go, JavaScript, C/C++ and Rust.
 2. **[tarantool-wasm-rs](https://github.com/mandesero/tarantool-wasm-rs)** – A library for WASM integration in Tarantool.
 3. **[tarantool-wit](https://github.com/mandesero/tarantool-wit)** – Interface definitions (WIT) for working with Tarantool in WASM.
+4. **[tarantool-wasm-samples](https://github.com/mandesero/tarantool-wasm-samples)** - Working with Tarantool WASM Examples.
 
 ---
 
