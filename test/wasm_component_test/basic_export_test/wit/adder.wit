@@ -1,8 +1,64 @@
 package docs:adder@0.1.0;
 
+
+
 world adder {
-  export t-s64: func(x: s64) -> s64;
-  export t-u64: func(x: u64) -> u64;
   export t-bool: func(x: bool) -> bool;
+
+  export t-s8: func(x: s8) -> s8;
+  export t-s16: func(x: s16) -> s16;
+  export t-s32: func(x: s32) -> s32;
+  export t-s64: func(x: s64) -> s64;
+
+  export t-u8: func(x: u8) -> u8;
+  export t-u16: func(x: u16) -> u16;
+  export t-u32: func(x: u32) -> u32;
+  export t-u64: func(x: u64) -> u64;
+
+  export t-f32: func(x: f32) -> f32;
+  export t-f64: func(x: f64) -> f64;
+
+  export t-char: func(x: char) -> char;
   export t-string: func(x: string) -> string;
+
+  export t-list: func(x: list<string>) -> list<string>;
+  export t-option: func(x: option<u8>) -> option<u8>;
+
+  export t-result: func(x: bool) -> result<bool, string>;
+
+  export t-tuple: func(x: tuple<bool, f32, string>) -> tuple<bool, string>;
+
+  record r {
+    x: u64,
+    y: string,
+  }
+
+  export t-record: func(x: r) -> r;
+  
+  type t = string;
+  variant v {
+    none,
+    any(bool),
+    restricted(list<t>),
+  }
+
+  export t-variant: func(x: v) -> v;
+
+  enum e {
+    red,
+    black,
+    navy-blue,
+  }
+
+  export t-enum: func(x: e) -> e;
+
+  flags f {
+    get,
+    post,
+    put,
+    delete,
+  }
+
+  export t-flags: func(x: f) -> f;
+
 }

@@ -348,6 +348,143 @@ fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
             Val::List(list.into())
         }
 
+        // Option
+        Type::Option(inner_ty) => match val {
+            RmpvValue::Nil => Val::Option(None),
+            _ => {
+                let inner = to_component_val(&inner_ty.ty(), val)?;
+                Val::Option(Some(Box::new(inner)))
+            }
+        },
+
+        // Tuple
+        Type::Tuple(tuple_ty) => {
+            let arr = val
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("expected array for tuple"))?;
+
+            let tys = tuple_ty.types();
+
+            if arr.len() != tys.len() {
+                return Err(anyhow::anyhow!(
+                    "tuple length mismatch: expected {}, got {}",
+                    tys.len(),
+                    arr.len()
+                ));
+            }
+
+            let items = arr
+                .iter()
+                .zip(tys)
+                .map(|(v, t)| to_component_val(&t, v))
+                .collect::<Result<Vec<_>>>()?;
+
+            Val::Tuple(items.into())
+        }
+
+        Type::Record(record_ty) => {
+            let map = val
+                .as_map()
+                .ok_or_else(|| anyhow::anyhow!("expected map for record"))?;
+
+            let mut fields = Vec::new();
+
+            for field in record_ty.fields() {
+                let key = RmpvValue::String(field.name.into());
+
+                let val_item = map
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, v)| v)
+                    .ok_or_else(|| anyhow::anyhow!("missing field `{}` in record", field.name))?;
+
+                let field_val = to_component_val(&field.ty, val_item)?;
+                fields.push((field.name.into(), field_val));
+            }
+
+            Val::Record(fields.into())
+        }
+
+        Type::Variant(variant_ty) => {
+            let map = val
+                .as_map()
+                .ok_or_else(|| anyhow::anyhow!("expected map for variant"))?;
+
+            if map.len() != 1 {
+                return Err(anyhow::anyhow!("expected exactly one key in variant"));
+            }
+
+            let (case_key, case_val) = map.iter().next().unwrap();
+
+            let case_name = match case_key {
+                RmpvValue::String(s) => s.as_str(),
+                _ => None,
+            }
+            .ok_or_else(|| anyhow::anyhow!("variant key must be string"))?;
+
+            let case = variant_ty
+                .cases()
+                .find(|c| c.name == case_name)
+                .ok_or_else(|| anyhow::anyhow!("unknown variant case: {}", case_name))?;
+
+            let val = match &case.ty {
+                Some(ty) => {
+                    let inner = to_component_val(ty, case_val)?;
+                    Val::Variant(case.name.to_string(), Some(Box::new(inner)))
+                }
+                None => {
+                    // allow 'true' and 'nil' as syntactic sugar for unit-like variants
+                    match case_val {
+                        RmpvValue::Boolean(true) | RmpvValue::Nil => {
+                            Val::Variant(case.name.to_string(), None)
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!(
+                                "unexpected payload for unit variant `{}`: {:?}",
+                                case.name,
+                                case_val
+                            ));
+                        }
+                    }
+                }
+            };
+
+            val
+        }
+
+        Type::Enum(enum_ty) => {
+            let s = val
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("expected string for enum"))?;
+
+            let case = enum_ty
+                .names()
+                .find(|&name| name == s)
+                .ok_or_else(|| anyhow::anyhow!("invalid enum case: {s}"))?;
+
+            Val::Enum(case.to_string())
+        }
+
+        Type::Flags(flags_ty) => {
+            let arr = val
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("expected array for flags"))?;
+
+            let mut active_flags = vec![];
+
+            for v in arr {
+                let name = v
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("expected string in flags array"))?;
+                if !flags_ty.names().any(|f| f == name) {
+                    return Err(anyhow::anyhow!("invalid flag name: {}", name));
+                }
+                active_flags.push(name.to_string());
+            }
+
+            Val::Flags(active_flags.into())
+        }
+
         _ => return Err(anyhow::anyhow!("unsupported param type: {:?}", ty)),
     })
 }
@@ -394,16 +531,14 @@ pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
             RmpvValue::Map(vec![(RmpvValue::String(name.into()), v)])
         }
         Val::Option(opt) => match opt {
-            Some(inner) => RmpvValue::Array(vec![val_to_rmpv(inner)?]),
+            Some(inner) => val_to_rmpv(inner)?,
             None => RmpvValue::Nil,
         },
         Val::Result(r) => match r {
-            Ok(Some(v)) => RmpvValue::Map(vec![(RmpvValue::String("Ok".into()), val_to_rmpv(v)?)]),
-            Ok(None) => RmpvValue::Map(vec![(RmpvValue::String("Ok".into()), RmpvValue::Nil)]),
-            Err(Some(e)) => {
-                RmpvValue::Map(vec![(RmpvValue::String("Err".into()), val_to_rmpv(e)?)])
-            }
-            Err(None) => RmpvValue::Map(vec![(RmpvValue::String("Err".into()), RmpvValue::Nil)]),
+            Ok(Some(v)) => RmpvValue::Array(vec![RmpvValue::Boolean(true), val_to_rmpv(v)?]),
+            Ok(None) => RmpvValue::Array(vec![RmpvValue::Boolean(true), RmpvValue::Nil]),
+            Err(Some(e)) => RmpvValue::Array(vec![RmpvValue::Boolean(false), val_to_rmpv(e)?]),
+            Err(None) => RmpvValue::Array(vec![RmpvValue::Boolean(false), RmpvValue::Nil]),
         },
         Val::Flags(flags) => {
             let arr = flags
