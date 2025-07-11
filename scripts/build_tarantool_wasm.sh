@@ -24,3 +24,6 @@ cmake -S . -B "build" \
     -DTARANTOOL_WASM=ON
 
 cmake --build "build" -j"$(nproc)"
+
+# Install system-wide
+sudo cmake --install build

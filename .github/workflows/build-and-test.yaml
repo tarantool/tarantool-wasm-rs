@@ -42,6 +42,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: wasm-build
+          path: ./target
+
+      - name: Prepare wasm module
+        run: |
+          mkdir -p .rocks/lib/tarantool
+          cp target/debug/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
 
       - name: Install Tarantool CLI (tt)
         run: |

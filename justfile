@@ -38,13 +38,12 @@ wit-build:
 build:
     sh -c "{{cargo_build}}"
 
-# Build Tarantool with WASM support
+# Build and install Tarantool with WASM module support
 build-tarantool:
     sh -c {{build_tarantool_with_wasm}}
 
 # One-time setup: install luatest using custom tarantool
 install-luatest:
-    export PATH="{{custom_tarantool_bin}}:$PATH" && \
     if ! command -v luatest > /dev/null; then \
         echo "Installing luatest with custom tarantool..."; \
         tt rocks install luatest; \
@@ -54,4 +53,4 @@ install-luatest:
 
 # Run tests with proper PATH for tarantool and luatest
 test:
-    PATH="{{custom_tarantool_bin}}:$PWD/.rocks/bin:$PATH" luatest -v
+    PATH="$PWD/.rocks/bin:$PATH" luatest -v
