@@ -1,0 +1,212 @@
+[
+  {
+    "name": "t-bool",
+    "params": [
+      [
+        "x",
+        "bool"
+      ]
+    ],
+    "result": "bool"
+  },
+  {
+    "name": "t-s8",
+    "params": [
+      [
+        "x",
+        "s8"
+      ]
+    ],
+    "result": "s8"
+  },
+  {
+    "name": "t-s16",
+    "params": [
+      [
+        "x",
+        "s16"
+      ]
+    ],
+    "result": "s16"
+  },
+  {
+    "name": "t-s32",
+    "params": [
+      [
+        "x",
+        "s32"
+      ]
+    ],
+    "result": "s32"
+  },
+  {
+    "name": "t-s64",
+    "params": [
+      [
+        "x",
+        "s64"
+      ]
+    ],
+    "result": "s64"
+  },
+  {
+    "name": "t-u8",
+    "params": [
+      [
+        "x",
+        "u8"
+      ]
+    ],
+    "result": "u8"
+  },
+  {
+    "name": "t-u16",
+    "params": [
+      [
+        "x",
+        "u16"
+      ]
+    ],
+    "result": "u16"
+  },
+  {
+    "name": "t-u32",
+    "params": [
+      [
+        "x",
+        "u32"
+      ]
+    ],
+    "result": "u32"
+  },
+  {
+    "name": "t-u64",
+    "params": [
+      [
+        "x",
+        "u64"
+      ]
+    ],
+    "result": "u64"
+  },
+  {
+    "name": "t-f32",
+    "params": [
+      [
+        "x",
+        "f32"
+      ]
+    ],
+    "result": "f32"
+  },
+  {
+    "name": "t-f64",
+    "params": [
+      [
+        "x",
+        "f64"
+      ]
+    ],
+    "result": "f64"
+  },
+  {
+    "name": "t-char",
+    "params": [
+      [
+        "x",
+        "char"
+      ]
+    ],
+    "result": "char"
+  },
+  {
+    "name": "t-string",
+    "params": [
+      [
+        "x",
+        "string"
+      ]
+    ],
+    "result": "string"
+  },
+  {
+    "name": "t-list",
+    "params": [
+      [
+        "x",
+        "list<string>"
+      ]
+    ],
+    "result": "list<string>"
+  },
+  {
+    "name": "t-option",
+    "params": [
+      [
+        "x",
+        "option<u8>"
+      ]
+    ],
+    "result": "option<u8>"
+  },
+  {
+    "name": "t-result",
+    "params": [
+      [
+        "x",
+        "bool"
+      ]
+    ],
+    "result": "result<bool, string>"
+  },
+  {
+    "name": "t-tuple",
+    "params": [
+      [
+        "x",
+        "tuple<bool, f32, string>"
+      ]
+    ],
+    "result": "tuple<bool, string>"
+  },
+  {
+    "name": "t-record",
+    "params": [
+      [
+        "x",
+        "r"
+      ]
+    ],
+    "result": "r"
+  },
+  {
+    "name": "t-variant",
+    "params": [
+      [
+        "x",
+        "v"
+      ]
+    ],
+    "result": "v"
+  },
+  {
+    "name": "t-enum",
+    "params": [
+      [
+        "x",
+        "e"
+      ]
+    ],
+    "result": "e"
+  },
+  {
+    "name": "t-flags",
+    "params": [
+      [
+        "x",
+        "f"
+      ]
+    ],
+    "result": "f"
+  }
+]
