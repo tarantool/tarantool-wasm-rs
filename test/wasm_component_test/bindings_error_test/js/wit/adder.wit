@@ -1,0 +1,124 @@
+package docs:adder@0.1.0;
+
+world adder {
+  use tarantool:tarantool/types@0.1.0.{box-error};
+
+  import tarantool:tarantool/types@0.1.0;
+  import tarantool:tarantool/error@0.1.0;
+
+  export t-error-new: func(message: string, %type: string, code: u32, file: option<string>, line: option<u32>) -> box-error;
+  export t-set: func(err: box-error);
+  export t-last: func() -> option<box-error>;
+  export t-clear: func();
+  export t-to-string: func(err: box-error) -> string;
+}
+package tarantool:tarantool@0.1.0 {
+  interface types {
+    record box-error {
+      message: string,
+      %type: string,
+      code: u32,
+      payload: option<list<tuple<string, string>>>,
+      file: option<string>,
+      line: option<u32>,
+    }
+
+    record space {
+      id: s32,
+    }
+
+    record index {
+      id: s32,
+      space-id: s32,
+      index-base: s32,
+    }
+
+    record log-context {
+      filename: string,
+      line: u32,
+    }
+
+    enum log-level {
+      s-fatal,
+      s-syserror,
+      s-error,
+      s-crit,
+      s-warn,
+      s-info,
+      s-verbose,
+      s-debug,
+    }
+
+    record session {
+      id: s64,
+    }
+
+    enum txn-isolation-level {
+      txn-isolation-default,
+      txn-isolation-best-effort,
+      txn-isolation-read-committed,
+      txn-isolation-read-confirmed,
+      txn-isolation-linearizable,
+    }
+
+    enum iterator-type {
+      iter-eq,
+      iter-req,
+      iter-all,
+      iter-lt,
+      iter-le,
+      iter-ge,
+      iter-gt,
+      iter-bits-all-set,
+      iter-bits-any-set,
+      iter-bits-all-not-set,
+      iter-overlaps,
+      iter-neighbor,
+      iter-np,
+      iter-pp,
+    }
+
+    resource iterator {
+      new-iterator: static func(index: index, iterator-type: iterator-type, key: list<u8>) -> result<iterator, box-error>;
+      next: func() -> result<box-tuple, box-error>;
+    }
+
+    record sequence {
+      id: s32,
+    }
+
+    flags key-part-flags {
+      is-nullable,
+      exclude-null,
+    }
+
+    record key-part {
+      field-no: u32,
+      field-type: string,
+      collation: option<string>,
+      path: option<string>,
+      %flags: key-part-flags,
+    }
+
+    type box-tuple = u64;
+
+    type key-def = u64;
+
+    type tuple-format = u64;
+
+    type tuple-field = u64;
+  }
+  interface error {
+    use types.{box-error};
+
+    error-new: func(message: string, %type: string, code: u32, file: option<string>, line: option<u32>) -> box-error;
+
+    set: func(err: box-error);
+
+    last: func() -> option<box-error>;
+
+    clear: func();
+
+    to-string: func(err: box-error) -> string;
+  }
+}

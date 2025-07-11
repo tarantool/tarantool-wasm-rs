@@ -395,7 +395,14 @@ fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
                 let val_item = map
                     .iter()
                     .find(|(k, _)| *k == key)
-                    .map(|(_, v)| v)
+                    .map(|(_, v)| Some(v))
+                    .unwrap_or_else(|| {
+                        if matches!(field.ty, Type::Option(_)) {
+                            Some(&RmpvValue::Nil)
+                        } else {
+                            None
+                        }
+                    })
                     .ok_or_else(|| anyhow::anyhow!("missing field `{}` in record", field.name))?;
 
                 let field_val = to_component_val(&field.ty, val_item)?;
@@ -606,13 +613,22 @@ pub fn tt_wasm_call_function(
             wasm_args.push(v);
         }
 
-        let mut results_buf = [Val::Bool(false)];
+        // let mut results_buf = [Val::Bool(false)];
+        let result_types = export.results(&store.as_context());
+        let mut results_buf = vec![Val::Bool(false); result_types.len()];
 
         export
             .call_async(&mut store, &wasm_args, &mut results_buf)
             .await?;
 
-        let res_val: RmpvValue = val_to_rmpv(&results_buf[0])?;
+        let res_val = match results_buf.as_slice() {
+            [] => RmpvValue::Nil,
+            [val] => val_to_rmpv(val)?,
+            many => {
+                let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
+                RmpvValue::Array(converted)
+            }
+        };
 
         let mut buf = Vec::new();
         write_value(&mut buf, &res_val)?;

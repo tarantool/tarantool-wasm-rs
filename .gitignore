@@ -8,3 +8,6 @@ __pycache__/
 .rocks/
 !test/wasm.so
 !test/**/*.wasm
+wit_world/
+internal/
+*.o

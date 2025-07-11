@@ -1,21 +1,28 @@
 local t = require('luatest')
 local luawasm = require('luawasm')
+local fio = require('fio')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
 
-local g = t.group("export_invalid_args_test", {
-    { name = "python", dir = "export_test_python" },
-    { name = "c", dir = "export_test_c", wasm = "adder.component.wasm" },
-    { name = "js", dir = "export_test_js"},
-    { name = "go", dir = "export_test_go"},
-})
+local test_group = "export_test"
+
+local g = t.group(
+    "export_invalid_args_test",
+    t.helpers.matrix({
+        lang = {"python", "go", "c", "js"}
+    })
+)
 
 g.before_all(function(cg)
-    local path = utils.get_test_dir() .. "wasm_component_test/" .. cg.params.dir
+    local path = fio.pathjoin(utils.get_test_dir(), "wasm_component_test", test_group, cg.params.lang)
+    local wasm
+    if cg.params.lang == "c" then
+        wasm = "adder.component.wasm"
+    end
     cg.m = luawasm:new({
         dir = path,
-        wasm = cg.params.wasm, -- nil for python case
+        wasm = wasm,
     })
 end)
 
