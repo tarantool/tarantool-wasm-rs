@@ -1,0 +1,96 @@
+[
+  {
+    "name": "t-len",
+    "params": [
+      [
+        "index",
+        "index"
+      ]
+    ],
+    "result": "result<s64, box-error>"
+  },
+  {
+    "name": "t-bsize",
+    "params": [
+      [
+        "index",
+        "index"
+      ]
+    ],
+    "result": "result<s64, box-error>"
+  },
+  {
+    "name": "t-random",
+    "params": [
+      [
+        "index",
+        "index"
+      ],
+      [
+        "rnd",
+        "u32"
+      ]
+    ],
+    "result": "result<list<u8>, box-error>"
+  },
+  {
+    "name": "t-get",
+    "params": [
+      [
+        "index",
+        "index"
+      ],
+      [
+        "key",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<list<u8>, box-error>"
+  },
+  {
+    "name": "t-min",
+    "params": [
+      [
+        "index",
+        "index"
+      ],
+      [
+        "key",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<list<u8>, box-error>"
+  },
+  {
+    "name": "t-max",
+    "params": [
+      [
+        "index",
+        "index"
+      ],
+      [
+        "key",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<list<u8>, box-error>"
+  },
+  {
+    "name": "t-count",
+    "params": [
+      [
+        "index",
+        "index"
+      ],
+      [
+        "iter-type",
+        "iterator-type"
+      ],
+      [
+        "key",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<s64, box-error>"
+  }
+]
