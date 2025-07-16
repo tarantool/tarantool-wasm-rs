@@ -113,7 +113,7 @@
         "box-tuple"
       ]
     ],
-    "result": "list<u8>"
+    "result": "result<list<u8>, box-error>"
   },
   {
     "name": "t-validate-tuple",

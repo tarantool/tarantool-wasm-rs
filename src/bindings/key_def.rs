@@ -268,26 +268,22 @@ impl key_def::Host for SyncWasmStates {
         unsafe { ffi::tuple::box_key_def_validate_tuple(key_def as *mut _, tuple as *mut _) == 0 }
     }
 
-    // TODO: Fix the return type from BoxTuple to Vec<u8>.
-    // The function box_key_def_extract_key returns a pointer to a msgpack-encoded key,
-    // not a box_tuple_t. Returning BoxTuple here is incorrect and misleading,
-    // and may cause undefined behavior if the buffer is interpreted as a tuple.
-    // The pointer should be read as a raw msgpack buffer and returned as a byte array.
-    async fn extract_key(&mut self, key_def: KeyDef, tuple: BoxTuple) -> BoxTuple {
+    async fn extract_key(&mut self, key_def: KeyDef, tuple: BoxTuple) -> Result<Vec<u8>, BoxError> {
         let mut size: u32 = 0;
         let ptr = unsafe {
             ffi::tuple::box_key_def_extract_key(
                 key_def as *mut _,
                 tuple as *mut _,
-                -1, // multikey_idx = -1
-                &mut size as *mut _,
+                -1,
+                &mut size as *mut u32,
             )
         };
 
         if ptr.is_null() {
-            panic!("Failed to extract key from tuple");
+            return Err(handle_tarantool_error());
         }
 
-        ptr as BoxTuple
+        let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, size as usize) };
+        Ok(slice.to_vec())
     }
 }

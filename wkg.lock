@@ -7,9 +7,9 @@ name = "tarantool:tarantool"
 registry = "ghcr.io"
 
 [[packages.versions]]
-requirement = "=0.1.0"
-version = "0.1.0"
-digest = "sha256:766c9190b5ad81027baeeb86ceb8a2e488d51e8f0075e58bc2da052502415021"
+requirement = "=0.1.1"
+version = "0.1.1"
+digest = "sha256:67df35319137f469274640ddd68e5a83dc76105ba4f6a3090ab6cae8c8ce3527"
 
 [[packages]]
 name = "wasi:cli"

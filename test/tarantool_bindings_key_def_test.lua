@@ -89,6 +89,8 @@ g.test_new = function(cg)
     t.assert_type(parts, "table")
     t.assert_equals(#parts, 1)
     assert_part(parts[1], key_parts[1])
+
+    cg.m:t_delete(ptr)
 end
 
 -- dump_parts
@@ -106,6 +108,8 @@ g.test_dump_parts = function(cg)
     t.assert_equals(#parts, 2)
     assert_part(parts[1], key_parts[1])
     assert_part(parts[2], key_parts[2])
+
+    cg.m:t_delete(ptr)
 end
 
 -- dup
@@ -129,6 +133,9 @@ g.test_dup = function(cg)
 
     assert_part(parts[1], key_parts[1])
     assert_part(parts[2], key_parts[2])
+
+    cg.m:t_delete(orig_ptr)
+    cg.m:t_delete(dup_ptr)
 end
 
 -- merge
@@ -156,25 +163,10 @@ g.test_merge = function(cg)
     assert_part(parts[1], key_parts_1[1])
     assert_part(parts[2], key_parts_2[1])
     assert_part(parts[3], key_parts_2[2])
-end
 
--- delete
-g.test_delete = function(cg)
-    -- TODO: provide error due double free and use after free
-    t.skip()
-
-    local key_parts = key_parts_1
-
-    local res = cg.m:t_new(key_parts)
-    t.assert(res[1])
-    local ptr = res[2]
-
-    cg.m:t_delete(ptr)
-
-    local ok, result = pcall(function()
-        cg.m:t_dump_parts(ptr)
-    end)
-    t.assert_equals(result, nil)
+    cg.m:t_delete(ptr1)
+    cg.m:t_delete(ptr2)
+    cg.m:t_delete(merged_ptr)
 end
 
 -- validate-key
@@ -203,6 +195,8 @@ g.test_validate_key = function(cg)
 
     res = cg.m:t_validate_key(ptr, enc({1, 'a'}))
     t.assert_equals(res, { true, { true, 4 } })
+
+    cg.m:t_delete(ptr)
 end
 
 -- validate-full-key
@@ -229,6 +223,8 @@ g.test_validate_full_key = function(cg)
 
     res = cg.m:t_validate_full_key(ptr, enc({1, 'a'}))
     t.assert_equals(res, { true, { true, 4 } })
+
+    cg.m:t_delete(ptr)
 end
 
 -- validate-tuple
@@ -258,6 +254,8 @@ g.test_validate_tuple = function(cg)
     t.assert(res[1])
     tuple = res[2]
     t.assert_equals(cg.m:t_validate_tuple(ptr, tuple), true)
+
+    cg.m:t_delete(ptr)
 end
 
 -- part-count
@@ -281,13 +279,14 @@ g.test_extract_key = function(cg)
     t.assert(tuple_res[1])
     local tuple = tuple_res[2]
 
-    -- TODO: see src/bindings/key_def.rs:extract_key
-    -- local res = cg.m:t_extract_key(ptr, tuple)
-    -- t.assert(res[1])
+    local res = cg.m:t_extract_key(ptr, tuple)
+    t.assert(res[1])
 
-    -- local raw_key = res[2]
-    -- t.assert_type(raw_key, "table")
+    local raw_key = res[2]
+    t.assert_type(raw_key, "table")
 
-    -- local decoded = dec(raw_key)
-    -- t.assert_equals(decoded, {123, 'a'})
+    local decoded = dec(raw_key)
+    t.assert_equals(decoded, {123, 'a'})
+
+    cg.m:t_delete(ptr)
 end

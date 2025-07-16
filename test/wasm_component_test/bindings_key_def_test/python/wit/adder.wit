@@ -1,11 +1,11 @@
 package docs:adder@0.1.0;
 
 world adder {
-  import tarantool:tarantool/types@0.1.0;
-  import tarantool:tarantool/msgpack@0.1.0;
-  import tarantool:tarantool/key-def@0.1.0;
-  import tarantool:tarantool/box-tuple@0.1.0;
-  use tarantool:tarantool/types@0.1.0.{box-error, box-tuple, key-def, key-part};
+  import tarantool:tarantool/types@0.1.1;
+  import tarantool:tarantool/msgpack@0.1.1;
+  import tarantool:tarantool/key-def@0.1.1;
+  import tarantool:tarantool/box-tuple@0.1.1;
+  use tarantool:tarantool/types@0.1.1.{box-error, box-tuple, key-def, key-part};
 
   export t-tuple-new: func(data: list<u8>) -> result<box-tuple, box-error>;
   export t-new: func(parts: list<key-part>) -> result<key-def, box-error>;
@@ -16,11 +16,11 @@ world adder {
   export t-validate-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
   export t-validate-full-key: func(key-def: key-def, key: list<u8>) -> result<tuple<bool, u32>, box-error>;
   export t-part-count: func(key-def: key-def) -> result<u32, box-error>;
-  export t-extract-key: func(key-def: key-def, %tuple: box-tuple) -> list<u8>;
+  export t-extract-key: func(key-def: key-def, %tuple: box-tuple) -> result<list<u8>, box-error>;
   export t-validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
   export decode-from-raw-ptr: func(ptr: u64) -> list<u8>;
 }
-package tarantool:tarantool@0.1.0 {
+package tarantool:tarantool@0.1.1 {
   interface types {
     record box-error {
       message: string,
@@ -144,7 +144,7 @@ package tarantool:tarantool@0.1.0 {
 
     part-count: func(key-def: key-def) -> result<u32, box-error>;
 
-    extract-key: func(key-def: key-def, %tuple: box-tuple) -> box-tuple;
+    extract-key: func(key-def: key-def, %tuple: box-tuple) -> result<list<u8>, box-error>;
 
     validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> bool;
   }

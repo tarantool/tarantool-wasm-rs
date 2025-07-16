@@ -28,7 +28,7 @@ class WitWorld:
         return kd.part_count(key_def)
 
     def t_extract_key(self, key_def: int, tuple: int) -> bytes:
-        return box_tuple.to_buf(kd.extract_key(key_def, tuple))
+        return kd.extract_key(key_def, tuple)
 
     def t_validate_tuple(self, key_def: int, tuple: int) -> bool:
         return kd.validate_tuple(key_def, tuple)
