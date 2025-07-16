@@ -1,4 +1,5 @@
 local fio = require('fio')
+local msgpack = require('msgpack')
 
 local utils = {}
 
@@ -15,6 +16,16 @@ utils.cleanup_logs = function(path)
             fio.unlink(fio.pathjoin(path, file))
         end
     end
+end
+
+utils.enc = function(val)
+    local raw = msgpack.encode(val)
+    return { string.byte(raw, 1, #raw) }
+end
+
+utils.dec = function(msgpack_bytes)
+    local str = string.char(unpack(msgpack_bytes))
+    return msgpack.decode(str)
 end
 
 return utils

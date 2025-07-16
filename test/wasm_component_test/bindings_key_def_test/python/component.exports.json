@@ -1,0 +1,142 @@
+[
+  {
+    "name": "t-tuple-new",
+    "params": [
+      [
+        "data",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<box-tuple, box-error>"
+  },
+  {
+    "name": "t-new",
+    "params": [
+      [
+        "parts",
+        "list<key-part>"
+      ]
+    ],
+    "result": "result<key-def, box-error>"
+  },
+  {
+    "name": "t-dup",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ]
+    ],
+    "result": "result<key-def, box-error>"
+  },
+  {
+    "name": "t-merge",
+    "params": [
+      [
+        "left",
+        "key-def"
+      ],
+      [
+        "right",
+        "key-def"
+      ]
+    ],
+    "result": "result<key-def, box-error>"
+  },
+  {
+    "name": "t-delete",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "name": "t-dump-parts",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ]
+    ],
+    "result": "result<list<key-part>, box-error>"
+  },
+  {
+    "name": "t-validate-key",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ],
+      [
+        "key",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<tuple<bool, u32>, box-error>"
+  },
+  {
+    "name": "t-validate-full-key",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ],
+      [
+        "key",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<tuple<bool, u32>, box-error>"
+  },
+  {
+    "name": "t-part-count",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ]
+    ],
+    "result": "result<u32, box-error>"
+  },
+  {
+    "name": "t-extract-key",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ],
+      [
+        "%tuple",
+        "box-tuple"
+      ]
+    ],
+    "result": "list<u8>"
+  },
+  {
+    "name": "t-validate-tuple",
+    "params": [
+      [
+        "key-def",
+        "key-def"
+      ],
+      [
+        "%tuple",
+        "box-tuple"
+      ]
+    ],
+    "result": "bool"
+  },
+  {
+    "name": "decode-from-raw-ptr",
+    "params": [
+      [
+        "ptr",
+        "u64"
+      ]
+    ],
+    "result": "list<u8>"
+  }
+]
