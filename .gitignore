@@ -11,3 +11,5 @@ __pycache__/
 wit_world/
 internal/
 *.o
+*.log
+0000*

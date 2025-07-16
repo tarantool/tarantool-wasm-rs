@@ -53,4 +53,4 @@ install-luatest:
 
 # Run tests with proper PATH for tarantool and luatest
 test:
-    PATH="$PWD/.rocks/bin:$PATH" luatest -v
+    PATH="$PWD/.rocks/bin:$PATH" luatest -v -l luatest.log
