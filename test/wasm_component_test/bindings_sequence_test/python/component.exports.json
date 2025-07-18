@@ -1,1 +1,46 @@
-[]
+[
+  {
+    "name": "t-next",
+    "params": [
+      [
+        "seq",
+        "sequence"
+      ]
+    ],
+    "result": "result<s64, box-error>"
+  },
+  {
+    "name": "t-current",
+    "params": [
+      [
+        "seq",
+        "sequence"
+      ]
+    ],
+    "result": "result<s64, box-error>"
+  },
+  {
+    "name": "t-set",
+    "params": [
+      [
+        "seq",
+        "sequence"
+      ],
+      [
+        "value",
+        "s64"
+      ]
+    ],
+    "result": "result<_, box-error>"
+  },
+  {
+    "name": "t-reset",
+    "params": [
+      [
+        "seq",
+        "sequence"
+      ]
+    ],
+    "result": "result<_, box-error>"
+  }
+]

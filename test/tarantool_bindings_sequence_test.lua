@@ -15,26 +15,61 @@ local g = t.group(
     })
 )
 
+g.before_all(function(cg)
+    local path = fio.pathjoin(utils.get_test_dir(), "wasm_component_test", test_group, cg.params.lang)
+    local wasm
+    if cg.params.lang == "c" then
+        wasm = "adder.component.wasm"
+    end
+    cg.m = luawasm:new({
+        dir = path,
+        wasm = wasm,
+    })
+    box.cfg{}
+    cg.seq = box.schema.sequence.create('test_seq', { if_not_exists = true })
+    cg.wasm_seq = { id = cg.seq.id }
+end)
+
 g.after_all(function()
     utils.cleanup_logs(fio.cwd())
 end)
 
 g.test_sequence_basic = function(cg)
-    t.skip()
+    local res = cg.m:t_current(cg.wasm_seq)
+    t.assert_not(res[1])
+    t.assert_str_contains(res[2].message, "Sequence 'test_seq' is not started")
 
-    box.cfg{log_level = 7}
+    res = cg.m:t_next(cg.wasm_seq)
+    t.assert_equals(res, { true, 1 })
 
-    local path = fio.pathjoin(utils.get_test_dir(), "wasm_component_test", test_group, "python")
-    local m =  luawasm:new({
-        dir = path,
-    })
-    local seq = box.schema.sequence.create('test_seq', { if_not_exists = true })
-    t.assert_equals(seq.id, 1)
+    res = cg.m:t_current(cg.wasm_seq)
+    t.assert_equals(res, { true, 1 })
 
-    local ok, res = pcall(function()
-        m:run()
-    end)
+    res = cg.m:t_next(cg.wasm_seq)
+    t.assert_equals(res, { true, 2 })
 
-    t.assert(ok, res)
-    t.assert(m:join())
+    res = cg.m:t_set(cg.wasm_seq, 100)
+    t.assert_equals(res, { true })
+
+    res = cg.m:t_current(cg.wasm_seq)
+    t.assert_equals(res, { true, 100 })
+
+    res = cg.m:t_next(cg.wasm_seq)
+    t.assert_equals(res, { true, 101 })
+
+    res = cg.m:t_next(cg.wasm_seq)
+    t.assert_equals(res, { true, 102 })
+
+    res = cg.m:t_reset(cg.wasm_seq)
+    t.assert_equals(res, { true })
+
+    res = cg.m:t_current(cg.wasm_seq)
+    t.assert_not(res[1])
+    t.assert_str_contains(res[2].message, "Sequence 'test_seq' is not started")
+
+    res = cg.m:t_next(cg.wasm_seq)
+    t.assert_equals(res, { true, 1 })
+
+    res = cg.m:t_next(cg.wasm_seq)
+    t.assert_equals(res, { true, 2 })
 end
