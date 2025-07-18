@@ -1,0 +1,140 @@
+package docs:adder@0.1.0;
+
+world adder {
+  import tarantool:tarantool/types@0.1.1;
+  import tarantool:tarantool/sequence@0.1.1;
+  import tarantool:tarantool/say@0.1.1;
+  use tarantool:tarantool/types@0.1.1.{sequence, box-error};
+
+  export t-next: func(seq: sequence) -> result<s64, box-error>;
+  export t-current: func(seq: sequence) -> result<s64, box-error>;
+  export t-set: func(seq: sequence, value: s64) -> result<_, box-error>;
+  export t-reset: func(seq: sequence) -> result<_, box-error>;
+}
+package tarantool:tarantool@0.1.1 {
+  interface types {
+    record box-error {
+      message: string,
+      %type: string,
+      code: u32,
+      payload: option<list<tuple<string, string>>>,
+      file: option<string>,
+      line: option<u32>,
+    }
+
+    record space {
+      id: s32,
+    }
+
+    record index {
+      id: s32,
+      space-id: s32,
+      index-base: s32,
+    }
+
+    record log-context {
+      filename: string,
+      line: u32,
+    }
+
+    enum log-level {
+      s-fatal,
+      s-syserror,
+      s-error,
+      s-crit,
+      s-warn,
+      s-info,
+      s-verbose,
+      s-debug,
+    }
+
+    record session {
+      id: s64,
+    }
+
+    enum txn-isolation-level {
+      txn-isolation-default,
+      txn-isolation-best-effort,
+      txn-isolation-read-committed,
+      txn-isolation-read-confirmed,
+      txn-isolation-linearizable,
+    }
+
+    enum iterator-type {
+      iter-eq,
+      iter-req,
+      iter-all,
+      iter-lt,
+      iter-le,
+      iter-ge,
+      iter-gt,
+      iter-bits-all-set,
+      iter-bits-any-set,
+      iter-bits-all-not-set,
+      iter-overlaps,
+      iter-neighbor,
+      iter-np,
+      iter-pp,
+    }
+
+    resource iterator {
+      new-iterator: static func(index: index, iterator-type: iterator-type, key: list<u8>) -> result<iterator, box-error>;
+      next: func() -> result<box-tuple, box-error>;
+    }
+
+    record sequence {
+      id: s32,
+    }
+
+    flags key-part-flags {
+      is-nullable,
+      exclude-null,
+    }
+
+    record key-part {
+      field-no: u32,
+      field-type: string,
+      collation: option<string>,
+      path: option<string>,
+      %flags: key-part-flags,
+    }
+
+    type box-tuple = u64;
+
+    type key-def = u64;
+
+    type tuple-format = u64;
+
+    type tuple-field = u64;
+  }
+  interface sequence {
+    use types.{sequence, box-error};
+
+    next: func(seq: sequence) -> result<s64, box-error>;
+
+    current: func(seq: sequence) -> result<s64, box-error>;
+
+    set: func(seq: sequence, value: s64) -> result<_, box-error>;
+
+    reset: func(seq: sequence) -> result<_, box-error>;
+  }
+  interface say {
+    use types.{log-level, log-context};
+
+    say: func(level: log-level, msg: string, ctx: option<log-context>);
+
+    say-error: func(msg: string, ctx: option<log-context>);
+
+    say-crit: func(msg: string, ctx: option<log-context>);
+
+    say-warn: func(msg: string, ctx: option<log-context>);
+
+    say-info: func(msg: string, ctx: option<log-context>);
+
+    say-verbose: func(msg: string, ctx: option<log-context>);
+
+    say-debug: func(msg: string, ctx: option<log-context>);
+
+    say-syserror: func(msg: string, ctx: option<log-context>);
+  }
+}

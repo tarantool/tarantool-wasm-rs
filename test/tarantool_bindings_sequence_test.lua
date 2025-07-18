@@ -11,7 +11,7 @@ local test_group = "bindings_sequence_test"
 local g = t.group(
     test_group,
     t.helpers.matrix({
-        lang = {"python"}
+        lang = {"python", "c", "js", "go"}
     })
 )
 
@@ -26,8 +26,16 @@ g.before_all(function(cg)
         wasm = wasm,
     })
     box.cfg{}
+end)
+
+g.before_each(function(cg)
     cg.seq = box.schema.sequence.create('test_seq', { if_not_exists = true })
     cg.wasm_seq = { id = cg.seq.id }
+end)
+
+g.after_each(function(cg)
+    cg.seq:drop()
+    cg.wasm_seq = nil
 end)
 
 g.after_all(function()
