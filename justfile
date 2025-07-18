@@ -45,7 +45,6 @@ build-tarantool:
 # One-time setup: install luatest using custom tarantool
 install-luatest:
     if ! command -v luatest > /dev/null; then \
-        echo "Installing luatest with custom tarantool..."; \
         tt rocks install luatest; \
     else \
         echo "luatest already installed"; \

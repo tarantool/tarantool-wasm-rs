@@ -50,16 +50,18 @@ g.test_error_new_with_context = function(cg)
 end
 
 -- set
-g.test_error_set = function(cg)
-    t.skip("Skipped: box.error.set() no longer affects WASM function context after 'tt thread' patch. cg.m:t_last() always returns nil")
+g.test_error_set_and_last = function(cg)
+    local res = cg.m:t_last()
+    t.assert_equals(res, nil)
 
     local err = cg.m:t_error_new("Connection timeout", "network", 504, "input.lua", 42)
-    cg.m:t_set(err)
+    res = cg.m:batch{
+        { cg.m.t_set, err },
+        { cg.m.t_last }
+    }
+    t.assert_equals(res[1], nil)
 
-    local box_error_last = box.error.last()
-    t.assert_equals(type(box_error_last), "cdata", "box.error.last() must return a cdata object")
-
-    local unpacked = box_error_last:unpack()
+    local unpacked = res[2]
 
     t.assert_equals(unpacked.message, "Connection timeout")
     t.assert_equals(unpacked.code, 504)
@@ -69,65 +71,27 @@ g.test_error_set = function(cg)
     -- This function internally sets the `type` and `base_type` fields (usually to `ClientError`)
     -- and does not provide a way to override them manually.
     t.assert_equals(unpacked.type, "ClientError")
-    t.assert_equals(unpacked.base_type, "ClientError")
-
-    t.assert_equals(unpacked.message, "Connection timeout")
-    t.assert_equals(unpacked.trace[1].file, "input.lua")
-    t.assert_equals(unpacked.trace[1].line, 42)
-end
-
--- last
-g.test_error_last = function(cg)
-    t.skip("Skipped: box.error.set() no longer affects WASM function context after 'tt thread' patch. cg.m:t_last() always returns nil")
-
-    local err
-
-    err = cg.m:t_last()
-    t.assert_equals(err, nil)
-
-    local info = debug.getinfo(1, "Sl")
-    local expected_file = info.short_src
-
-    local line_set_error = debug.getinfo(1, "l").currentline + 1
-    local box_error = box.error.new({ code = 500, reason = "Custom error 1" })
-    box.error.set(box_error)
-
-    err = cg.m:t_last()
-
-    t.assert_equals(err.message, "Custom error 1")
-    t.assert_equals(err.code, 500)
-    t.assert_equals(err.type, "ClientError")
-    t.assert_str_contains(err.file, expected_file)
-    t.assert_equals(err.line, line_set_error)
+    t.assert_equals(unpacked.file, "input.lua")
+    t.assert_equals(unpacked.line, 42)
 end
 
 -- clear
 g.test_error_clear = function(cg)
-    t.skip("Skipped: box.error.set() no longer affects WASM function context after 'tt thread' patch. cg.m:t_last() always returns nil")
-
-    local err
-
-    cg.m:t_clear()
-    err = cg.m:t_last()
-    t.assert_equals(err, nil)
-
-    local info = debug.getinfo(1, "Sl")
-    local expected_file = info.short_src
-    local line_set_error = debug.getinfo(1, "l").currentline + 1
-    local box_error = box.error.new({ code = 500, reason = "Custom error 1" })
-    box.error.set(box_error)
-
-    err = cg.m:t_last()
-
-    t.assert_equals(err.message, "Custom error 1")
-    t.assert_equals(err.code, 500)
-    t.assert_equals(err.type, "ClientError")
-    t.assert_str_contains(err.file, expected_file)
-    t.assert_equals(err.line, line_set_error)
-
-    cg.m:t_clear()
-    err = cg.m:t_last()
-    t.assert_equals(err, nil)
+    local err = cg.m:t_error_new("Connection timeout", "network", 504, "input.lua", 42)
+    local res = cg.m:batch{
+        { cg.m.t_clear },
+        { cg.m.t_last },
+        { cg.m.t_set, err },
+        { cg.m.t_last },
+        { cg.m.t_clear },
+        { cg.m.t_last },
+    }
+    t.assert_equals(res[1], nil)
+    t.assert_equals(res[2], nil)
+    t.assert_equals(res[3], nil)
+    t.assert_type(res[4], "table")
+    t.assert_equals(res[5], nil)
+    t.assert_equals(res[6], nil)
 end
 
 -- to_string

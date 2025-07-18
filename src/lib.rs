@@ -5,6 +5,7 @@ mod tarantool_wasm;
 mod tx;
 mod wasm_fiber;
 use crate::tarantool_wasm::tt_wasm_call_function;
+use crate::tarantool_wasm::tt_wasm_call_functions;
 use crate::tarantool_wasm::tt_wasm_load_module;
 use crate::tarantool_wasm::tt_wasm_run_module;
 use anyhow::Result;
@@ -178,6 +179,92 @@ fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     Ok(lua_val)
 }
 
+fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+    use std::io::Cursor;
+
+    let mut iter = args.into_iter();
+
+    let module_uid = match iter.next() {
+        Some(Value::String(s)) => s.to_str()?.to_string(),
+        _ => {
+            return Err(mlua::Error::FromLuaConversionError {
+                from: "Value",
+                to: "String".to_string(),
+                message: Some("expected module_uid as string".to_string()),
+            })
+        }
+    };
+
+    let calls_tbl = match iter.next() {
+        Some(Value::Table(t)) => t,
+        _ => {
+            return Err(mlua::Error::FromLuaConversionError {
+                from: "Value",
+                to: "table".to_string(),
+                message: Some("expected calls table".to_string()),
+            });
+        }
+    };
+
+    let mut calls = Vec::new();
+    for pair in calls_tbl.sequence_values::<LuaValue>() {
+        let val = pair?;
+        let call_tbl = match val {
+            LuaValue::Table(t) => t,
+            _ => {
+                return Err(mlua::Error::FromLuaConversionError {
+                    from: "Value",
+                    to: "table".to_string(),
+                    message: Some("each call must be table".to_string()),
+                });
+            }
+        };
+
+        let func: String = match call_tbl.raw_get(1)? {
+            LuaValue::String(s) => s.to_str()?.to_string(),
+            _ => {
+                return Err(mlua::Error::FromLuaConversionError {
+                    from: "Value",
+                    to: "string".to_string(),
+                    message: Some("call entry first element must be func name".to_string()),
+                });
+            }
+        };
+
+        let args_vals: Vec<LuaValue> = {
+            let mut vec = Vec::new();
+            for idx in 2..=call_tbl.raw_len() {
+                vec.push(call_tbl.raw_get(idx)?);
+            }
+            vec
+        };
+
+        let rmp_args = args_vals
+            .iter()
+            .map(to_rmpv)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let args_array = rmpv::Value::Array(rmp_args);
+        let mut msgpack_args = Vec::new();
+        rmpv::encode::write_value(&mut msgpack_args, &args_array)
+            .map_err(|e| mlua::Error::external(format!("msgpack encode error: {e}")))?;
+
+        calls.push((func, msgpack_args));
+    }
+
+    let result_bufs = tt_wasm_call_functions(module_uid, calls).map_err(mlua::Error::external)?;
+
+    let results_tbl = lua.create_table()?;
+    for (i, buf) in result_bufs.into_iter().enumerate() {
+        let result_val =
+            rmpv::decode::read_value(&mut Cursor::new(&buf)).map_err(mlua::Error::external)?;
+        let lua_val = from_rmpv(lua, &result_val)?;
+        results_tbl.set(i + 1, lua_val)?;
+    }
+
+    Ok(LuaValue::Table(results_tbl))
+}
+
 #[mlua::lua_module(name = "wasm")]
 fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
@@ -185,5 +272,6 @@ fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     exports.set("run", lua.create_function(run)?)?;
     exports.set("join", lua.create_function(join)?)?;
     exports.set("call", lua.create_function(call)?)?;
+    exports.set("batch", lua.create_function(batch)?)?;
     Ok(exports)
 }
