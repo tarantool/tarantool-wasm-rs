@@ -547,80 +547,97 @@ pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
     })
 }
 
+use tarantool::coio::coio_call;
+
 pub fn tt_wasm_call_function(
     module_uid: String,
     func: String,
     msgpack_args: Vec<u8>,
 ) -> Result<Vec<u8>> {
-    let component = runtime_state
-        .modules
-        .read()
-        .unwrap()
-        .get(&module_uid)
-        .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
-        .clone();
+    let handle = spawn_tt_thread("wasm".to_string(), move || {
+        let component = runtime_state
+            .modules
+            .read()
+            .unwrap()
+            .get(&module_uid)
+            .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
+            .clone();
 
-    let linker = runtime_state.linker.clone();
-    let wasi_view = SyncWasmStates::new();
-    let mut store = Store::new(&runtime_state.engine, wasi_view);
+        let linker = runtime_state.linker.clone();
+        let wasi_view = SyncWasmStates::new();
+        let mut store = Store::new(&runtime_state.engine, wasi_view);
 
-    store.set_epoch_deadline(1);
-    store.epoch_deadline_trap();
+        store.set_epoch_deadline(1);
+        store.epoch_deadline_trap();
 
-    let rt = Builder::new_current_thread()
-        .enable_time()
-        .enable_io()
-        .build()
-        .unwrap();
+        let rt = Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
+            .unwrap();
 
-    rt.block_on(async move {
-        let instance = linker.instantiate_async(&mut store, &component).await?;
+        rt.block_on(async move {
+            let instance = linker.instantiate_async(&mut store, &component).await?;
 
-        let export = instance
-            .get_func(&mut store, &func)
-            .ok_or_else(|| anyhow::anyhow!(format!("function export `{}` not found", func)))?;
+            let export = instance
+                .get_func(&mut store, &func)
+                .ok_or_else(|| anyhow::anyhow!(format!("function export `{}` not found", func)))?;
 
-        let params = export.params(&store.as_context());
-        let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
+            let params = export.params(&store.as_context());
+            let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
 
-        let mp_value = read_value(&mut Cursor::new(&msgpack_args))?;
-        let arr = mp_value
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("msgpack args must be array"))?;
+            let mp_value = read_value(&mut Cursor::new(&msgpack_args))?;
+            let arr = mp_value
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("msgpack args must be array"))?;
 
-        if arr.len() != param_types.len() {
-            return Err(anyhow::anyhow!(
-                "argument count mismatch: expected {}, got {}",
-                param_types.len(),
-                arr.len()
-            ));
-        }
-
-        let mut wasm_args = Vec::new();
-        for (ty, val) in param_types.iter().zip(arr) {
-            let v = to_component_val(ty, val)?;
-            wasm_args.push(v);
-        }
-
-        // let mut results_buf = [Val::Bool(false)];
-        let result_types = export.results(&store.as_context());
-        let mut results_buf = vec![Val::Bool(false); result_types.len()];
-
-        export
-            .call_async(&mut store, &wasm_args, &mut results_buf)
-            .await?;
-
-        let res_val = match results_buf.as_slice() {
-            [] => RmpvValue::Nil,
-            [val] => val_to_rmpv(val)?,
-            many => {
-                let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-                RmpvValue::Array(converted)
+            if arr.len() != param_types.len() {
+                return Err(anyhow::anyhow!(
+                    "argument count mismatch: expected {}, got {}",
+                    param_types.len(),
+                    arr.len()
+                ));
             }
-        };
 
-        let mut buf = Vec::new();
-        write_value(&mut buf, &res_val)?;
-        Ok(buf)
-    })
+            let mut wasm_args = Vec::new();
+            for (ty, val) in param_types.iter().zip(arr) {
+                let v = to_component_val(ty, val)?;
+                wasm_args.push(v);
+            }
+
+            let result_types = export.results(&store.as_context());
+            let mut results_buf = vec![Val::Bool(false); result_types.len()];
+
+            export
+                .call_async(&mut store, &wasm_args, &mut results_buf)
+                .await?;
+
+            let res_val = match results_buf.as_slice() {
+                [] => RmpvValue::Nil,
+                [val] => val_to_rmpv(val)?,
+                many => {
+                    let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
+                    RmpvValue::Array(converted)
+                }
+            };
+
+            let mut buf = Vec::new();
+            write_value(&mut buf, &res_val)?;
+            Ok(buf)
+        })
+    })?;
+
+    let mut result: Result<Vec<u8>> = Ok(Vec::new());
+
+    coio_call(
+        &mut |h: Box<JoinHandle<Result<Vec<u8>>>>| {
+            result = h
+                .join()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("thread panicked")));
+            0
+        },
+        handle,
+    );
+
+    result
 }
