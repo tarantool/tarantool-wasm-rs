@@ -1,0 +1,39 @@
+[
+  {
+    "name": "t-current",
+    "params": [],
+    "result": "session"
+  },
+  {
+    "name": "t-broadcast",
+    "params": [
+      [
+        "key",
+        "string"
+      ],
+      [
+        "value",
+        "string"
+      ]
+    ],
+    "result": "result<_, box-error>"
+  },
+  {
+    "name": "t-iproto-send",
+    "params": [
+      [
+        "session",
+        "session"
+      ],
+      [
+        "header",
+        "list<u8>"
+      ],
+      [
+        "body",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<_, box-error>"
+  }
+]
