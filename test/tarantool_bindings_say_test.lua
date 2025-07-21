@@ -11,7 +11,7 @@ local test_group = "bindings_say_test"
 local g = t.group(
     test_group,
     t.helpers.matrix({
-        lang = {"python"}
+        lang = {"python", "c", "js", "go"}
     })
 )
 
@@ -29,6 +29,22 @@ g.before_all(function(cg)
     })
 end)
 
+local function read_new_log()
+    local path = "luatest.log"
+    local fh = assert(io.open(path, "r"))
+    fh:seek("end")
+    local offset = fh:seek()
+    fh:close()
+
+    return function()
+        local fh = assert(io.open(path, "r"))
+        fh:seek("set", offset)
+        local content = fh:read("*a")
+        fh:close()
+        return content
+    end
+end
+
 local function log(cg, ctx)
     cg.m:t_say("s-info", "hello from t_say", ctx)
     cg.m:t_say_error("an error occurred", ctx)
@@ -41,15 +57,14 @@ local function log(cg, ctx)
 end
 
 g.test_say_interfaces = function(cg)
+    local get_new_log = read_new_log()
+
     local ok, res = pcall(log, cg)
     t.assert(ok)
 
     fiber.sleep(0.1)
 
-    local path = "luatest.log"
-    local fh = assert(io.open(path, "r"))
-    local content = fh:read("*a")
-    fh:close()
+    local content = get_new_log()
 
     t.assert_str_contains(content, "I> hello from t_say")
     t.assert_str_contains(content, "E> an error occurred")
