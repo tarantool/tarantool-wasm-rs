@@ -14,7 +14,7 @@ local test_group = "bindings_key_def_test"
 local g = t.group(
     test_group,
     t.helpers.matrix({
-        lang = {"python"}
+        lang = {"python", "c", "js", "go"}
     })
 )
 
