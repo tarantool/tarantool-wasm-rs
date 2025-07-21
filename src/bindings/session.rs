@@ -1,7 +1,7 @@
 use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::tarantool::tarantool::session;
 use crate::bindings::tarantool::tarantool::types::{BoxError, Session};
-use crate::bindings::types::validate_msgpack_array;
+use crate::bindings::types::validate_msgpack_map;
 use crate::ffi;
 use crate::tarantool_wasm::SyncWasmStates;
 use sha2::{Digest, Sha256};
@@ -20,11 +20,7 @@ impl session::Host for SyncWasmStates {
         header: Vec<u8>,
         body: Vec<u8>,
     ) -> Result<(), BoxError> {
-        if let Err(e) = validate_msgpack_array(&header) {
-            return Err(BoxError::new(&e, "ValidationError", 1));
-        }
-
-        if let Err(e) = validate_msgpack_array(&body) {
+        if let Err(e) = validate_msgpack_map(&header) {
             return Err(BoxError::new(&e, "ValidationError", 1));
         }
 
