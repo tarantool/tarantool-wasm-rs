@@ -28,4 +28,20 @@ utils.dec = function(msgpack_bytes)
     return msgpack.decode(str)
 end
 
+utils.dec_ptr = function(ptr)
+    local ffi = require('ffi')
+    local msgpack = require('msgpack')
+
+    local function safe_decode(p)
+        local max = 64
+        for i = 1, max do
+            local ok, val = pcall(msgpack.decode, ffi.string(p, i))
+            if ok then return val end
+        end
+        return nil, "Failed to decode"
+    end
+
+    return safe_decode(ffi.cast("const char*", ptr))
+end
+
 return utils
