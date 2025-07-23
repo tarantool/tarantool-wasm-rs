@@ -5,6 +5,7 @@ local fiber = require('fiber')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
+local read_new_log = utils.read_new_log
 
 local test_group = "bindings_say_test"
 
@@ -28,22 +29,6 @@ g.before_all(function(cg)
         wasm = wasm,
     })
 end)
-
-local function read_new_log()
-    local path = "luatest.log"
-    local fh = assert(io.open(path, "r"))
-    fh:seek("end")
-    local offset = fh:seek()
-    fh:close()
-
-    return function()
-        local fh = assert(io.open(path, "r"))
-        fh:seek("set", offset)
-        local content = fh:read("*a")
-        fh:close()
-        return content
-    end
-end
 
 local function log(cg, ctx)
     cg.m:t_say("s-info", "hello from t_say", ctx)

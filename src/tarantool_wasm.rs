@@ -84,9 +84,15 @@ impl SyncWasmStates {
     }
 
     pub(crate) async fn yield_now(&self) {
-        let yielder_handle = self.0.lock().unwrap().yielder.clone().unwrap();
-        let _ = yielder_handle.send(WasmFiberStatus::Suspended).await;
-        tokio::task::yield_now().await;
+        let maybe_yielder = {
+            let guard = self.0.lock().unwrap();
+            guard.yielder.clone()
+        };
+
+        if let Some(handle) = maybe_yielder {
+            let _ = handle.send(WasmFiberStatus::Suspended).await;
+            tokio::task::yield_now().await;
+        }
     }
 }
 

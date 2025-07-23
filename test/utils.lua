@@ -44,4 +44,20 @@ utils.dec_ptr = function(ptr)
     return safe_decode(ffi.cast("const char*", ptr))
 end
 
+utils.read_new_log = function(path)
+    path = path or "luatest.log"
+    local fh = assert(io.open(path, "r"))
+    fh:seek("end")
+    local offset = fh:seek()
+    fh:close()
+
+    return function()
+        local fh = assert(io.open(path, "r"))
+        fh:seek("set", offset)
+        local content = fh:read("*a")
+        fh:close()
+        return content
+    end
+end
+
 return utils
