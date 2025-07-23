@@ -1,0 +1,151 @@
+package docs:adder@0.1.0;
+
+world adder {
+  import tarantool:tarantool/types@0.1.1;
+  import tarantool:tarantool/txn@0.1.1;
+  import tarantool:tarantool/say@0.1.1;
+
+  export wasi:cli/run@0.2.3;
+}
+package tarantool:tarantool@0.1.1 {
+  interface types {
+    record box-error {
+      message: string,
+      %type: string,
+      code: u32,
+      payload: option<list<tuple<string, string>>>,
+      file: option<string>,
+      line: option<u32>,
+    }
+
+    record space {
+      id: s32,
+    }
+
+    record index {
+      id: s32,
+      space-id: s32,
+      index-base: s32,
+    }
+
+    record log-context {
+      filename: string,
+      line: u32,
+    }
+
+    enum log-level {
+      s-fatal,
+      s-syserror,
+      s-error,
+      s-crit,
+      s-warn,
+      s-info,
+      s-verbose,
+      s-debug,
+    }
+
+    record session {
+      id: s64,
+    }
+
+    enum txn-isolation-level {
+      txn-isolation-default,
+      txn-isolation-best-effort,
+      txn-isolation-read-committed,
+      txn-isolation-read-confirmed,
+      txn-isolation-linearizable,
+    }
+
+    enum iterator-type {
+      iter-eq,
+      iter-req,
+      iter-all,
+      iter-lt,
+      iter-le,
+      iter-ge,
+      iter-gt,
+      iter-bits-all-set,
+      iter-bits-any-set,
+      iter-bits-all-not-set,
+      iter-overlaps,
+      iter-neighbor,
+      iter-np,
+      iter-pp,
+    }
+
+    resource iterator {
+      new-iterator: static func(index: index, iterator-type: iterator-type, key: list<u8>) -> result<iterator, box-error>;
+      next: func() -> result<box-tuple, box-error>;
+    }
+
+    record sequence {
+      id: s32,
+    }
+
+    flags key-part-flags {
+      is-nullable,
+      exclude-null,
+    }
+
+    record key-part {
+      field-no: u32,
+      field-type: string,
+      collation: option<string>,
+      path: option<string>,
+      %flags: key-part-flags,
+    }
+
+    type box-tuple = u64;
+
+    type key-def = u64;
+
+    type tuple-format = u64;
+
+    type tuple-field = u64;
+  }
+  interface txn {
+    use types.{box-error, txn-isolation-level};
+
+    txn-id: func() -> s64;
+
+    txn-isolation: func() -> txn-isolation-level;
+
+    txn: func() -> bool;
+
+    begin: func() -> result<_, box-error>;
+
+    commit: func() -> result<_, box-error>;
+
+    rollback: func() -> result<_, box-error>;
+
+    txn-set-isolation: func(isolation: txn-isolation-level) -> result<_, box-error>;
+
+    txn-make-sync: func();
+  }
+  interface say {
+    use types.{log-level, log-context};
+
+    say: func(level: log-level, msg: string, ctx: option<log-context>);
+
+    say-error: func(msg: string, ctx: option<log-context>);
+
+    say-crit: func(msg: string, ctx: option<log-context>);
+
+    say-warn: func(msg: string, ctx: option<log-context>);
+
+    say-info: func(msg: string, ctx: option<log-context>);
+
+    say-verbose: func(msg: string, ctx: option<log-context>);
+
+    say-debug: func(msg: string, ctx: option<log-context>);
+
+    say-syserror: func(msg: string, ctx: option<log-context>);
+  }
+}
+
+
+package wasi:cli@0.2.3 {
+  interface run {
+    run: func() -> result;
+  }
+}
