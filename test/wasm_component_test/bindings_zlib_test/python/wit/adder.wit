@@ -1,0 +1,20 @@
+package docs:adder@0.1.0;
+
+interface zlib {
+  compress: func(data: list<u8>, level: u32) -> list<u8>;
+
+  decompress: func(data: list<u8>) -> list<u8>;
+
+  crc32: func(data: list<u8>) -> u32;
+
+  adler32: func(data: list<u8>) -> u32;
+}
+
+world adder {
+  import zlib;
+
+  export t-compress: func(data: list<u8>, level: u32) -> list<u8>;
+  export t-decompress: func(data: list<u8>) -> list<u8>;
+  export t-crc32: func(data: list<u8>) -> u32;
+  export t-adler32: func(data: list<u8>) -> u32;
+}

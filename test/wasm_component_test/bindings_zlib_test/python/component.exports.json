@@ -1,0 +1,46 @@
+[
+  {
+    "name": "t-compress",
+    "params": [
+      [
+        "data",
+        "list<u8>"
+      ],
+      [
+        "level",
+        "u32"
+      ]
+    ],
+    "result": "list<u8>"
+  },
+  {
+    "name": "t-decompress",
+    "params": [
+      [
+        "data",
+        "list<u8>"
+      ]
+    ],
+    "result": "list<u8>"
+  },
+  {
+    "name": "t-crc32",
+    "params": [
+      [
+        "data",
+        "list<u8>"
+      ]
+    ],
+    "result": "u32"
+  },
+  {
+    "name": "t-adler32",
+    "params": [
+      [
+        "data",
+        "list<u8>"
+      ]
+    ],
+    "result": "u32"
+  }
+]
