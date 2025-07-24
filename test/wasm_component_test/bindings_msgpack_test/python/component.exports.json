@@ -1,0 +1,32 @@
+[
+  {
+    "name": "t-encode",
+    "params": [
+      [
+        "data",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<list<u8>, box-error>"
+  },
+  {
+    "name": "t-decode",
+    "params": [
+      [
+        "data",
+        "list<u8>"
+      ]
+    ],
+    "result": "result<list<u8>, box-error>"
+  },
+  {
+    "name": "t-decode-from-raw-ptr",
+    "params": [
+      [
+        "ptr",
+        "u64"
+      ]
+    ],
+    "result": "result<list<u8>, box-error>"
+  }
+]
