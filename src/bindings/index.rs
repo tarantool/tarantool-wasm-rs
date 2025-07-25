@@ -1,7 +1,7 @@
 use crate::bindings::tarantool::tarantool::index;
 use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, IteratorType};
 use crate::bindings::types::{convert_iterator_type, validate_msgpack_array};
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use tarantool::index::{Index as TarantoolIndex, IndexId};
 use tarantool::space::SpaceId;

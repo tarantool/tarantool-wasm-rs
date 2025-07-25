@@ -1,30 +1,37 @@
-use crate::bindings::tarantool::tarantool::{
-    box_tuple, error, index, key_def, msgpack, say, sequence, session, ttbox, tuple_format, txn,
-    types,
+use std::{
+    collections::HashMap,
+    io::Cursor,
+    sync::{Arc, Mutex, RwLock},
+    thread::{self, JoinHandle},
+    time::Duration,
 };
-use crate::executor::{Executor, TxMode};
-use crate::wasm_fiber::WasmFiber;
-use crate::wasm_fiber::WasmFiberStatus;
+
 use anyhow::Result;
 use lazy_static::lazy_static;
 use nix::sys::signal::{SigSet, Signal};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::thread::JoinHandle;
-use std::time::Duration;
-use tarantool::fiber;
-use tarantool::trigger::on_shutdown;
-use tokio::sync::mpsc;
-use wasmtime::component::Component;
-use wasmtime::component::{Linker, ResourceTable};
-use wasmtime::Config;
-use wasmtime::{AsContext, Engine, Store};
+use rmpv::{decode::read_value, encode::write_value, Value as RmpvValue};
+use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
+use tokio::{runtime::Builder, sync::mpsc};
+use wasmtime::{
+    component::{Component, Linker, ResourceTable, Val},
+    AsContext, Config, Engine, Store,
+};
 use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 use wasmtime_wasi_tls::{LinkOptions, WasiTlsCtx};
 
-use crate::bindings::docs::adder::{wlua, zlib};
+use crate::bindings::{
+    docs::adder::zlib,
+    tarantool::tarantool::{
+        box_tuple, error, index, key_def, msgpack, say, sequence, session, ttbox, tuple_format,
+        txn, types,
+    },
+};
+use crate::runtime::{
+    convert::{to_component_val, val_to_rmpv},
+    executor::{Executor, TxMode},
+    wasm_fiber::{WasmFiber, WasmFiberStatus},
+};
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -171,7 +178,6 @@ impl RuntimeState {
         let _ = box_tuple::add_to_linker(&mut linker, |state| state);
 
         let _ = zlib::add_to_linker(&mut linker, |state| state);
-        let _ = wlua::add_to_linker(&mut linker, |state| state);
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
@@ -249,311 +255,6 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
     })?;
     Ok(handle)
 }
-
-use rmpv::decode::read_value;
-use rmpv::encode::write_value;
-use rmpv::Value as RmpvValue;
-use std::io::Cursor;
-use tokio::runtime::Builder;
-use wasmtime::component::Type;
-use wasmtime::component::Val;
-
-fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
-    Ok(match ty {
-        // Signed integers
-        Type::S8 => Val::S8(val.as_i64().ok_or_else(|| anyhow::anyhow!("expected s8"))? as i8),
-        Type::S16 => Val::S16(
-            val.as_i64()
-                .ok_or_else(|| anyhow::anyhow!("expected s16"))? as i16,
-        ),
-        Type::S32 => Val::S32(
-            val.as_i64()
-                .ok_or_else(|| anyhow::anyhow!("expected s32"))? as i32,
-        ),
-        Type::S64 => Val::S64(
-            val.as_i64()
-                .ok_or_else(|| anyhow::anyhow!("expected s64"))? as i64,
-        ),
-
-        // Unsigned integers
-        Type::U8 => Val::U8(val.as_u64().ok_or_else(|| anyhow::anyhow!("expected u8"))? as u8),
-        Type::U16 => Val::U16(
-            val.as_u64()
-                .ok_or_else(|| anyhow::anyhow!("expected u16"))? as u16,
-        ),
-        Type::U32 => Val::U32(
-            val.as_u64()
-                .ok_or_else(|| anyhow::anyhow!("expected u32"))? as u32,
-        ),
-        Type::U64 => Val::U64(
-            val.as_u64()
-                .ok_or_else(|| anyhow::anyhow!("expected u64"))? as u64,
-        ),
-
-        // Floats
-        Type::Float32 => {
-            let f = val
-                .as_f64()
-                .ok_or_else(|| anyhow::anyhow!("expected f32"))? as f32;
-            Val::Float32(f)
-        }
-        Type::Float64 => {
-            let f = val
-                .as_f64()
-                .ok_or_else(|| anyhow::anyhow!("expected f64"))?;
-            Val::Float64(f)
-        }
-
-        // Boolean
-        Type::Bool => Val::Bool(val.as_bool().unwrap_or(false)),
-
-        // String
-        Type::String => {
-            let s = val
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("expected string"))?;
-            Val::String(s.to_string())
-        }
-
-        // Char
-        Type::Char => {
-            let s = val
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("expected char string"))?;
-            let mut chars = s.chars();
-            let c = chars
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("empty string for char"))?;
-            if chars.next().is_some() {
-                return Err(anyhow::anyhow!("expected single character string"));
-            }
-            Val::Char(c)
-        }
-
-        // List
-        Type::List(list_ty) => {
-            let elem_ty = list_ty.ty();
-            let arr = val
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("expected array for list"))?;
-            let list = arr
-                .iter()
-                .map(|v| to_component_val(&elem_ty, v))
-                .collect::<Result<Vec<_>>>()?;
-            Val::List(list.into())
-        }
-
-        // Option
-        Type::Option(inner_ty) => match val {
-            RmpvValue::Nil => Val::Option(None),
-            _ => {
-                let inner = to_component_val(&inner_ty.ty(), val)?;
-                Val::Option(Some(Box::new(inner)))
-            }
-        },
-
-        // Tuple
-        Type::Tuple(tuple_ty) => {
-            let arr = val
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("expected array for tuple"))?;
-
-            let tys = tuple_ty.types();
-
-            if arr.len() != tys.len() {
-                return Err(anyhow::anyhow!(
-                    "tuple length mismatch: expected {}, got {}",
-                    tys.len(),
-                    arr.len()
-                ));
-            }
-
-            let items = arr
-                .iter()
-                .zip(tys)
-                .map(|(v, t)| to_component_val(&t, v))
-                .collect::<Result<Vec<_>>>()?;
-
-            Val::Tuple(items.into())
-        }
-
-        Type::Record(record_ty) => {
-            let map = val
-                .as_map()
-                .ok_or_else(|| anyhow::anyhow!("expected map for record"))?;
-
-            let mut fields = Vec::new();
-
-            for field in record_ty.fields() {
-                let key = RmpvValue::String(field.name.into());
-
-                let val_item = map
-                    .iter()
-                    .find(|(k, _)| *k == key)
-                    .map(|(_, v)| Some(v))
-                    .unwrap_or_else(|| {
-                        if matches!(field.ty, Type::Option(_)) {
-                            Some(&RmpvValue::Nil)
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or_else(|| anyhow::anyhow!("missing field `{}` in record", field.name))?;
-
-                let field_val = to_component_val(&field.ty, val_item)?;
-                fields.push((field.name.into(), field_val));
-            }
-
-            Val::Record(fields.into())
-        }
-
-        Type::Variant(variant_ty) => {
-            let map = val
-                .as_map()
-                .ok_or_else(|| anyhow::anyhow!("expected map for variant"))?;
-
-            if map.len() != 1 {
-                return Err(anyhow::anyhow!("expected exactly one key in variant"));
-            }
-
-            let (case_key, case_val) = map.iter().next().unwrap();
-
-            let case_name = match case_key {
-                RmpvValue::String(s) => s.as_str(),
-                _ => None,
-            }
-            .ok_or_else(|| anyhow::anyhow!("variant key must be string"))?;
-
-            let case = variant_ty
-                .cases()
-                .find(|c| c.name == case_name)
-                .ok_or_else(|| anyhow::anyhow!("unknown variant case: {}", case_name))?;
-
-            let val = match &case.ty {
-                Some(ty) => {
-                    let inner = to_component_val(ty, case_val)?;
-                    Val::Variant(case.name.to_string(), Some(Box::new(inner)))
-                }
-                None => {
-                    // allow 'true' and 'nil' as syntactic sugar for unit-like variants
-                    match case_val {
-                        RmpvValue::Boolean(true) | RmpvValue::Nil => {
-                            Val::Variant(case.name.to_string(), None)
-                        }
-                        _ => {
-                            return Err(anyhow::anyhow!(
-                                "unexpected payload for unit variant `{}`: {:?}",
-                                case.name,
-                                case_val
-                            ));
-                        }
-                    }
-                }
-            };
-
-            val
-        }
-
-        Type::Enum(enum_ty) => {
-            let s = val
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("expected string for enum"))?;
-
-            let case = enum_ty
-                .names()
-                .find(|&name| name == s)
-                .ok_or_else(|| anyhow::anyhow!("invalid enum case: {s}"))?;
-
-            Val::Enum(case.to_string())
-        }
-
-        Type::Flags(flags_ty) => {
-            let arr = val
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("expected array for flags"))?;
-
-            let mut active_flags = vec![];
-
-            for v in arr {
-                let name = v
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("expected string in flags array"))?;
-                if !flags_ty.names().any(|f| f == name) {
-                    return Err(anyhow::anyhow!("invalid flag name: {}", name));
-                }
-                active_flags.push(name.to_string());
-            }
-
-            Val::Flags(active_flags.into())
-        }
-
-        _ => return Err(anyhow::anyhow!("unsupported param type: {:?}", ty)),
-    })
-}
-
-pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
-    Ok(match val {
-        Val::S8(i) => RmpvValue::Integer((*i as i64).into()),
-        Val::U8(i) => RmpvValue::Integer((*i as i64).into()),
-        Val::S16(i) => RmpvValue::Integer((*i as i64).into()),
-        Val::U16(i) => RmpvValue::Integer((*i as i64).into()),
-        Val::S32(i) => RmpvValue::Integer((*i as i64).into()),
-        Val::U32(i) => RmpvValue::Integer((*i as i64).into()),
-        Val::S64(i) => RmpvValue::Integer((*i).into()),
-        Val::U64(i) => RmpvValue::Integer((*i as i64).into()),
-        Val::Float32(f) => RmpvValue::F64(*f as f64),
-        Val::Float64(f) => RmpvValue::F64(*f),
-        Val::Bool(b) => RmpvValue::Boolean(*b),
-        Val::Char(c) => RmpvValue::String(c.to_string().into()),
-        Val::String(s) => RmpvValue::String(s.clone().into()),
-        Val::Enum(s) => RmpvValue::String(s.clone().into()),
-
-        Val::List(list) => {
-            let items = list.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-            RmpvValue::Array(items)
-        }
-        Val::Tuple(items) => {
-            let values = items.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-            RmpvValue::Array(values)
-        }
-        Val::Record(fields) => {
-            let map = fields
-                .iter()
-                .map(|(k, v)| Ok((RmpvValue::String(k.clone().into()), val_to_rmpv(v)?)))
-                .collect::<Result<Vec<_>>>()?;
-            RmpvValue::Map(map)
-        }
-        Val::Variant(discriminant, value) => {
-            let name = discriminant.clone();
-            let v = if let Some(val) = value.as_ref() {
-                val_to_rmpv(val)?
-            } else {
-                RmpvValue::Nil
-            };
-            RmpvValue::Map(vec![(RmpvValue::String(name.into()), v)])
-        }
-        Val::Option(opt) => match opt {
-            Some(inner) => val_to_rmpv(inner)?,
-            None => RmpvValue::Nil,
-        },
-        Val::Result(r) => match r {
-            Ok(Some(v)) => RmpvValue::Array(vec![RmpvValue::Boolean(true), val_to_rmpv(v)?]),
-            Ok(None) => RmpvValue::Array(vec![RmpvValue::Boolean(true), RmpvValue::Nil]),
-            Err(Some(e)) => RmpvValue::Array(vec![RmpvValue::Boolean(false), val_to_rmpv(e)?]),
-            Err(None) => RmpvValue::Array(vec![RmpvValue::Boolean(false), RmpvValue::Nil]),
-        },
-        Val::Flags(flags) => {
-            let arr = flags
-                .iter()
-                .map(|s| RmpvValue::String(s.to_string().into()))
-                .collect::<Vec<_>>();
-            RmpvValue::Array(arr)
-        }
-        other => return Err(anyhow::anyhow!("Unsupported Val: {other:?}")),
-    })
-}
-
-use tarantool::coio::coio_call;
 
 pub fn tt_wasm_call_function(
     module_uid: String,

@@ -1,5 +1,5 @@
 use crate::bindings::docs::adder::zlib;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use flate2::{
     write::{ZlibDecoder, ZlibEncoder},

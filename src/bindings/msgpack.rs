@@ -1,6 +1,6 @@
 use crate::bindings::tarantool::tarantool::msgpack;
 use crate::bindings::tarantool::tarantool::types::BoxError;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use libc;
 use rmp_serde::{from_slice, to_vec};

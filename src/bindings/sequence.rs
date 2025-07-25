@@ -2,7 +2,7 @@ use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::tarantool::tarantool::sequence;
 use crate::bindings::tarantool::tarantool::types::{BoxError, Sequence};
 use crate::ffi;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 impl sequence::Host for SyncWasmStates {
     async fn next(&mut self, seq: Sequence) -> Result<i64, BoxError> {

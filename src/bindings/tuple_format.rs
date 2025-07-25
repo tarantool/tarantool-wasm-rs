@@ -2,7 +2,7 @@ use crate::bindings::error::handle_tarantool_error;
 use crate::bindings::tarantool::tarantool::tuple_format;
 use crate::bindings::tarantool::tarantool::types::{BoxError, KeyDef};
 use crate::ffi;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use tarantool::tuple::TupleFormat as TarantoolTupleFormat;
 

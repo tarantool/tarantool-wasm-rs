@@ -3,7 +3,7 @@ use crate::bindings::tarantool::tarantool::session;
 use crate::bindings::tarantool::tarantool::types::{BoxError, Session};
 use crate::bindings::types::validate_msgpack_map;
 use crate::ffi;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 use sha2::{Digest, Sha256};
 
 impl session::Host for SyncWasmStates {

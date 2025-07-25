@@ -2,7 +2,6 @@ package docs:adder@0.1.1;
 
 world adder {
   import zlib;
-  import wlua;
 
   import tarantool:tarantool/types@0.1.1;
   import tarantool:tarantool/msgpack@0.1.1;
@@ -60,8 +59,4 @@ interface zlib {
   decompress: func(data: list<u8>) -> list<u8>;
   crc32: func(data: list<u8>) -> u32;
   adler32: func(data: list<u8>) -> u32;
-}
-
-interface wlua {
-  call: func(code: string) -> string;
 }

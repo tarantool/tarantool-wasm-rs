@@ -1,6 +1,6 @@
 use crate::bindings::tarantool::tarantool::error;
 use crate::bindings::tarantool::tarantool::types::BoxError;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use std::ffi::CString;
 

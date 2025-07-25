@@ -4,7 +4,7 @@ use crate::bindings::tarantool::tarantool::types::{
     BoxError, BoxTuple, KeyDef, KeyPart, KeyPartFlags,
 };
 use crate::ffi;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use std::ffi::CString;
 use std::mem::ManuallyDrop;

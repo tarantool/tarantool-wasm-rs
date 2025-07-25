@@ -1,4 +1,4 @@
-use crate::tx::{tx_flush, tx_push, TxCtx};
+use crate::runtime::tx::{tx_flush, tx_push, TxCtx};
 use tokio::sync::oneshot;
 use wasmtime_wasi::async_trait;
 

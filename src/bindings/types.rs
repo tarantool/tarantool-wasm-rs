@@ -1,6 +1,6 @@
 use crate::bindings::tarantool::tarantool::types::{self, BoxError, BoxTuple, Index, IteratorType};
 use crate::bindings::IteratorImpl;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use wasmtime::component::Resource;
 
@@ -27,7 +27,6 @@ pub fn validate_msgpack_map(data: &[u8]) -> Result<(), String> {
         Err(e) => Err(format!("Invalid MsgPack data: {}", e)),
     }
 }
-
 
 unsafe impl Send for IteratorImpl {}
 unsafe impl Sync for IteratorImpl {}

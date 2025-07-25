@@ -31,5 +31,4 @@ pub mod tuple_format;
 pub mod txn;
 pub mod types;
 
-pub mod wlua;
 pub mod zlib;

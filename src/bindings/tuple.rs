@@ -4,7 +4,7 @@ use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, KeyDef, T
 use crate::bindings::types::validate_msgpack_array;
 use crate::bindings::TupleIteratorImpl;
 use crate::ffi;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use wasmtime::component::Resource;
 

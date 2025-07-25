@@ -1,13 +1,20 @@
-use crate::tarantool_wasm::SyncWasmStates;
-use crate::tx::{tx_flush, tx_push, TxCtx};
-use anyhow::Result;
 use std::sync::Arc;
-use tokio::runtime::Builder;
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
-use wasmtime::component::{Component, Linker};
-use wasmtime::Store;
+
+use anyhow::Result;
+use tokio::{
+    runtime::Builder,
+    sync::{mpsc, oneshot},
+};
+use wasmtime::{
+    component::{Component, Linker},
+    Store,
+};
 use wasmtime_wasi::p2::bindings::Command;
+
+use crate::runtime::{
+    tarantool_wasm::SyncWasmStates,
+    tx::{tx_flush, tx_push, TxCtx},
+};
 
 pub(crate) enum WasmFiberStatus {
     Suspended,

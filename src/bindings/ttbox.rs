@@ -2,7 +2,7 @@ use crate::bindings::tarantool::tarantool::ttbox;
 use crate::bindings::tarantool::tarantool::types::{BoxError, Index, Space};
 use crate::bindings::types::validate_msgpack_array;
 use crate::ffi;
-use crate::tarantool_wasm::SyncWasmStates;
+use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use tarantool::index::{Index as TarantoolIndex, IndexId};
 use tarantool::space::{Space as TarantoolSpace, SpaceId};
