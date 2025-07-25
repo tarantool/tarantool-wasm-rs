@@ -6,12 +6,10 @@ use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 impl sequence::Host for SyncWasmStates {
     async fn next(&mut self, seq: Sequence) -> Result<i64, BoxError> {
-        let seq_copy = seq.clone();
-
         self.executor()
             .execute(move || {
                 let mut res: i64 = 0;
-                let rc = unsafe { ffi::r#box::box_sequence_next(seq_copy.id as u32, &mut res) };
+                let rc = unsafe { ffi::r#box::box_sequence_next(seq.id as u32, &mut res) };
 
                 match rc {
                     0 => Ok(res),
@@ -32,12 +30,9 @@ impl sequence::Host for SyncWasmStates {
     }
 
     async fn set(&mut self, seq: Sequence, value: i64) -> Result<(), BoxError> {
-        let seq_copy = seq.clone();
-        let value_copy = value.clone();
-
         self.executor()
             .execute(move || {
-                let rc = unsafe { ffi::r#box::box_sequence_set(seq_copy.id as u32, value_copy) };
+                let rc = unsafe { ffi::r#box::box_sequence_set(seq.id as u32, value) };
 
                 match rc {
                     0 => Ok(()),
@@ -48,11 +43,9 @@ impl sequence::Host for SyncWasmStates {
     }
 
     async fn reset(&mut self, seq: Sequence) -> Result<(), BoxError> {
-        let seq_copy = seq.clone();
-
         self.executor()
             .execute(move || {
-                let rc = unsafe { ffi::r#box::box_sequence_reset(seq_copy.id as u32) };
+                let rc = unsafe { ffi::r#box::box_sequence_reset(seq.id as u32) };
 
                 match rc {
                     0 => Ok(()),

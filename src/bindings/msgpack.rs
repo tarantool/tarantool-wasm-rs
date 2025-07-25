@@ -17,7 +17,7 @@ impl msgpack::Host for SyncWasmStates {
 
         match to_vec(&deserialized) {
             Ok(msgpack) => Ok(msgpack),
-            Err(e) => return Err(BoxError::new(e.to_string(), "MsgpackError", 1)),
+            Err(e) => Err(BoxError::new(e.to_string(), "MsgpackError", 1)),
         }
     }
 
@@ -29,7 +29,7 @@ impl msgpack::Host for SyncWasmStates {
 
         match serde_json::to_vec(&deserialized) {
             Ok(json_bytes) => Ok(json_bytes),
-            Err(e) => return Err(BoxError::new(e.to_string(), "JsonError", 1)),
+            Err(e) => Err(BoxError::new(e.to_string(), "JsonError", 1)),
         }
     }
 
@@ -54,7 +54,7 @@ impl msgpack::Host for SyncWasmStates {
                     .map_err(|e| BoxError::new(e.to_string(), "JsonError", 1))?;
                 Ok(json_bytes)
             }
-            Err(e) => return Err(BoxError::new(e.to_string(), "MsgpackError", 1)),
+            Err(e) => Err(BoxError::new(e.to_string(), "MsgpackError", 1)),
         }
     }
 }

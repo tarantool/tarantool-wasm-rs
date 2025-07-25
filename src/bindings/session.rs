@@ -9,9 +9,7 @@ use sha2::{Digest, Sha256};
 impl session::Host for SyncWasmStates {
     async fn current(&mut self) -> Session {
         let session_id = unsafe { ffi::session::box_session_id() };
-        return Session {
-            id: session_id as i64,
-        };
+        Session { id: session_id as i64 }
     }
 
     async fn iproto_send(
@@ -67,17 +65,17 @@ impl session::Host for SyncWasmStates {
                 let mut hasher = Sha256::new();
                 hasher.update(value_copy.as_bytes());
                 let hash = hasher.finalize();
-                let hash_str = format!("{:x}", hash);
-                let var_name = format!("__wasm_{}", hash_str);
+                let hash_str = format!("{hash:x}");
+                let var_name = format!("__wasm_{hash_str}");
                 let lua = tarantool::lua_state();
-                lua.exec_with(&format!("{} = {};", var_name, value_copy), ())
+                lua.exec_with(&format!("{var_name} = {value_copy};"), ())
                     .unwrap();
                 let broadcast_result =
-                    lua.exec_with(&format!("box.broadcast(..., {})", var_name), key_copy);
+                    lua.exec_with(&format!("box.broadcast(..., {var_name})"), key_copy);
 
                 if let Err(err) = broadcast_result {
                     return Err(BoxError::new(
-                        format!("Lua error during broadcast: {:?}", err),
+                        format!("Lua error during broadcast: {err:?}"),
                         "LuaError",
                         1,
                     ));

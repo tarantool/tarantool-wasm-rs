@@ -64,7 +64,7 @@ impl key_def::Host for SyncWasmStates {
         let mut c_collations = Vec::with_capacity(part_count);
         let mut c_paths = Vec::with_capacity(part_count);
 
-        for (_, part) in parts.iter().enumerate() {
+        for part in parts.iter() {
             let field_type_str = field_type_to_id(&part.field_type)?;
             let field_type_cstr = CString::new(field_type_str)
                 .map_err(|_| BoxError::new("Invalid field_type", "validation error", 2))?;

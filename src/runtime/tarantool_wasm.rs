@@ -59,8 +59,8 @@ impl WasmStates {
 
         let ctx = builder.build();
         Self {
-            table: table,
-            ctx: ctx,
+            table,
+            ctx,
             http: WasiHttpCtx::new(),
             yielder: None,
             executor: Executor::TxPush, // start outside the transaction
@@ -290,7 +290,7 @@ pub fn tt_wasm_call_function(
                 .get_func(&mut store, &func)
                 .ok_or_else(|| anyhow::anyhow!(format!("function export `{}` not found", func)))?;
 
-            let params = export.params(&store.as_context());
+            let params = export.params(store.as_context());
             let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
 
             let mp_value = read_value(&mut Cursor::new(&msgpack_args))?;
@@ -312,7 +312,7 @@ pub fn tt_wasm_call_function(
                 wasm_args.push(v);
             }
 
-            let result_types = export.results(&store.as_context());
+            let result_types = export.results(store.as_context());
             let mut results_buf = vec![Val::Bool(false); result_types.len()];
 
             export
@@ -386,7 +386,7 @@ pub fn tt_wasm_call_functions(
                     anyhow::anyhow!(format!("function export `{}` not found", func))
                 })?;
 
-                let params = export.params(&store.as_context());
+                let params = export.params(store.as_context());
                 let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
 
                 let mp_value = read_value(&mut Cursor::new(&msgpack_args))?;
@@ -409,7 +409,7 @@ pub fn tt_wasm_call_functions(
                     wasm_args.push(v);
                 }
 
-                let result_types = export.results(&store.as_context());
+                let result_types = export.results(store.as_context());
                 let mut results_buf = vec![Val::Bool(false); result_types.len()];
 
                 export
@@ -445,6 +445,5 @@ pub fn tt_wasm_call_functions(
         },
         handle,
     );
-    println!("WASM result (msgpack): {:?}", result);
     result
 }

@@ -111,17 +111,17 @@ impl error::Host for SyncWasmStates {
         let mut output = format!("[{}] {}: {}", err.code, err.type_, err.message);
 
         if let (Some(file), Some(line)) = (err.file.as_ref(), err.line) {
-            output.push_str(&format!(" (at {}:{})", file, line));
+            output.push_str(&format!(" (at {file}:{line})"));
         } else if let Some(file) = err.file.as_ref() {
-            output.push_str(&format!(" (in file {})", file));
+            output.push_str(&format!(" (in file {file})"));
         } else if let Some(line) = err.line {
-            output.push_str(&format!(" (at line {})", line));
+            output.push_str(&format!(" (at line {line})"));
         }
 
         if let Some(ref payload) = err.payload {
             output.push_str("\nPayload:");
             for (k, v) in payload {
-                output.push_str(&format!("\n  - {}: {}", k, v));
+                output.push_str(&format!("\n  - {k}: {v}"));
             }
         }
 

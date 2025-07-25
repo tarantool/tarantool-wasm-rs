@@ -46,7 +46,7 @@ impl WasmFiber {
             let command = Command::instantiate_async(&mut store, &component, &linker).await?;
             let result = command.wasi_cli_run().call_run(&mut store).await;
             finalizer.send(WasmFiberStatus::Finished).await?;
-            Ok::<Result<(), ()>, wasmtime::Error>(result?)
+            result
         });
         WasmFiber { rt, awaiter }
     }

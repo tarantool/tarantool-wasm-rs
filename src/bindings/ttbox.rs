@@ -21,7 +21,7 @@ impl ttbox::Host for SyncWasmStates {
                 id: space.id() as i32,
             }),
             None => Err(BoxError::new(
-                &format!("Space '{}' not found", name),
+                format!("Space '{name}' not found"),
                 "SpaceNotFound",
                 1,
             )),
@@ -38,7 +38,7 @@ impl ttbox::Host for SyncWasmStates {
                 index_base: 0,
             }),
             None => Err(BoxError::new(
-                &format!("Index '{}' not found in space {}", name, space.id),
+                format!("Index '{}' not found in space {}", name, space.id),
                 "IndexNotFound",
                 1,
             )),
@@ -51,16 +51,15 @@ impl ttbox::Host for SyncWasmStates {
         }
 
         let tup_copy = tup.clone();
-        let space_copy = space.clone();
 
         self.executor()
             .execute(move || {
-                let spc = unsafe { TarantoolSpace::from_id_unchecked(space_copy.id as SpaceId) };
+                let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
                 let tuple = unsafe { TarantoolTuple::from_slice(&tup_copy) };
                 match spc.insert(&tuple) {
-                    Ok(t) => return Ok(t.as_ptr() as BoxTuple),
-                    Err(e) => return Err(BoxError::new(e.to_string(), "InsertError", 1)),
+                    Ok(t) => Ok(t.as_ptr() as BoxTuple),
+                    Err(e) => Err(BoxError::new(e.to_string(), "InsertError", 1)),
                 }
             })
             .await
@@ -79,7 +78,6 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(&e, "ValidationError", 1));
         }
 
-        let index_copy = index.clone();
         let key_copy = key.clone();
         let ops_copy = ops.clone();
 
@@ -87,8 +85,8 @@ impl ttbox::Host for SyncWasmStates {
             .execute(move || {
                 let ind = unsafe {
                     TarantoolIndex::from_ids_unchecked(
-                        index_copy.space_id as SpaceId,
-                        index_copy.id as IndexId,
+                        index.space_id as SpaceId,
+                        index.id as IndexId,
                     )
                 };
 
@@ -111,16 +109,15 @@ impl ttbox::Host for SyncWasmStates {
         }
 
         let tup_copy = tup.clone();
-        let space_copy = space.clone();
 
         self.executor()
             .execute(move || {
-                let spc = unsafe { TarantoolSpace::from_id_unchecked(space_copy.id as SpaceId) };
+                let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
                 let tuple = unsafe { TarantoolTuple::from_slice(&tup_copy) };
                 match spc.replace(&tuple) {
-                    Ok(t) => return Ok(t.as_ptr() as BoxTuple),
-                    Err(e) => return Err(BoxError::new(e.to_string(), "ReplaceError", 1)),
+                    Ok(t) => Ok(t.as_ptr() as BoxTuple),
+                    Err(e) => Err(BoxError::new(e.to_string(), "ReplaceError", 1)),
                 }
             })
             .await
@@ -134,7 +131,6 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(&e, "ValidationError", 1));
         }
 
-        let index_copy = index.clone();
         let key_copy = key.clone();
         let ops_copy = ops.clone();
 
@@ -142,8 +138,8 @@ impl ttbox::Host for SyncWasmStates {
             .execute(move || {
                 let ind = unsafe {
                     TarantoolIndex::from_ids_unchecked(
-                        index_copy.space_id as SpaceId,
-                        index_copy.id as IndexId,
+                        index.space_id as SpaceId,
+                        index.id as IndexId,
                     )
                 };
 
@@ -160,15 +156,14 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(&e, "ValidationError", 1));
         }
 
-        let index_copy = index.clone();
         let key_copy = key.clone();
 
         self.executor()
             .execute(move || {
                 let ind = unsafe {
                     TarantoolIndex::from_ids_unchecked(
-                        index_copy.space_id as SpaceId,
-                        index_copy.id as IndexId,
+                        index.space_id as SpaceId,
+                        index.id as IndexId,
                     )
                 };
 
@@ -187,15 +182,13 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn truncate(&mut self, space: Space) -> Result<(), BoxError> {
-        let space_copy = space.clone();
-
         self.executor()
             .execute(move || {
-                let spc = unsafe { TarantoolSpace::from_id_unchecked(space_copy.id as SpaceId) };
+                let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
                 match spc.truncate() {
                     Ok(()) => Ok(()),
-                    Err(e) => return Err(BoxError::new(e.to_string(), "InsertError", 1)),
+                    Err(e) => Err(BoxError::new(e.to_string(), "InsertError", 1)),
                 }
             })
             .await

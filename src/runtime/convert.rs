@@ -17,7 +17,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
         ),
         Type::S64 => Val::S64(
             val.as_i64()
-                .ok_or_else(|| anyhow::anyhow!("expected s64"))? as i64,
+            .ok_or_else(|| anyhow::anyhow!("expected s64"))?,
         ),
 
         // Unsigned integers
@@ -32,7 +32,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
         ),
         Type::U64 => Val::U64(
             val.as_u64()
-                .ok_or_else(|| anyhow::anyhow!("expected u64"))? as u64,
+                .ok_or_else(|| anyhow::anyhow!("expected u64"))?,
         ),
 
         // Floats
@@ -85,7 +85,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
                 .iter()
                 .map(|v| to_component_val(&elem_ty, v))
                 .collect::<Result<Vec<_>>>()?;
-            Val::List(list.into())
+            Val::List(list)
         }
 
         // Option
@@ -119,7 +119,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
                 .map(|(v, t)| to_component_val(&t, v))
                 .collect::<Result<Vec<_>>>()?;
 
-            Val::Tuple(items.into())
+            Val::Tuple(items)
         }
 
         Type::Record(record_ty) => {
@@ -149,7 +149,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
                 fields.push((field.name.into(), field_val));
             }
 
-            Val::Record(fields.into())
+            Val::Record(fields)
         }
 
         Type::Variant(variant_ty) => {
@@ -229,7 +229,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
                 active_flags.push(name.to_string());
             }
 
-            Val::Flags(active_flags.into())
+            Val::Flags(active_flags)
         }
 
         _ => return Err(anyhow::anyhow!("unsupported param type: {:?}", ty)),

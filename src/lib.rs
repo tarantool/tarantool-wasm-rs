@@ -49,10 +49,10 @@ fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
     );
     match result {
         Ok(()) => {
-            return Ok(true);
+            Ok(true)
         }
         Err(err) => {
-            return Err(LuaError::runtime(err));
+            Err(LuaError::runtime(err))
         }
     }
 }

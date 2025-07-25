@@ -12,8 +12,8 @@ pub fn validate_msgpack_array(data: &[u8]) -> Result<(), String> {
     }
     match read_value(&mut &data[..]) {
         Ok(val) if val.is_array() => Ok(()),
-        Ok(other) => Err(format!("Expected MsgPack array, got {:?}", other)),
-        Err(e) => Err(format!("Invalid MsgPack data: {}", e)),
+        Ok(other) => Err(format!("Expected MsgPack array, got {other:?}")),
+        Err(e) => Err(format!("Invalid MsgPack data: {e}")),
     }
 }
 
@@ -23,8 +23,8 @@ pub fn validate_msgpack_map(data: &[u8]) -> Result<(), String> {
     }
     match read_value(&mut &data[..]) {
         Ok(val) if val.is_map() => Ok(()),
-        Ok(other) => Err(format!("Expected MsgPack map, got {:?}", other)),
-        Err(e) => Err(format!("Invalid MsgPack data: {}", e)),
+        Ok(other) => Err(format!("Expected MsgPack map, got {other:?}")),
+        Err(e) => Err(format!("Invalid MsgPack data: {e}")),
     }
 }
 
@@ -80,7 +80,7 @@ impl types::HostIterator for SyncWasmStates {
 
         let iter = ind
             .select(native_iter_type, &tuple)
-            .map_err(|e| BoxError::new(&e.to_string(), "IteratorInit", 1))?;
+            .map_err(|e| BoxError::new(e.to_string(), "IteratorInit", 1))?;
 
         Ok(self
             .0
@@ -96,7 +96,7 @@ impl types::HostIterator for SyncWasmStates {
         let iter = guard
             .table
             .get_mut(&self_)
-            .map_err(|e| BoxError::new(format!("Resource error: {}", e), "internal", 2))?;
+            .map_err(|e| BoxError::new(format!("Resource error: {e}"), "internal", 2))?;
 
         match iter.inner.next() {
             Some(t) => Ok(t.as_ptr() as BoxTuple),

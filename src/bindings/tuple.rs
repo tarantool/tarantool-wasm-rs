@@ -120,7 +120,7 @@ impl box_tuple::Host for SyncWasmStates {
 
         if ptr.is_null() {
             return Err(BoxError::new(
-                format!("Field '{}' not found", path),
+                format!("Field '{path}' not found"),
                 "TupleError",
                 1,
             ));
@@ -170,12 +170,11 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         &mut self,
         tup: BoxTuple,
     ) -> Result<Resource<TupleIteratorImpl>, BoxError> {
-        let tup_copy = tup.clone();
 
         let send_ptr: SendPtr<ffi::types::BoxTupleIteratorT> = self
             .executor()
             .execute(move || {
-                let ptr = unsafe { ffi::tuple::box_tuple_iterator(tup_copy as *mut _) };
+                let ptr = unsafe { ffi::tuple::box_tuple_iterator(tup as *mut _) };
                 if ptr.is_null() {
                     Err(handle_tarantool_error())
                 } else {
@@ -204,8 +203,7 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
             .map_err(|e| BoxError::new(e.to_string(), "ResourceTableError", 1))
             .unwrap();
 
-        let res = unsafe { ffi::tuple::box_tuple_position(iter.iter) };
-        res
+        unsafe { ffi::tuple::box_tuple_position(iter.iter) }
     }
 
     async fn rewind(&mut self, self_: Resource<box_tuple::TupleIterator>) {
