@@ -40,7 +40,7 @@ Below are three separate diagrams for `wasm.run`, `wasm.call`, and `wasm.batch`.
 
 ```mermaid
 flowchart TD
-    subgraph Lua\nthread
+    subgraph Lua thread
         LR[wasm.run]
     end
 
@@ -64,7 +64,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph Lua\nthread
+    subgraph Lua thread
         LC[wasm.call]
     end
 
@@ -72,7 +72,7 @@ flowchart TD
 
     subgraph Worker thread
         FC -- spawn --> ST[spawn_tt_thread]
-        ST -- start --> TR[Tokio runtime & WasmFiber]
+        ST -- start --> TR[Tokio runtime]
         TR -- instantiate --> CI[instantiate_async]
         CI -- lookup --> Find[find export]
         Find -- call --> CCall[export.call_async]
@@ -89,7 +89,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph Lua\nthread
+    subgraph Lua thread
         LB[wasm.batch]
     end
 
@@ -97,7 +97,7 @@ flowchart TD
 
     subgraph Worker thread
         FB -- spawn --> ST[spawn_tt_thread]
-        ST -- start --> TR[Tokio runtime & WasmFiber]
+        ST -- start --> TR[Tokio runtime]
         TR -- loop --> Loop{{for each call}}
         Loop -- store --> BS[new Store]
         BS -- instantiate --> BI[instantiate_async]

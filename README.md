@@ -1,196 +1,173 @@
 # tarantool-wasm
 
-### Main Repositories:
+A library for integrating WebAssembly (WASM) components into Tarantool.
 
-1. **[tarawasm](https://github.com/mandesero/tarawasm)** – A CLI utility for working with WebAssembly (WASM) modules written in guest languages. Currently supports Python, Go, JavaScript, C/C++ and Rust.
-2. **[tarantool-wasm-rs](https://github.com/mandesero/tarantool-wasm-rs)** – A library for WASM integration in Tarantool.
-3. **[tarantool-wit](https://github.com/mandesero/tarantool-wit)** – Interface definitions (WIT) for working with Tarantool in WASM.
-4. **[tarantool-wasm-samples](https://github.com/mandesero/tarantool-wasm-samples)** - Working with Tarantool WASM Examples.
+## Main Repositories
 
----
+1. **[tarawasm](https://github.com/mandesero/tarawasm)** – A CLI tool for building and managing WebAssembly components written in guest languages. Currently supports Python, Go, JavaScript, C/C++, and Rust.
 
-## CLI: Using tarawasm
+2. **[tarantool-wit](https://github.com/mandesero/tarantool-wit)** – Interface definitions (WIT) for exposing Tarantool APIs to WASM modules.
 
-### Installation via Docker
+3. **[tarantool-wasm-samples](https://github.com/mandesero/tarantool-wasm-samples)** – Examples demonstrating how to use Tarantool with WASM.
 
-```sh
-$ docker pull mandeser0/tarawasm:latest
-```
+4. **[tarantool-wasm-module](https://github.com/mandesero/tarantool/tree/wasm-module)** *(Work in Progress)* – A patched Tarantool build with native WASM runtime integration and Lua bindings.
 
-### Optional alias for convenience:
-
-```sh
-$ alias tarawasm='docker run --rm -v "$PWD":/work -w /work mandeser0/tarawasm'
-```
-
-To start using the utility, you need precompiled WASM interfaces that will be used by your WASM component.
-
-Example components can be found at:
-**[https://github.com/mandesero/tarawasm/tree/master/examples](https://github.com/mandesero/tarawasm/tree/master/examples)**
-(see `<lang>/docs:adder@0.1.0.wasm`)
-
-### Basic Example:
-
-```sh
-$ mkdir my-component && cd my-component
-$ cp <path-to>/docs:adder@0.1.0.wasm .
-$ tarawasm init --lang python --wasm-file docs:adder@0.1.0.wasm adder
-$ tarawasm bind
-$ tarawasm build
-# This will produce `adder.wasm`, which can be executed using any WASM runtime such as `wasmtime` or `tarantool-wasm`.
-```
-
-The `tarawasm` CLI acts as a wrapper around various WASM tools depending on the guest language. You can override the default behavior and specify custom options for `bind` and `build`.
+See [developer\_guide.md](docs/developer_guide.md) for details on architecture and contribution workflow.
 
 ---
 
-### Language-specific Examples
+## Table of Contents
 
-**Python:**
+* [Building the Patched Tarantool](#building-the-patched-tarantool-wasm-compatible-with-fiber-signal-stack-disabled)
+* [Building the WASM Runtime Library](#building-the-wasm-runtime-library)
+* [Working with tarawasm](#working-with-tarawasm)
+* [Manual WIT Interface Definition](#manual-wit-interface-definition)
+* [Using in Tarantool](#using-in-tarantool)
 
-```sh
-$ tarawasm init --lang python --wasm-file docs:adder@0.1.0.wasm adder
-$ tarawasm bind --help
-# Output:
-A utility to convert Python apps into Wasm components
-
-Usage: componentize-py [OPTIONS] <COMMAND>
-Options:
-  -d, --wit-path <WIT_PATH>   File or directory containing WIT document(s)
-...
-```
-
-**Rust:**
-
-```sh
-$ tarawasm init --lang rust --wasm-file docs:adder@0.1.0.wasm adder
-$ tarawasm bind --help
-# Output:
-Just update the generated bindings.
-
-The generated bindings are created automatically by subcommands like `cargo component build`. Use `cargo component bindings` if you only want to generate the bindings.
-
-Usage: cargo component bindings [OPTIONS]
-Options:
-  -q, --quiet   Do not print log messages
-...
-```
-
-By default, all necessary options for `bind` and `build` are preconfigured, but you may override them manually.
+  * [Option 1: Using wasm.so directly](#option-1-using-wasmso-directly)
+  * [Option 2: Using luawasm wrapper](#option-2-using-luawasm-wrapper)
 
 ---
 
-## WASM Library Integration
+## Building the Patched Tarantool (WASM-Compatible with Fiber Signal Stack Disabled)
 
-### Dependencies:
-
-* **Rust**
+To enable WASM integration, build Tarantool with `TARANTOOL_WASM=ON`:
 
 ```sh
-$ curl https://sh.rustup.rs -sSf | sh
-```
+git clone https://github.com/mandesero/tarantool
+cd tarantool
+git checkout wasm-module
 
-* **wkg**
-
-```sh
-$ cargo install wkg
-```
-
-* **just**
-
-```sh
-$ cargo install just
-```
-
-### Clone and build the library:
-
-```sh
-$ git clone git@github.com:mandesero/tarantool-wasm-rs.git
-$ cd tarantool-wasm-rs
-$ git checkout mandesero/wit-impl
-$ just
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_BACKTRACE=ON -DTARANTOOL_WASM=ON
+make -j
 ```
 
 ---
 
-## Building Patched Tarantool (WASM-compatible with fiber stack disabled)
+## Building the WASM Runtime Library
+
+Clone the runtime:
 
 ```sh
-$ git clone https://github.com/mandesero/tarantool
-$ cd tarantool
-$ git checkout wasm
+git clone https://github.com/mandesero/tarantool-wasm-rs.git
+cd tarantool-wasm-rs
+git checkout mandesero/wit-impl
+```
 
-$ mkdir build && cd build
-$ cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_BACKTRACE=ON -DTARANTOOL_WASM=ON
-$ make -j
+Install Rust (see [rust-lang.org](https://www.rust-lang.org/tools/install)):
+
+```sh
+curl https://sh.rustup.rs -sSf | sh
+```
+
+Install the `just` build tool (see [casey/just](https://github.com/casey/just)):
+
+```sh
+# Faster
+sudo apt install just
+
+# Or slower via Cargo
+cargo install just
+```
+
+Install `wkg`, a WIT package manager (see [wasm-pkg-tools](https://github.com/bytecodealliance/wasm-pkg-tools)):
+
+```sh
+cargo install wkg
+```
+
+Patch `wkg` config with the local path to `tarantool-wit` interfaces:
+
+```sh
+just patch-wkg-config
+```
+
+Build the library:
+
+```sh
+just
+```
+
+Then place the compiled `.so` file in a location accessible to Tarantool:
+
+```sh
+sudo ln -s <path-to>/target/debug/libtarantool_wasm_rs.so /usr/local/lib/tarantool/wasm.so
 ```
 
 ---
 
-## Running a WASM Component in Tarantool
+## Working with `tarawasm`
 
-Example Lua script:
-(see more examples at: [https://github.com/mandesero/tarantool-wasm-rs/tree/mandesero/wit-impl/examples](https://github.com/mandesero/tarantool-wasm-rs/tree/mandesero/wit-impl/examples))
+Install `tarawasm` (see [tarawasm repo](https://github.com/mandesero/tarawasm)).
 
-```lua
--- run.lua
-local wasm = require('my_module')
-local wasm_module_path = ...
-
-log.info("Load WASM module...")
-local module = wasm.load(wasm_module_path)
-
-log.info("Run WASM module...")
-local handle = wasm.run(module)
-
-wasm.join(handle)
-log.info("WASM module finished...")
-```
-
-Run with:
+To initialize a new WASM component, you need a precompiled `.wasm` interface file. Build it using:
 
 ```sh
-$ tarantool run.lua <path-to-wasm>
+wkg wit build
 ```
 
-## Using Exported Functions from a Component
+This will produce something like `docs:adder@0.1.1.wasm`, where `adder` is the WIT world name.
 
-This guide demonstrates how to call exported WebAssembly functions from Lua in Tarantool using the `wasm` components.
+Start a new component:
 
 ```sh
-$ mkdir my-component && cd my-component
-$ cp <path-to>/docs:adder@0.1.0.wasm .
-$ tarawasm init --lang python --wasm-file docs:adder@0.1.0.wasm adder
+mkdir my-component && cd my-component
+cp ../docs:adder@0.1.0.wasm .
+tarawasm init --lang python --wasm-file docs:adder@0.1.0.wasm adder
+tarawasm bind
 ```
 
-Edit `wit/world.wit` to define your exports:
+This generates all required boilerplate. See full examples in [tarantool-wasm-samples](https://github.com/mandesero/tarantool-wasm-samples).
+
+---
+
+## Manual WIT Interface Definition
+
+You may define your own `.wit` file in the `wit/` directory of your project. For example:
 
 ```wit
-world adder {
+package example:<your-world>@0.1.0;
+
+world <your-world> {
+  // Optional Tarantool APIs
+  import tarantool:tarantool/types@0.1.1;
+  import tarantool:tarantool/say@0.1.1;
   ...
+
+  // Optional standard WASI interfaces
+  import wasi:cli/environment@0.2.3;
+  import wasi:cli/exit@0.2.3;
+  ...
+
+  // Optional WASI run interface (only needed for fiber execution)
+  export wasi:cli/run@0.2.3;
+
+  // Custom exports
   export add: func(x: s32, y: s32) -> s32;
-  export greet: func(name: string) -> string;
-  export concat: func(items: list<string>) -> string;
-  export split: func(str: string, sep: string) -> list<string>;
-  ...
 }
 ```
 
-Generate bindings:
+Build the interface:
 
 ```sh
-$ tarawasm bind
+wkg wit build
 ```
 
-Implement the exported functions in Python (`main.py`):
+Resulting in `example:<your-world>@0.1.0.wasm`. Then:
 
-```python
+```sh
+tarawasm init --lang python --wasm-file example:<your-world>@0.1.0.wasm <your-world>
+tarawasm bind
+```
+
+Implement your logic:
+
+**main.py**
+
+```py
 from wit_world import exports
 from typing import List
-
-class IncomingHandler(exports.IncomingHandler):
-    def handle(self, request, response_out):
-        pass
 
 class Run(exports.Run):
     def run(self) -> None:
@@ -199,29 +176,21 @@ class Run(exports.Run):
 class WitWorld():
     def add(self, x: int, y: int) -> int:
         return x + y
-
-    def greet(self, name: str) -> str:
-        return f"Hello, {name.capitalize()}!"
-
-    def concat(self, items: List[str]) -> str:
-        return "-".join(items)
-
-    def split(self, str: str, sep: str) -> List[str]:
-        return str.split(sep)
 ```
 
-Build and strip the component:
+Build the component:
 
 ```sh
-$ tarawasm build
-$ tarawasm strip adder.wasm  # Optional: reduce the component size by removing debug and custom sections
+tarawasm build
 ```
 
 ---
 
-### Running in Tarantool
+## Using in Tarantool
 
-```
+### Option 1: Using `wasm.so` directly
+
+```sh
 $ tarantool -i
 
 Tarantool 3.5.0-entrypoint-62-g40dc5c548d
@@ -230,43 +199,75 @@ tarantool> wasm = require('wasm')
 ---
 ...
 
-tarantool> m = wasm.load("adder.strip.wasm")
+tarantool> m = wasm.load("<path-to-your-world.wasm>")
 ---
 ...
 
-tarantool> r = wasm.call(m, "add", 228, 1337)
+tarantool> wasm.call(m, "add", 1, 2)
+---
+- 3
+...
+
+tarantool> handle = wasm.run(m)
 ---
 ...
 
-tarantool> print(r, type(r))
-1565	number
+Hello from Python WASM!
+
 ---
 ...
 
-tarantool> wasm.call(m, "greet", "alice")
+tarantool> wasm.join(handle)
 ---
-- Hello, Alice!
+- true
+...
+```
+
+---
+
+### Option 2: Using `luawasm` wrapper
+
+```sh
+$ tarantool -i
+
+Tarantool 3.5.0-entrypoint-62-g40dc5c548d
+type 'help' for interactive help
+tarantool> wasm = require('wasm')
+---
 ...
 
-tarantool> wasm.call(m, "concat", {"s1", "s2", "s3"})
+tarantool> lwasm = require('luawasm')
 ---
-- s1-s2-s3
 ...
 
-tarantool> wasm.call(m, "split", "aaaa bbb cc", " ")
+tarantool> m = lwasm:new({ dir = "."})
 ---
-- - aaaa
-  - bbb
-  - cc
 ...
 
-tarantool> wasm.call(m, "split", "aaaa bbb cc", "b")
+tarantool> m:help()
+Exported functions:
+
+add(x: s32, y: s32) -> s32
+
 ---
-- - 'aaaa '
-  -
-  -
-  - ' cc'
 ...
 
-tarantool>
+tarantool> m:add(1, 2)
+---
+- 3
+...
+
+tarantool> m:run()
+---
+...
+
+tarantool> Hello from Python WASM!
+
+---
+...
+
+tarantool> m:join()
+---
+- true
+...
 ```
