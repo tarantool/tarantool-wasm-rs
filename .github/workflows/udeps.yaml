@@ -1,0 +1,31 @@
+name: Udeps check
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  udeps_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up nightly toolchain
+        run: |
+          rustup update nightly
+          rustup default nightly
+
+      - name: Setup WIT
+        uses: ./.github/actions/wit-setup
+
+      - name: Install cargo-udeps
+        run: cargo install cargo-udeps --locked
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run udeps via pre-commit
+        run: pre-commit run --all-files --color always

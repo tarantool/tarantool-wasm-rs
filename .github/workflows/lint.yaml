@@ -1,8 +1,11 @@
-on: push
 name: Clippy check
 
-# Make sure CI fails on all warnings, including Clippy lints
+on:
+  push:
+  pull_request:
+
 env:
+  CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
@@ -11,17 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install wkg
-        run: cargo install wkg
-
-      - name: Add Tarantool wit registry override
-        run: ./scripts/add_tarantool_registry.sh
-
-      - name: Init wasi-tls submodule
-        run: git submodule update --init --recursive third-party/wasi-tls
-
-      - name: Fetch WIT dependencies
-        run: wkg wit fetch
+      - name: Setup WIT
+        uses: ./.github/actions/wit-setup
 
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features

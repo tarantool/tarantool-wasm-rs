@@ -1,0 +1,23 @@
+name: Setup WIT Dependencies
+description: |
+  Installs `wkg`, adds Tarantool registry override, initializes wasi-tls submodule,
+  and fetches WIT dependencies.
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install wkg
+      run: cargo install wkg
+      shell: bash
+
+    - name: Add Tarantool wit registry override
+      run: ./scripts/add_tarantool_registry.sh
+      shell: bash
+
+    - name: Init wasi-tls submodule
+      run: git submodule update --init --recursive third-party/wasi-tls
+      shell: bash
+
+    - name: Fetch WIT dependencies
+      run: wkg wit fetch
+      shell: bash
