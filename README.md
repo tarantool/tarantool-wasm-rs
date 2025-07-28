@@ -52,7 +52,6 @@ Clone the runtime:
 ```sh
 git clone https://github.com/mandesero/tarantool-wasm-rs.git
 cd tarantool-wasm-rs
-git checkout mandesero/wit-impl
 ```
 
 Install Rust (see [rust-lang.org](https://www.rust-lang.org/tools/install)):

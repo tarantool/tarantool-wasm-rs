@@ -1,0 +1,28 @@
+name: Setup Tarantool with WASM support
+description: Install Tarantool, dependencies and luatest
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Tarantool CLI (tt)
+      run: |
+        curl -L https://tarantool.io/release/3/installer.sh | sudo bash
+        sudo apt-get install -y tt
+      shell: bash
+
+    - name: Install Tarantool system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git build-essential cmake autoconf automake libtool make \
+          zlib1g-dev libreadline-dev libncurses5-dev libssl-dev \
+          libunwind-dev libicu-dev python3 python3-yaml \
+          python3-six python3-gevent
+      shell: bash
+
+    - name: Build Tarantool with WASM support
+      run: |
+        git submodule update --init --recursive third-party/tarantool
+        ./scripts/build_tarantool_wasm.sh
+      shell: bash
+

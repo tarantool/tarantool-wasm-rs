@@ -10,12 +10,18 @@ env:
 
 jobs:
   clippy_check:
-    runs-on: ubuntu-latest
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+
+    runs-on: ubuntu-20.04-self-hosted
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup WIT
         uses: ./.github/actions/wit-setup
+
+      - name: Install cargo clippy
+        run: rustup component add clippy
 
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features

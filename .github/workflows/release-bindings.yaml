@@ -1,0 +1,40 @@
+name: Build and Test [Release]
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+
+    runs-on: ubuntu-20.04-self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup WIT
+        uses: ./.github/actions/wit-setup
+
+      - name: Update Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
+
+      - name: Build (release)
+        run: just build-release
+
+      - name: Prepare wasm module
+        run: |
+          mkdir -p .rocks/lib/tarantool
+          cp target/x86_64-unknown-linux-gnu/release/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
+
+      - name: Setup Tarantool with WASM support
+        uses: ./.github/actions/tarantool-setup
+
+      - name: Install luatest
+        run: just install-luatest
+
+      - name: Run tests
+        run: just test

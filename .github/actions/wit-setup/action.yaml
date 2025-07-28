@@ -6,18 +6,24 @@ description: |
 runs:
   using: "composite"
   steps:
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+    - name: Install just
+      run: cargo install just
+      shell: bash
+
     - name: Install wkg
-      run: cargo install wkg
+      run: just install-wkg
       shell: bash
 
     - name: Add Tarantool wit registry override
-      run: ./scripts/add_tarantool_registry.sh
+      run: just patch-wkg-config
       shell: bash
 
     - name: Init wasi-tls submodule
-      run: git submodule update --init --recursive third-party/wasi-tls
+      run: just submodule-wasi-tls
       shell: bash
 
     - name: Fetch WIT dependencies
-      run: wkg wit fetch
+      run: just wit-fetch
       shell: bash
