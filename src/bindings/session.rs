@@ -9,7 +9,9 @@ use sha2::{Digest, Sha256};
 impl session::Host for SyncWasmStates {
     async fn current(&mut self) -> Session {
         let session_id = unsafe { ffi::session::box_session_id() };
-        Session { id: session_id as i64 }
+        Session {
+            id: session_id as i64,
+        }
     }
 
     async fn iproto_send(

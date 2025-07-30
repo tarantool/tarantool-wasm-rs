@@ -4,7 +4,8 @@ mod runtime;
 
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
-    tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_load_module, tt_wasm_run_module,
+    tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_export_names, tt_wasm_load_module,
+    tt_wasm_run_module,
 };
 use anyhow::Result;
 use mlua::prelude::*;
@@ -48,12 +49,8 @@ fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
         handle.0,
     );
     match result {
-        Ok(()) => {
-            Ok(true)
-        }
-        Err(err) => {
-            Err(LuaError::runtime(err))
-        }
+        Ok(()) => Ok(true),
+        Err(err) => Err(LuaError::runtime(err)),
     }
 }
 
@@ -197,13 +194,59 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     Ok(LuaValue::Table(results_tbl))
 }
 
+fn exports(lua: &Lua, module_uid: String) -> LuaResult<Value> {
+    match tt_wasm_export_names(module_uid) {
+        Ok(export_map) => {
+            let result = lua.create_table()?;
+
+            for (namespace, funcs) in export_map {
+                let func_table = lua.create_table()?;
+
+                for (func_name, info) in funcs {
+                    let entry = lua.create_table()?;
+
+                    let param_list = lua.create_table()?;
+                    for (i, (name, typ)) in info.params.iter().enumerate() {
+                        let pair = lua.create_table()?;
+                        pair.set(1, name.clone())?;
+                        pair.set(2, typ.clone())?;
+                        param_list.set(i + 1, pair)?;
+                    }
+
+                    let result_list = lua.create_table()?;
+                    for (i, typ) in info.results.iter().enumerate() {
+                        result_list.set(i + 1, typ.clone())?;
+                    }
+
+                    entry.set("params", param_list)?;
+                    entry.set("result", result_list)?;
+                    func_table.set(func_name, entry)?;
+                }
+
+                if namespace.is_empty() {
+                    for pair in func_table.pairs::<Value, Value>() {
+                        let (k, v) = pair?;
+                        result.set(k, v)?;
+                    }
+                } else {
+                    result.set(namespace, func_table)?;
+                }
+            }
+
+            Ok(LuaValue::Table(result))
+        }
+        Err(e) => Err(mlua::Error::external(e)),
+    }
+}
+
 #[mlua::lua_module(name = "wasm")]
 fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
-    let exports = lua.create_table()?;
-    exports.set("load", lua.create_function(load)?)?;
-    exports.set("run", lua.create_function(run)?)?;
-    exports.set("join", lua.create_function(join)?)?;
-    exports.set("call", lua.create_function(call)?)?;
-    exports.set("batch", lua.create_function(batch)?)?;
-    Ok(exports)
+    let module = lua.create_table()?;
+    module.set("load", lua.create_function(load)?)?;
+    module.set("run", lua.create_function(run)?)?;
+    module.set("join", lua.create_function(join)?)?;
+    module.set("call", lua.create_function(call)?)?;
+    module.set("batch", lua.create_function(batch)?)?;
+    module.set("exports", lua.create_function(exports)?)?;
+    Ok(module)
 }

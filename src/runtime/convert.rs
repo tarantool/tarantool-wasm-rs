@@ -17,7 +17,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
         ),
         Type::S64 => Val::S64(
             val.as_i64()
-            .ok_or_else(|| anyhow::anyhow!("expected s64"))?,
+                .ok_or_else(|| anyhow::anyhow!("expected s64"))?,
         ),
 
         // Unsigned integers
@@ -362,4 +362,77 @@ pub fn from_rmpv(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value
         }
         _ => return Err(mlua::Error::external("unsupported return type")),
     })
+}
+
+pub fn pretty_type(ty: &Type) -> String {
+    match ty {
+        Type::Bool => "bool".into(),
+        Type::U8 => "u8".into(),
+        Type::U16 => "u16".into(),
+        Type::U32 => "u32".into(),
+        Type::U64 => "u64".into(),
+        Type::S8 => "s8".into(),
+        Type::S16 => "s16".into(),
+        Type::S32 => "s32".into(),
+        Type::S64 => "s64".into(),
+        Type::Float32 => "f32".into(),
+        Type::Float64 => "f64".into(),
+        Type::Char => "char".into(),
+        Type::String => "string".into(),
+
+        Type::List(inner) => format!("list<{}>", pretty_type(&inner.ty())),
+        Type::Option(inner) => format!("option<{}>", pretty_type(&inner.ty())),
+
+        Type::Tuple(tuple) => {
+            let inner = tuple
+                .types()
+                .map(|ty: Type| pretty_type(&ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("tuple<{inner}>")
+        }
+
+        Type::Record(rec) => {
+            let inner = rec
+                .fields()
+                .map(|f| format!("{}: {}", f.name, pretty_type(&f.ty)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("record{{{inner}}}")
+        }
+
+        Type::Variant(var) => {
+            let inner = var
+                .cases()
+                .map(|c| {
+                    if let Some(t) = &c.ty {
+                        format!("{}({})", c.name, pretty_type(t))
+                    } else {
+                        c.name.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" | ");
+            format!("variant({inner})")
+        }
+
+        Type::Enum(e) => {
+            let names = e.names().collect::<Vec<_>>().join(" | ");
+            format!("enum({names})")
+        }
+
+        Type::Flags(f) => {
+            let names = f.names().collect::<Vec<_>>().join(", ");
+            format!("flags({names})")
+        }
+
+        Type::Result(r) => {
+            let ok = r.ok().as_ref().map_or("unit".into(), pretty_type);
+            let err = r.err().as_ref().map_or("unit".into(), pretty_type);
+            format!("result<{ok}, {err}>")
+        }
+
+        // Fallback
+        other => format!("{other:?}"),
+    }
 }

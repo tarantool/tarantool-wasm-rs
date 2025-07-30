@@ -170,7 +170,6 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         &mut self,
         tup: BoxTuple,
     ) -> Result<Resource<TupleIteratorImpl>, BoxError> {
-
         let send_ptr: SendPtr<ffi::types::BoxTupleIteratorT> = self
             .executor()
             .execute(move || {

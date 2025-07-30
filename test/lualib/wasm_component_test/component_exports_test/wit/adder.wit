@@ -1,0 +1,71 @@
+package docs:adder@0.1.0;
+
+interface nums {
+  t-bool: func(x: bool) -> bool;
+
+  t-s8: func(x: s8) -> s8;
+
+  t-s16: func(x: s16) -> s16;
+
+  t-s32: func(x: s32) -> s32;
+
+  t-s64: func(x: s64) -> s64;
+
+  t-u8: func(x: u8) -> u8;
+
+  t-u16: func(x: u16) -> u16;
+
+  t-u32: func(x: u32) -> u32;
+
+  t-u64: func(x: u64) -> u64;
+
+  t-f32: func(x: f32) -> f32;
+
+  t-f64: func(x: f64) -> f64;
+}
+
+world adder {
+  record r {
+    x: u64,
+    y: string,
+  }
+
+  type t = string;
+
+  variant v {
+    none,
+    any(bool),
+    restricted(list<t>),
+  }
+
+  enum e {
+    red,
+    black,
+    navy-blue,
+  }
+
+  flags f {
+    get,
+    post,
+    put,
+    delete,
+  }
+
+  export t-char: func(x: char) -> char;
+  export t-string: func(x: string) -> string;
+  export t-list: func(x: list<string>) -> list<string>;
+  export t-option: func(x: option<u8>) -> option<u8>;
+  export t-result: func(x: bool) -> result<bool, string>;
+  export t-tuple: func(x: tuple<bool, f32, string>) -> tuple<bool, string>;
+  export t-record: func(x: r) -> r;
+  export t-variant: func(x: v) -> v;
+  export t-enum: func(x: e) -> e;
+  export t-flags: func(x: f) -> f;
+  export nums;
+  export wasi:cli/run@0.2.3;
+}
+package wasi:cli@0.2.3 {
+  interface run {
+    run: func() -> result;
+  }
+}

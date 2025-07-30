@@ -1,0 +1,102 @@
+[
+  {
+    "name": "t-char",
+    "params": [
+      [
+        "x",
+        "char"
+      ]
+    ],
+    "result": "char"
+  },
+  {
+    "name": "t-string",
+    "params": [
+      [
+        "x",
+        "string"
+      ]
+    ],
+    "result": "string"
+  },
+  {
+    "name": "t-list",
+    "params": [
+      [
+        "x",
+        "list<string>"
+      ]
+    ],
+    "result": "list<string>"
+  },
+  {
+    "name": "t-option",
+    "params": [
+      [
+        "x",
+        "option<u8>"
+      ]
+    ],
+    "result": "option<u8>"
+  },
+  {
+    "name": "t-result",
+    "params": [
+      [
+        "x",
+        "bool"
+      ]
+    ],
+    "result": "result<bool, string>"
+  },
+  {
+    "name": "t-tuple",
+    "params": [
+      [
+        "x",
+        "tuple<bool, f32, string>"
+      ]
+    ],
+    "result": "tuple<bool, string>"
+  },
+  {
+    "name": "t-record",
+    "params": [
+      [
+        "x",
+        "r"
+      ]
+    ],
+    "result": "r"
+  },
+  {
+    "name": "t-variant",
+    "params": [
+      [
+        "x",
+        "v"
+      ]
+    ],
+    "result": "v"
+  },
+  {
+    "name": "t-enum",
+    "params": [
+      [
+        "x",
+        "e"
+      ]
+    ],
+    "result": "e"
+  },
+  {
+    "name": "t-flags",
+    "params": [
+      [
+        "x",
+        "f"
+      ]
+    ],
+    "result": "f"
+  }
+]

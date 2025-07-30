@@ -13,6 +13,7 @@ use rmpv::{decode::read_value, encode::write_value, Value as RmpvValue};
 use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
 use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
+    component::types::{ComponentInstance, ComponentItem},
     component::{Component, Linker, ResourceTable, Val},
     AsContext, Config, Engine, Store,
 };
@@ -28,7 +29,7 @@ use crate::bindings::{
     },
 };
 use crate::runtime::{
-    convert::{to_component_val, val_to_rmpv},
+    convert::{pretty_type, to_component_val, val_to_rmpv},
     executor::{Executor, TxMode},
     wasm_fiber::{WasmFiber, WasmFiberStatus},
 };
@@ -446,4 +447,92 @@ pub fn tt_wasm_call_functions(
         handle,
     );
     result
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ExportInfo {
+    pub params: Vec<(String, String)>,
+    pub results: Vec<String>,
+}
+
+type ExportNamespace = HashMap<String, ExportInfo>;
+type ExportMap = HashMap<String, ExportNamespace>;
+
+fn collect_exports(
+    engine: &wasmtime::Engine,
+    instance: &ComponentInstance,
+    namespace: &str,
+    out: &mut ExportMap,
+) {
+    for (name, item) in instance.exports(engine) {
+        match item {
+            ComponentItem::ComponentFunc(f) => {
+                let params = f
+                    .params()
+                    .map(|(n, t)| (n.to_string(), pretty_type(&t)))
+                    .collect();
+                let results = f.results().map(|t| pretty_type(&t)).collect();
+
+                out.entry(namespace.to_string())
+                    .or_default()
+                    .insert(name.to_string(), ExportInfo { params, results });
+            }
+
+            ComponentItem::ComponentInstance(subinst) => {
+                let nested_namespace = format!("{namespace}/{name}");
+                collect_exports(engine, &subinst, &nested_namespace, out);
+            }
+
+            _ => {}
+        }
+    }
+}
+
+pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
+    let component = runtime_state
+        .modules
+        .read()
+        .unwrap()
+        .get(&module_uid)
+        .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
+        .clone();
+
+    let ty = component.component_type();
+    let engine = &runtime_state.engine;
+
+    let mut out: ExportMap = HashMap::new();
+
+    for (name, item) in ty.exports(engine) {
+        match item {
+            ComponentItem::ComponentFunc(f) => {
+                let params = f
+                    .params()
+                    .map(|(n, t)| (n.to_string(), pretty_type(&t)))
+                    .collect();
+                let results = f.results().map(|t| pretty_type(&t)).collect();
+
+                out.entry("".to_string())
+                    .or_default()
+                    .insert(name.to_string(), ExportInfo { params, results });
+            }
+
+            ComponentItem::ComponentInstance(inst) => {
+                if name == "exports" {
+                    // Exclude the `exports` instance — it is an internal interface used for module setup
+                    // and is not intended to be invoked directly from Lua.
+                    continue;
+                }
+
+                if name.starts_with("wasi") {
+                    // Exclude `wasi:*` instances — they provide runtime support (e.g., `wasi:cli/run`)
+                    // and are not designed to be called manually from user code.
+                    continue;
+                }
+                collect_exports(engine, &inst, name, &mut out);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(out)
 }
