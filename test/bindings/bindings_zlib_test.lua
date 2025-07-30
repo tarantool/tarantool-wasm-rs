@@ -10,7 +10,7 @@ local test_group = "bindings_zlib_test"
 
 local g = t.group(test_group)
 
-local path = fio.pathjoin(utils.get_test_dir(), "wasm_component_test", test_group, "python")
+local path = fio.pathjoin(utils.get_test_dir(), "bindings", "wasm_component_test",  test_group, "python")
 local m = luawasm:new({ dir = path })
 
 local function to_bytes(str)

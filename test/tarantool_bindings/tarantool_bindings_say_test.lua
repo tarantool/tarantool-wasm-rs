@@ -19,7 +19,7 @@ local g = t.group(
 g.before_all(function(cg)
     box.cfg{log_level = 7}
 
-    local path = fio.pathjoin(utils.get_test_dir(), "wasm_component_test", test_group, cg.params.lang)
+    local path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", "wasm_component_test", test_group, cg.params.lang)
     local wasm
     if cg.params.lang == "c" then
         wasm = "adder.component.wasm"

@@ -18,7 +18,7 @@ local g = t.group(
     })
 )
 
-local path = fio.pathjoin(utils.get_test_dir(), "wasm_component_test", test_group, "python")
+local path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", "wasm_component_test",  test_group, "python")
 local m = luawasm:new({ dir = path })
 
 g.test_encode_decode = function(cg)
