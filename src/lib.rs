@@ -72,16 +72,19 @@ fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         }
     };
 
-    let func = match iter.next() {
+    let (interface, func) = match iter.next() {
         Some(Value::String(s)) => {
-            let s = s.to_str()?.to_string();
-            s
+            let s = s.to_str()?;
+            match s.split_once("::") {
+                Some((iface, func)) => (Some(iface.to_string()), func.to_string()),
+                None => (None, s.to_string()),
+            }
         }
-        _other => {
+        _ => {
             return Err(mlua::Error::FromLuaConversionError {
                 from: "Value",
                 to: "String".to_string(),
-                message: Some("expected func name as string".to_string()),
+                message: Some("expected function name as string".to_string()),
             });
         }
     };
@@ -98,8 +101,8 @@ fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     rmpv::encode::write_value(&mut msgpack_args, &args_array)
         .map_err(|e| mlua::Error::external(format!("msgpack encode error: {e}")))?;
 
-    let result_buf =
-        tt_wasm_call_function(module_uid, func, msgpack_args).map_err(mlua::Error::external)?;
+    let result_buf = tt_wasm_call_function(module_uid, interface, func, msgpack_args)
+        .map_err(mlua::Error::external)?;
 
     let result_val =
         rmpv::decode::read_value(&mut Cursor::new(&result_buf)).map_err(mlua::Error::external)?;
@@ -149,13 +152,21 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
             }
         };
 
-        let func: String = match call_tbl.raw_get(1)? {
-            LuaValue::String(s) => s.to_str()?.to_string(),
+        let (interface, func): (Option<String>, String) = match call_tbl.raw_get(1)? {
+            LuaValue::String(s) => {
+                let s = s.to_str()?;
+                match s.split_once("::") {
+                    Some((iface, func)) => (Some(iface.to_string()), func.to_string()),
+                    None => (None, s.to_string()),
+                }
+            }
             _ => {
                 return Err(mlua::Error::FromLuaConversionError {
                     from: "Value",
                     to: "string".to_string(),
-                    message: Some("call entry first element must be func name".to_string()),
+                    message: Some(
+                        "call entry first element must be a function name string".to_string(),
+                    ),
                 });
             }
         };
@@ -178,7 +189,7 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         rmpv::encode::write_value(&mut msgpack_args, &args_array)
             .map_err(|e| mlua::Error::external(format!("msgpack encode error: {e}")))?;
 
-        calls.push((func, msgpack_args));
+        calls.push((interface, func, msgpack_args));
     }
 
     let result_bufs = tt_wasm_call_functions(module_uid, calls).map_err(mlua::Error::external)?;

@@ -13,8 +13,10 @@ use rmpv::{decode::read_value, encode::write_value, Value as RmpvValue};
 use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
 use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
-    component::types::{ComponentInstance, ComponentItem},
-    component::{Component, Linker, ResourceTable, Val},
+    component::{
+        types::{ComponentInstance, ComponentItem},
+        Component, Linker, ResourceTable, Val,
+    },
     AsContext, Config, Engine, Store,
 };
 use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
@@ -259,6 +261,7 @@ pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> 
 
 pub fn tt_wasm_call_function(
     module_uid: String,
+    interface: Option<String>,
     func: String,
     msgpack_args: Vec<u8>,
 ) -> Result<Vec<u8>> {
@@ -287,9 +290,30 @@ pub fn tt_wasm_call_function(
         rt.block_on(async move {
             let instance = linker.instantiate_async(&mut store, &component).await?;
 
+            let func_index = if let Some(interface_name) = interface {
+                let interface_index = component
+                    .get_export_index(None, &interface_name)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(format!("interface export `{}` not found", interface_name))
+                    })?;
+
+                component
+                    .get_export_index(Some(&interface_index), &func)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(format!(
+                            "function `{}` not found in interface `{}`",
+                            func, interface_name
+                        ))
+                    })?
+            } else {
+                component.get_export_index(None, &func).ok_or_else(|| {
+                    anyhow::anyhow!(format!("function `{}` not found at top level", func))
+                })?
+            };
+
             let export = instance
-                .get_func(&mut store, &func)
-                .ok_or_else(|| anyhow::anyhow!(format!("function export `{}` not found", func)))?;
+                .get_func(&mut store, func_index)
+                .ok_or_else(|| anyhow::anyhow!(format!("function export `{func}` not found")))?;
 
             let params = export.params(store.as_context());
             let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
@@ -352,7 +376,7 @@ pub fn tt_wasm_call_function(
 
 pub fn tt_wasm_call_functions(
     module_uid: String,
-    calls: Vec<(String, Vec<u8>)>,
+    calls: Vec<(Option<String>, String, Vec<u8>)>,
 ) -> Result<Vec<Vec<u8>>> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let component = runtime_state
@@ -374,7 +398,7 @@ pub fn tt_wasm_call_functions(
         rt.block_on(async move {
             let mut results_all = Vec::new();
 
-            for (func, msgpack_args) in calls.into_iter() {
+            for (interface, func, msgpack_args) in calls.into_iter() {
                 let wasi_view = SyncWasmStates::new();
                 let mut store = Store::new(&runtime_state.engine, wasi_view);
 
@@ -383,8 +407,32 @@ pub fn tt_wasm_call_functions(
 
                 let instance = linker.instantiate_async(&mut store, &component).await?;
 
-                let export = instance.get_func(&mut store, &func).ok_or_else(|| {
-                    anyhow::anyhow!(format!("function export `{}` not found", func))
+                let func_index = if let Some(interface_name) = interface {
+                    let interface_index = component
+                        .get_export_index(None, &interface_name)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(format!(
+                                "interface export `{}` not found",
+                                interface_name
+                            ))
+                        })?;
+
+                    component
+                        .get_export_index(Some(&interface_index), &func)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(format!(
+                                "function `{}` not found in interface `{}`",
+                                func, interface_name
+                            ))
+                        })?
+                } else {
+                    component.get_export_index(None, &func).ok_or_else(|| {
+                        anyhow::anyhow!(format!("function `{}` not found at top level", func))
+                    })?
+                };
+
+                let export = instance.get_func(&mut store, func_index).ok_or_else(|| {
+                    anyhow::anyhow!(format!("function export `{func}` not found"))
                 })?;
 
                 let params = export.params(store.as_context());
