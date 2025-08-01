@@ -55,7 +55,6 @@ fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
 }
 
 fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
-    use std::io::Cursor;
     let mut iter = args.into_iter();
 
     let module_uid = match iter.next() {
@@ -96,24 +95,14 @@ fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         .map(to_rmpv)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let args_array = rmpv::Value::Array(rmp_args);
-    let mut msgpack_args = Vec::new();
-    rmpv::encode::write_value(&mut msgpack_args, &args_array)
-        .map_err(|e| mlua::Error::external(format!("msgpack encode error: {e}")))?;
-
-    let result_buf = tt_wasm_call_function(module_uid, interface, func, msgpack_args)
+    let result_val = tt_wasm_call_function(module_uid, interface, func, rmp_args)
         .map_err(mlua::Error::external)?;
-
-    let result_val =
-        rmpv::decode::read_value(&mut Cursor::new(&result_buf)).map_err(mlua::Error::external)?;
 
     let lua_val = from_rmpv(lua, &result_val)?;
     Ok(lua_val)
 }
 
 fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
-    use std::io::Cursor;
-
     let mut iter = args.into_iter();
 
     let module_uid = match iter.next() {
@@ -184,21 +173,14 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
             .map(to_rmpv)
             .collect::<Result<Vec<_>, _>>()?;
 
-        let args_array = rmpv::Value::Array(rmp_args);
-        let mut msgpack_args = Vec::new();
-        rmpv::encode::write_value(&mut msgpack_args, &args_array)
-            .map_err(|e| mlua::Error::external(format!("msgpack encode error: {e}")))?;
-
-        calls.push((interface, func, msgpack_args));
+        calls.push((interface, func, rmp_args));
     }
 
-    let result_bufs = tt_wasm_call_functions(module_uid, calls).map_err(mlua::Error::external)?;
+    let result_vals = tt_wasm_call_functions(module_uid, calls).map_err(mlua::Error::external)?;
 
     let results_tbl = lua.create_table()?;
-    for (i, buf) in result_bufs.into_iter().enumerate() {
-        let result_val =
-            rmpv::decode::read_value(&mut Cursor::new(&buf)).map_err(mlua::Error::external)?;
-        let lua_val = from_rmpv(lua, &result_val)?;
+    for (i, val) in result_vals.into_iter().enumerate() {
+        let lua_val = from_rmpv(lua, &val)?;
         results_tbl.set(i + 1, lua_val)?;
     }
 

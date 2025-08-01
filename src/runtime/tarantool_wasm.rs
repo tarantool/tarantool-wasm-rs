@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    io::Cursor,
     sync::{Arc, Mutex, RwLock},
     thread::{self, JoinHandle},
     time::Duration,
@@ -9,7 +8,7 @@ use std::{
 use anyhow::Result;
 use lazy_static::lazy_static;
 use nix::sys::signal::{SigSet, Signal};
-use rmpv::{decode::read_value, encode::write_value, Value as RmpvValue};
+use rmpv::Value as RmpvValue;
 use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
 use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
@@ -263,8 +262,8 @@ pub fn tt_wasm_call_function(
     module_uid: String,
     interface: Option<String>,
     func: String,
-    msgpack_args: Vec<u8>,
-) -> Result<Vec<u8>> {
+    args: Vec<RmpvValue>,
+) -> Result<RmpvValue> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let component = runtime_state
             .modules
@@ -318,21 +317,16 @@ pub fn tt_wasm_call_function(
             let params = export.params(store.as_context());
             let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
 
-            let mp_value = read_value(&mut Cursor::new(&msgpack_args))?;
-            let arr = mp_value
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("msgpack args must be array"))?;
-
-            if arr.len() != param_types.len() {
+            if args.len() != param_types.len() {
                 return Err(anyhow::anyhow!(
                     "argument count mismatch: expected {}, got {}",
                     param_types.len(),
-                    arr.len()
+                    args.len()
                 ));
             }
 
             let mut wasm_args = Vec::new();
-            for (ty, val) in param_types.iter().zip(arr) {
+            for (ty, val) in param_types.iter().zip(args.iter()) {
                 let v = to_component_val(ty, val)?;
                 wasm_args.push(v);
             }
@@ -353,16 +347,14 @@ pub fn tt_wasm_call_function(
                 }
             };
 
-            let mut buf = Vec::new();
-            write_value(&mut buf, &res_val)?;
-            Ok(buf)
+            Ok(res_val)
         })
     })?;
 
-    let mut result: Result<Vec<u8>> = Ok(Vec::new());
+    let mut result: Result<RmpvValue> = Ok(RmpvValue::Nil);
 
     coio_call(
-        &mut |h: Box<JoinHandle<Result<Vec<u8>>>>| {
+        &mut |h: Box<JoinHandle<Result<RmpvValue>>>| {
             result = h
                 .join()
                 .unwrap_or_else(|_| Err(anyhow::anyhow!("thread panicked")));
@@ -376,8 +368,8 @@ pub fn tt_wasm_call_function(
 
 pub fn tt_wasm_call_functions(
     module_uid: String,
-    calls: Vec<(Option<String>, String, Vec<u8>)>,
-) -> Result<Vec<Vec<u8>>> {
+    calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
+) -> Result<Vec<RmpvValue>> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let component = runtime_state
             .modules
@@ -398,7 +390,7 @@ pub fn tt_wasm_call_functions(
         rt.block_on(async move {
             let mut results_all = Vec::new();
 
-            for (interface, func, msgpack_args) in calls.into_iter() {
+            for (interface, func, args) in calls.into_iter() {
                 let wasi_view = SyncWasmStates::new();
                 let mut store = Store::new(&runtime_state.engine, wasi_view);
 
@@ -438,22 +430,17 @@ pub fn tt_wasm_call_functions(
                 let params = export.params(store.as_context());
                 let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
 
-                let mp_value = read_value(&mut Cursor::new(&msgpack_args))?;
-                let arr = mp_value
-                    .as_array()
-                    .ok_or_else(|| anyhow::anyhow!("msgpack args must be array"))?;
-
-                if arr.len() != param_types.len() {
+                if args.len() != param_types.len() {
                     return Err(anyhow::anyhow!(
                         "argument count mismatch for `{}`: expected {}, got {}",
                         func,
                         param_types.len(),
-                        arr.len()
+                        args.len()
                     ));
                 }
 
                 let mut wasm_args = Vec::new();
-                for (ty, val) in param_types.iter().zip(arr) {
+                for (ty, val) in param_types.iter().zip(args.iter()) {
                     let v = to_component_val(ty, val)?;
                     wasm_args.push(v);
                 }
@@ -474,19 +461,17 @@ pub fn tt_wasm_call_functions(
                     }
                 };
 
-                let mut buf = Vec::new();
-                write_value(&mut buf, &res_val)?;
-                results_all.push(buf);
+                results_all.push(res_val);
             }
 
             Ok(results_all)
         })
     })?;
 
-    let mut result: Result<Vec<Vec<u8>>> = Ok(Vec::new());
+    let mut result: Result<Vec<RmpvValue>> = Ok(Vec::new());
 
     coio_call(
-        &mut |h: Box<JoinHandle<Result<Vec<Vec<u8>>>>>| {
+        &mut |h: Box<JoinHandle<Result<Vec<RmpvValue>>>>| {
             result = h
                 .join()
                 .unwrap_or_else(|_| Err(anyhow::anyhow!("thread panicked")));
