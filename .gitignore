@@ -13,3 +13,4 @@ internal/
 *.o
 *.log
 0000*
+test/**/wkg.lock
