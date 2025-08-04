@@ -15,7 +15,7 @@ use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
     component::{
         types::{ComponentInstance, ComponentItem},
-        Component, Linker, ResourceTable, Val,
+        Component, Linker, ResourceTable, Val, HasData,
     },
     AsContext, Config, Engine, Store,
 };
@@ -24,7 +24,7 @@ use wasmtime_wasi::p2::{
 };
 use wasmtime_wasi::{DirPerms, FilePerms};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
-use wasmtime_wasi_tls::{LinkOptions, WasiTlsCtx};
+use wasmtime_wasi_tls::{LinkOptions, WasiTls, WasiTlsCtx, WasiTlsCtxBuilder};
 
 use crate::bindings::{
     docs::adder::zlib,
@@ -88,6 +88,7 @@ pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
     pub(crate) http: WasiHttpCtx,
+    pub(crate) tls: WasiTlsCtx,
     pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
     pub(crate) executor: Executor,
     pub(crate) tx_mode: TxMode,
@@ -160,6 +161,7 @@ impl WasmStates {
             table,
             ctx,
             http: WasiHttpCtx::new(),
+            tls: WasiTlsCtxBuilder::new().build(),
             yielder: None,
             executor: Executor::TxPush, // start outside the transaction
             tx_mode: TxMode::None,
@@ -219,6 +221,10 @@ impl WasiHttpView for SyncWasmStates {
     }
 }
 
+impl HasData for SyncWasmStates {
+    type Data<'a> = &'a mut SyncWasmStates;
+}
+
 #[derive(Clone)]
 struct LoadedModule {
     component: Component,
@@ -263,25 +269,26 @@ impl RuntimeState {
 
         let mut opts = LinkOptions::default();
         opts.tls(true);
-        let _ =
-            wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
-                WasiTlsCtx::new(&mut h.0.get_mut().unwrap().table)
-            });
 
-        let _ = ttbox::add_to_linker(&mut linker, |state| state);
-        let _ = say::add_to_linker(&mut linker, |state| state);
-        let _ = error::add_to_linker(&mut linker, |state| state);
-        let _ = session::add_to_linker(&mut linker, |state| state);
-        let _ = msgpack::add_to_linker(&mut linker, |state| state);
-        let _ = txn::add_to_linker(&mut linker, |state| state);
-        let _ = types::add_to_linker(&mut linker, |state| state);
-        let _ = index::add_to_linker(&mut linker, |state| state);
-        let _ = sequence::add_to_linker(&mut linker, |state| state);
-        let _ = key_def::add_to_linker(&mut linker, |state| state);
-        let _ = tuple_format::add_to_linker(&mut linker, |state| state);
-        let _ = box_tuple::add_to_linker(&mut linker, |state| state);
+        let _ = wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
+            let state = h.0.get_mut().unwrap();
+            WasiTls::new(&state.tls, &mut state.table)
+        });
 
-        let _ = zlib::add_to_linker(&mut linker, |state| state);
+        let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = txn::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = types::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = index::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = key_def::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ = box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+
+        let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);

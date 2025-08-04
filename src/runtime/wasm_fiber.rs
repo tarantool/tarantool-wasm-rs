@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tokio::{
     runtime::Builder,
     sync::{mpsc, oneshot},
+    task::JoinHandle,
 };
 use wasmtime::{
     component::{Component, Linker},
@@ -24,6 +25,7 @@ pub(crate) enum WasmFiberStatus {
 pub(crate) struct WasmFiber {
     rt: tokio::runtime::Runtime,
     awaiter: mpsc::Receiver<WasmFiberStatus>,
+    handle: Option<JoinHandle<Result<()>>>,
 }
 
 impl WasmFiber {
@@ -42,41 +44,58 @@ impl WasmFiber {
         let finalizer = yielder.clone();
         store.data().0.lock().unwrap().yielder = Some(yielder);
 
-        rt.spawn(async move {
+        let handle = rt.spawn(async move {
             let command = Command::instantiate_async(&mut store, &component, &linker).await?;
-            let result = command.wasi_cli_run().call_run(&mut store).await;
-            finalizer.send(WasmFiberStatus::Finished).await?;
-            result
+            let _ = command.wasi_cli_run().call_run(&mut store).await?;
+            finalizer.send(WasmFiberStatus::Finished).await
+                .map_err(|e| anyhow!("failed to signal fiber completion: {e}"))?;
+            Ok(())
         });
-        WasmFiber { rt, awaiter }
+        WasmFiber {
+            rt,
+            awaiter,
+            handle: Some(handle),
+        }
     }
 
-    fn resume(&mut self) -> WasmFiberStatus {
-        self.rt
-            .block_on(async { self.awaiter.recv().await.unwrap() })
+    fn resume(&mut self) -> Result<WasmFiberStatus> {
+        self.rt.block_on(async {
+            match self.awaiter.recv().await {
+                Some(status) => Ok(status),
+                None => {
+                    if let Some(handle) = self.handle.take() {
+                        handle.await??;
+                    }
+                    Ok(WasmFiberStatus::Finished)
+                }
+            }
+        })
     }
 
-    fn resume_on_tx(self) -> WasmFiber {
+    fn resume_on_tx(self) -> Result<WasmFiber> {
         let (tx, rx) = oneshot::channel();
         let (ret_tx, ret_rx) = oneshot::channel();
         let _ = tx.send(self);
         let cb = move || {
-            let mut fiber = rx.blocking_recv().unwrap();
-            fiber.resume();
-            let _ = ret_tx.send(fiber);
+            if let Ok(mut fiber) = rx.blocking_recv() {
+                let _ = fiber.resume();
+                let _ = ret_tx.send(fiber);
+            }
         };
 
         tx_push(Box::new(TxCtx { cb: Box::new(cb) }));
         tx_flush();
 
-        ret_rx.blocking_recv().unwrap()
+        ret_rx
+            .blocking_recv()
+            .map_err(|_| anyhow!("fiber cancelled during resume"))
     }
 
     pub(crate) fn block_on(mut self) -> Result<()> {
         loop {
-            match self.resume() {
+            match self.resume()? {
                 WasmFiberStatus::Suspended => {
-                    self = self.resume_on_tx();
+                    self = self.resume_on_tx()?;
                 }
                 WasmFiberStatus::Finished => {
                     return Ok(());
