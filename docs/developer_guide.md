@@ -19,11 +19,33 @@ This document explains the internal structure of the project, the main APIs and 
 
 The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. The module provides several functions:
 
-- `load(path) -> string` – load a WASM component from file and return a module identifier.
-- `run(uid) -> join_handle` – run a component using `wasi:cli.run` entry point in a background thread.
+- `load(path[, opts]) -> string` – load a WASM component from file and return a module identifier. Optional `opts`
+  configures the WASI context for subsequent runs.
+- `run(uid[, opts]) -> join_handle` – run a component using `wasi:cli.run` entry point in a background
+  thread. `opts` overrides the configuration passed to `load`.
 - `join(handle)` – wait for completion of a module started with `run`.
 - `call(uid, func, ...) -> any` – call an exported function synchronously. Arguments and results are encoded with MessagePack.
 - `batch(uid, calls) -> table` – execute multiple exports sequentially inside one worker thread.
+
+`opts` is a table configuring the WASI environment:
+
+- `inherit_env` (default: `true`) – pass the host environment variables to the module.
+- `env`(default: none) – table of additional environment variables to set.
+- `inherit_args` (default: `false`) – append the host process arguments.
+- `args` – array of arguments to pass to the module.
+- `inherit_stdin` (default: `true`) – forward the host's standard input stream.
+- `inherit_stdout` (default: `true`) – forward the host's standard output stream.
+- `inherit_stderr` (default: `true`) – forward the host's standard error stream.
+- `stdin` (default: none) – path to a file used as the module's standard input.
+- `stdout` (default: none) – path to a file where the module's standard output is written.
+- `stderr` (default: none) – path to a file where the module's standard error is written.
+- `inherit_network` (default: `true`) – allow the module to access host networking.
+- `allow_ip_name_lookup` (default: `true`) – enable DNS lookups.
+- `allow_tcp` / `allow_udp` (default: `true`) – enable TCP/UDP sockets.
+- `preopened_dirs` (default: none) – array of `{ host_path, guest_path, perms }` tables exposing directories to the module.
+  - `perms` is optional and can be `"ro"` (read-only) or `"rw"` (read-write, default).
+
+Providing `stdin`, `stdout`, or `stderr` overrides the respective `inherit_*` option and redirects the module's streams to files.
 
 The heavy lifting happens in `src/runtime/`:
 

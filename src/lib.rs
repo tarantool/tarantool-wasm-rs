@@ -5,11 +5,12 @@ mod runtime;
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
     tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_export_names, tt_wasm_load_module,
-    tt_wasm_run_module,
+    tt_wasm_run_module, WasmConfig,
 };
 use anyhow::Result;
 use mlua::prelude::*;
 use mlua::Value;
+use wasmtime_wasi::{DirPerms, FilePerms};
 use std::thread::JoinHandle;
 use tarantool::coio::coio_call;
 
@@ -25,18 +26,125 @@ impl FromLua for WasmJoinHandle {
     }
 }
 
-fn load(_: &Lua, path: String) -> LuaResult<String> {
-    match tt_wasm_load_module(path) {
-        Ok(uid) => Ok(uid),
-        Err(e) => Err(LuaError::runtime(e)),
+fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
+    let mut cfg = WasmConfig::default();
+    if let Some(t) = tbl {
+        if let Ok(inherit_env) = t.get::<bool>("inherit_env") {
+            cfg.inherit_env = inherit_env;
+        }
+        if let Ok(inherit_args) = t.get::<bool>("inherit_args") {
+            cfg.inherit_args = inherit_args;
+        }
+        if let Ok(args_tbl) = t.get::<LuaTable>("args") {
+            for val in args_tbl.sequence_values::<String>() {
+                cfg.args.push(val?);
+            }
+        }
+        if let Ok(inherit_stdin) = t.get::<bool>("inherit_stdin") {
+            cfg.inherit_stdin = inherit_stdin;
+        }
+        if let Ok(inherit_stdout) = t.get::<bool>("inherit_stdout") {
+            cfg.inherit_stdout = inherit_stdout;
+        }
+        if let Ok(inherit_stderr) = t.get::<bool>("inherit_stderr") {
+            cfg.inherit_stderr = inherit_stderr;
+        }
+        if let Ok(stdin) = t.get::<String>("stdin") {
+            cfg.stdin = Some(stdin);
+        }
+        if let Ok(stdout) = t.get::<String>("stdout") {
+            cfg.stdout = Some(stdout);
+        }
+        if let Ok(stderr) = t.get::<String>("stderr") {
+            cfg.stderr = Some(stderr);
+        }
+        if let Ok(env_tbl) = t.get::<LuaTable>("env") {
+            for pair in env_tbl.pairs::<String, String>() {
+                let (k, v) = pair?;
+                cfg.env.insert(k, v);
+            }
+        }
+        if let Ok(inherit_network) = t.get::<bool>("inherit_network") {
+            cfg.inherit_network = inherit_network;
+        }
+        if let Ok(allow_ip_name_lookup) = t.get::<bool>("allow_ip_name_lookup") {
+            cfg.allow_ip_name_lookup = allow_ip_name_lookup;
+        }
+        if let Ok(allow_tcp) = t.get::<bool>("allow_tcp") {
+            cfg.allow_tcp = allow_tcp;
+        }
+        if let Ok(allow_udp) = t.get::<bool>("allow_udp") {
+            cfg.allow_udp = allow_udp;
+        }
+        if let Ok(po_tbl) = t.get::<LuaTable>("preopened_dirs") {
+            for entry in po_tbl.sequence_values::<LuaTable>() {
+                let tbl = entry?;
+                let host: String = tbl.raw_get(1)?;
+                let guest: String = tbl.raw_get(2)?;
+                
+                let perms: Option<String> = tbl.raw_get("perms").ok();
+                let (dir_perms, file_perms) = match perms.as_deref() {
+                    Some("ro") => (DirPerms::READ, FilePerms::READ),
+                    _ => (DirPerms::all(), FilePerms::all()),
+                };
+
+                cfg.preopened_dirs.push((host, guest, dir_perms, file_perms));
+            }
+        }
     }
+    Ok(cfg)
 }
 
-fn run(_: &Lua, module_uid: String) -> LuaResult<WasmJoinHandle> {
-    match tt_wasm_run_module(module_uid) {
-        Ok(handle) => Ok(WasmJoinHandle(handle)),
-        Err(e) => Err(mlua::Error::runtime(e)),
-    }
+fn load(lua: &Lua, args: LuaMultiValue) -> LuaResult<String> {
+    let mut iter = args.into_iter();
+    let path = match iter.next() {
+        Some(Value::String(s)) => s.to_str()?.to_string(),
+        _ => {
+            return Err(mlua::Error::FromLuaConversionError {
+                from: "Value",
+                to: "String".to_string(),
+                message: Some("expected path as string".to_string()),
+            });
+        }
+    };
+
+    let cfg = match iter.next() {
+        Some(v) => {
+            let tbl: LuaTable = LuaTable::from_lua(v, lua)?;
+            parse_config_table(Some(tbl))?
+        }
+        None => WasmConfig::default(),
+    };
+
+    tt_wasm_load_module(path, cfg).map_err(LuaError::runtime)
+}
+
+fn run(lua: &Lua, args: LuaMultiValue) -> LuaResult<WasmJoinHandle> {
+    let mut iter = args.into_iter();
+    let module_uid = match iter.next() {
+        Some(Value::String(s)) => {
+            let s = s.to_str()?.to_string();
+            s
+        }
+        _other => {
+            return Err(mlua::Error::FromLuaConversionError {
+                from: "Value",
+                to: "String".to_string(),
+                message: Some("expected module_uid as string".to_string()),
+            });
+        }
+    };
+
+    let cfg = match iter.next() {
+        Some(v) => {
+            let tbl: LuaTable = LuaTable::from_lua(v, lua)?;
+            Some(parse_config_table(Some(tbl))?)
+        }
+        None => None,
+    };
+    tt_wasm_run_module(module_uid, cfg)
+        .map(WasmJoinHandle)
+        .map_err(LuaError::runtime)
 }
 
 fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {

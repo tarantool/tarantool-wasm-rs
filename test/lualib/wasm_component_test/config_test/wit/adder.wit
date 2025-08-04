@@ -1,0 +1,10 @@
+package docs:adder@0.1.0;
+
+world adder {
+  export t-stdout: func(msg: string);
+  export t-stdin: func();
+  export t-stderr: func();
+  export t-env: func() -> string;
+  export t-preopen: func();
+  export t-args: func();
+}

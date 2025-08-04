@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fs::OpenOptions,
     sync::{Arc, Mutex, RwLock},
     thread::{self, JoinHandle},
     time::Duration,
@@ -18,7 +19,10 @@ use wasmtime::{
     },
     AsContext, Config, Engine, Store,
 };
-use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::p2::{
+    pipe::MemoryInputPipe, IoView, OutputFile, WasiCtx, WasiCtxBuilder, WasiView,
+};
+use wasmtime_wasi::{DirPerms, FilePerms};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 use wasmtime_wasi_tls::{LinkOptions, WasiTlsCtx};
 
@@ -39,6 +43,47 @@ lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
 }
 
+#[derive(Clone)]
+pub struct WasmConfig {
+    pub inherit_env: bool,
+    pub env: HashMap<String, String>,
+    pub inherit_args: bool,
+    pub args: Vec<String>,
+    pub inherit_stdin: bool,
+    pub inherit_stdout: bool,
+    pub inherit_stderr: bool,
+    pub stdin: Option<String>,
+    pub stdout: Option<String>,
+    pub stderr: Option<String>,
+    pub inherit_network: bool,
+    pub allow_ip_name_lookup: bool,
+    pub allow_tcp: bool,
+    pub allow_udp: bool,
+    pub preopened_dirs: Vec<(String, String, DirPerms, FilePerms)>,
+}
+
+impl Default for WasmConfig {
+    fn default() -> Self {
+        Self {
+            inherit_env: true,
+            env: HashMap::new(),
+            inherit_args: false,
+            args: Vec::new(),
+            inherit_stdin: true,
+            inherit_stdout: true,
+            inherit_stderr: true,
+            stdin: None,
+            stdout: None,
+            stderr: None,
+            inherit_network: true,
+            allow_ip_name_lookup: true,
+            allow_tcp: true,
+            allow_udp: true,
+            preopened_dirs: Vec::new(),
+        }
+    }
+}
+
 pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
@@ -49,15 +94,66 @@ pub(crate) struct WasmStates {
 }
 
 impl WasmStates {
-    pub fn new() -> Self {
+    pub fn new(config: WasmConfig) -> Self {
         let table = ResourceTable::new();
         let mut builder = WasiCtxBuilder::new();
-        // TODO: make env and stdio configurable
+
+        if let Some(path) = &config.stdin {
+            if let Ok(bytes) = std::fs::read(path) {
+                builder.stdin(MemoryInputPipe::new(bytes));
+            }
+        } else if config.inherit_stdin {
+            builder.inherit_stdin();
+        }
+
+        if let Some(path) = &config.stdout {
+            if let Ok(file) = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(path)
+            {
+                builder.stdout(OutputFile::new(file));
+            }
+        } else if config.inherit_stdout {
+            builder.inherit_stdout();
+        }
+
+        if let Some(path) = &config.stderr {
+            if let Ok(file) = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(path)
+            {
+                builder.stderr(OutputFile::new(file));
+            }
+        } else if config.inherit_stderr {
+            builder.inherit_stderr();
+        }
+        if config.inherit_env {
+            builder.inherit_env();
+        }
+        for (k, v) in config.env.iter() {
+            let _ = builder.env(k, v);
+        }
+        if config.inherit_args {
+            builder.inherit_args();
+        }
+        if !config.args.is_empty() {
+            builder.args(&config.args);
+        }
+        if config.inherit_network {
+            builder.inherit_network();
+        }
         builder
-            .inherit_stdio()
-            .inherit_env()
-            .inherit_network()
-            .allow_ip_name_lookup(true);
+            .allow_ip_name_lookup(config.allow_ip_name_lookup)
+            .allow_tcp(config.allow_tcp)
+            .allow_udp(config.allow_udp);
+
+        for (host, guest, dir_perms, file_perms) in config.preopened_dirs.iter() {
+            let _ = builder.preopened_dir(host, guest, *dir_perms, *file_perms);
+        }
 
         let ctx = builder.build();
         Self {
@@ -74,8 +170,8 @@ impl WasmStates {
 pub(crate) struct SyncWasmStates(pub(crate) Mutex<WasmStates>);
 
 impl SyncWasmStates {
-    pub(crate) fn new() -> Self {
-        SyncWasmStates(Mutex::new(WasmStates::new()))
+    pub(crate) fn new(config: WasmConfig) -> Self {
+        SyncWasmStates(Mutex::new(WasmStates::new(config)))
     }
 
     pub fn begin_tx(&mut self) {
@@ -123,10 +219,16 @@ impl WasiHttpView for SyncWasmStates {
     }
 }
 
+#[derive(Clone)]
+struct LoadedModule {
+    component: Component,
+    config: WasmConfig,
+}
+
 struct RuntimeState {
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
-    pub modules: RwLock<HashMap<String, Component>>,
+    pub modules: RwLock<HashMap<String, LoadedModule>>,
 }
 
 fn get_configuration() -> Config {
@@ -199,14 +301,18 @@ impl RuntimeState {
     }
 }
 
-pub fn tt_wasm_load_module(path: String) -> Result<String> {
+pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
     match Component::from_file(&runtime_state.engine, path.clone()) {
         Ok(module) => {
+            let loaded = LoadedModule {
+                component: module,
+                config,
+            };
             runtime_state
                 .modules
                 .write()
                 .unwrap()
-                .insert(path.clone(), module);
+                .insert(path.clone(), loaded);
             Ok(path)
         }
         Err(e) => Err(e),
@@ -234,18 +340,26 @@ where
     Ok(handle?)
 }
 
-pub fn tt_wasm_run_module(module_uid: String) -> Result<JoinHandle<Result<()>>> {
+pub fn tt_wasm_run_module(
+    module_uid: String,
+    config: Option<WasmConfig>,
+) -> Result<JoinHandle<Result<()>>> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let component = runtime_state
+        let loaded = runtime_state
             .modules
             .read()
             .unwrap()
             .get(&module_uid)
             .unwrap()
             .clone();
+        let component = loaded.component;
+        let mut cfg = loaded.config;
+        if let Some(over) = config {
+            cfg = over;
+        }
         let linker = runtime_state.linker.clone();
 
-        let wasi_view = SyncWasmStates::new();
+        let wasi_view = SyncWasmStates::new(cfg);
         let mut store = Store::new(&runtime_state.engine, wasi_view);
 
         store.set_epoch_deadline(1);
@@ -265,7 +379,7 @@ pub fn tt_wasm_call_function(
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let component = runtime_state
+        let loaded = runtime_state
             .modules
             .read()
             .unwrap()
@@ -273,8 +387,11 @@ pub fn tt_wasm_call_function(
             .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
             .clone();
 
+        let component = loaded.component;
+        let cfg = loaded.config;
+
         let linker = runtime_state.linker.clone();
-        let wasi_view = SyncWasmStates::new();
+        let wasi_view = SyncWasmStates::new(cfg);
         let mut store = Store::new(&runtime_state.engine, wasi_view);
 
         store.set_epoch_deadline(1);
@@ -371,13 +488,16 @@ pub fn tt_wasm_call_functions(
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
 ) -> Result<Vec<RmpvValue>> {
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let component = runtime_state
+        let loaded = runtime_state
             .modules
             .read()
             .unwrap()
             .get(&module_uid)
             .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
             .clone();
+
+        let component = loaded.component;
+        let cfg = loaded.config;
 
         let linker = runtime_state.linker.clone();
 
@@ -391,7 +511,7 @@ pub fn tt_wasm_call_functions(
             let mut results_all = Vec::new();
 
             for (interface, func, args) in calls.into_iter() {
-                let wasi_view = SyncWasmStates::new();
+                let wasi_view = SyncWasmStates::new(cfg.clone());
                 let mut store = Store::new(&runtime_state.engine, wasi_view);
 
                 store.set_epoch_deadline(1);
@@ -528,6 +648,7 @@ pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
         .unwrap()
         .get(&module_uid)
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
+        .component
         .clone();
 
     let ty = component.component_type();
