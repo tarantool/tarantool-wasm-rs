@@ -15,7 +15,7 @@ use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
     component::{
         types::{ComponentInstance, ComponentItem},
-        Component, Linker, ResourceTable, Val, HasData,
+        Component, HasData, Linker, ResourceTable, Val,
     },
     AsContext, Config, Engine, Store,
 };
@@ -270,23 +270,32 @@ impl RuntimeState {
         let mut opts = LinkOptions::default();
         opts.tls(true);
 
-        let _ = wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
-            let state = h.0.get_mut().unwrap();
-            WasiTls::new(&state.tls, &mut state.table)
-        });
+        let _ =
+            wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
+                let state = h.0.get_mut().unwrap();
+                WasiTls::new(&state.tls, &mut state.table)
+            });
 
         let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
         let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
         let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
         let _ = txn::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
         let _ = types::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
         let _ = index::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = key_def::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            key_def::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let _ =
+            tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| {
+                state
+            });
+        let _ =
+            box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
 
         let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
 
@@ -323,6 +332,15 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
             Ok(path)
         }
         Err(e) => Err(e),
+    }
+}
+
+pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
+    let mut modules = runtime_state.modules.write().unwrap();
+    if modules.remove(&module_uid).is_some() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("module `{module_uid}` not found"))
     }
 }
 

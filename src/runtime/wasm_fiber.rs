@@ -47,7 +47,9 @@ impl WasmFiber {
         let handle = rt.spawn(async move {
             let command = Command::instantiate_async(&mut store, &component, &linker).await?;
             let _ = command.wasi_cli_run().call_run(&mut store).await?;
-            finalizer.send(WasmFiberStatus::Finished).await
+            finalizer
+                .send(WasmFiberStatus::Finished)
+                .await
                 .map_err(|e| anyhow!("failed to signal fiber completion: {e}"))?;
             Ok(())
         });

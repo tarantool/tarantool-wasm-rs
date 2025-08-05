@@ -4,15 +4,15 @@ mod runtime;
 
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
-    tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_export_names, tt_wasm_load_module,
-    tt_wasm_run_module, WasmConfig,
+    tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_drop_module, tt_wasm_export_names,
+    tt_wasm_load_module, tt_wasm_run_module, WasmConfig,
 };
 use anyhow::Result;
 use mlua::prelude::*;
 use mlua::Value;
-use wasmtime_wasi::{DirPerms, FilePerms};
 use std::thread::JoinHandle;
 use tarantool::coio::coio_call;
+use wasmtime_wasi::{DirPerms, FilePerms};
 
 struct WasmJoinHandle(JoinHandle<Result<()>>);
 
@@ -81,14 +81,15 @@ fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
                 let tbl = entry?;
                 let host: String = tbl.raw_get(1)?;
                 let guest: String = tbl.raw_get(2)?;
-                
+
                 let perms: Option<String> = tbl.raw_get("perms").ok();
                 let (dir_perms, file_perms) = match perms.as_deref() {
                     Some("ro") => (DirPerms::READ, FilePerms::READ),
                     _ => (DirPerms::all(), FilePerms::all()),
                 };
 
-                cfg.preopened_dirs.push((host, guest, dir_perms, file_perms));
+                cfg.preopened_dirs
+                    .push((host, guest, dir_perms, file_perms));
             }
         }
     }
@@ -340,6 +341,13 @@ fn exports(lua: &Lua, module_uid: String) -> LuaResult<Value> {
     }
 }
 
+fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
+    match tt_wasm_drop_module(module_uid) {
+        Ok(()) => Ok(true),
+        Err(e) => Err(LuaError::runtime(e)),
+    }
+}
+
 #[mlua::lua_module(name = "wasm")]
 fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;
@@ -349,5 +357,6 @@ fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("call", lua.create_function(call)?)?;
     module.set("batch", lua.create_function(batch)?)?;
     module.set("exports", lua.create_function(exports)?)?;
+    module.set("drop", lua.create_function(drop)?)?;
     Ok(module)
 }
