@@ -7,4 +7,5 @@ world adder {
   export t-env: func() -> string;
   export t-preopen: func();
   export t-args: func();
+  export t-inherit-env: func() -> string;
 }

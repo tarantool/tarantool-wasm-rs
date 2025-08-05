@@ -16,6 +16,9 @@ class WitWorld:
     def t_env(self) -> str:
         return os.getenv("TEST_VAR", "TEST_VAR IS NONE")
 
+    def t_inherit_env(self) -> str:
+        return os.getenv("HOME", "HOME IS NONE")
+
     def t_preopen(self) -> None:
         try:
             with open("./ro/f1.txt") as f:

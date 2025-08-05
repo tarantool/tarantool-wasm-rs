@@ -115,3 +115,16 @@ g.test_args = function(cg)
     local out = read_file(out_path)
     t.assert_str_contains(out, "['1', 'abc']")
 end
+
+g.test_default_values = function(cg)
+    local m = wasm.load(wasm_path, {})
+    local res = wasm.call(m, "t-inherit-env")
+    t.assert_not_equals(res, "HOME IS NONE")
+
+    res = wasm.drop(m)
+    t.assert(res)
+
+    m = wasm.load(wasm_path, { inherit_env = false })
+    local res = wasm.call(m, "t-inherit-env")
+    t.assert_equals(res, "HOME IS NONE")
+end

@@ -29,10 +29,10 @@ impl FromLua for WasmJoinHandle {
 fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
     let mut cfg = WasmConfig::default();
     if let Some(t) = tbl {
-        if let Ok(inherit_env) = t.get::<bool>("inherit_env") {
+        if let Ok(Some(inherit_env)) = t.get::<Option<bool>>("inherit_env") {
             cfg.inherit_env = inherit_env;
         }
-        if let Ok(inherit_args) = t.get::<bool>("inherit_args") {
+        if let Ok(Some(inherit_args)) = t.get::<Option<bool>>("inherit_args") {
             cfg.inherit_args = inherit_args;
         }
         if let Ok(args_tbl) = t.get::<LuaTable>("args") {
@@ -40,13 +40,13 @@ fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
                 cfg.args.push(val?);
             }
         }
-        if let Ok(inherit_stdin) = t.get::<bool>("inherit_stdin") {
+        if let Ok(Some(inherit_stdin)) = t.get::<Option<bool>>("inherit_stdin") {
             cfg.inherit_stdin = inherit_stdin;
         }
-        if let Ok(inherit_stdout) = t.get::<bool>("inherit_stdout") {
+        if let Ok(Some(inherit_stdout)) = t.get::<Option<bool>>("inherit_stdout") {
             cfg.inherit_stdout = inherit_stdout;
         }
-        if let Ok(inherit_stderr) = t.get::<bool>("inherit_stderr") {
+        if let Ok(Some(inherit_stderr)) = t.get::<Option<bool>>("inherit_stderr") {
             cfg.inherit_stderr = inherit_stderr;
         }
         if let Ok(stdin) = t.get::<String>("stdin") {
@@ -64,16 +64,16 @@ fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
                 cfg.env.insert(k, v);
             }
         }
-        if let Ok(inherit_network) = t.get::<bool>("inherit_network") {
+        if let Ok(Some(inherit_network)) = t.get::<Option<bool>>("inherit_network") {
             cfg.inherit_network = inherit_network;
         }
-        if let Ok(allow_ip_name_lookup) = t.get::<bool>("allow_ip_name_lookup") {
+        if let Ok(Some(allow_ip_name_lookup)) = t.get::<Option<bool>>("allow_ip_name_lookup") {
             cfg.allow_ip_name_lookup = allow_ip_name_lookup;
         }
-        if let Ok(allow_tcp) = t.get::<bool>("allow_tcp") {
+        if let Ok(Some(allow_tcp)) = t.get::<Option<bool>>("allow_tcp") {
             cfg.allow_tcp = allow_tcp;
         }
-        if let Ok(allow_udp) = t.get::<bool>("allow_udp") {
+        if let Ok(Some(allow_udp)) = t.get::<Option<bool>>("allow_udp") {
             cfg.allow_udp = allow_udp;
         }
         if let Ok(po_tbl) = t.get::<LuaTable>("preopened_dirs") {
