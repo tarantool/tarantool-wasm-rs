@@ -1,0 +1,35 @@
+local t = require('luatest')
+local wasm = require('wasm')
+local fio = require('fio')
+
+package.path = "./test/?.lua;" .. package.path
+local utils = require('utils')
+
+local g = t.group("component_limits")
+local path = fio.pathjoin(utils.get_test_dir(), "lualib", "wasm_component_test", "component_limits_test", "adder.wasm")
+
+g.test_fuel_no_limit = function()
+    local m = wasm.load(path)
+    local ok, _ = pcall(wasm.call, m, "foo")
+    t.assert(ok)
+end
+
+g.test_mem_size_no_limit = function()
+    local m = wasm.load(path)
+    local ok, _ = pcall(wasm.call, m, "bar")
+    t.assert(ok)
+end
+
+g.test_fuel_limit = function()
+    local m = wasm.load(path, { max_instructions = 50000000 })
+    local ok, err = pcall(wasm.call, m, "foo")
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), "error while executing at wasm backtrace")
+end
+
+g.test_mem_size_limit = function()
+    local m = wasm.load(path, { memory_limit = 16*1024*1024 })
+    local ok, err = pcall(wasm.call, m, "bar")
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), "error while executing at wasm backtrace")
+end

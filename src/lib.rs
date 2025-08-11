@@ -92,6 +92,12 @@ fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
                     .push((host, guest, dir_perms, file_perms));
             }
         }
+        if let Ok(memory_limit) = t.get::<u64>("memory_limit") {
+            cfg.memory_limit = Some(memory_limit as usize);
+        }
+        if let Ok(max_instructions) = t.get::<u64>("max_instructions") {
+            cfg.max_instructions = Some(max_instructions);
+        }
     }
     Ok(cfg)
 }

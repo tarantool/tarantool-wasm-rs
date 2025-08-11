@@ -42,7 +42,7 @@ impl WasmFiber {
             .unwrap();
         let (yielder, awaiter) = mpsc::channel(1);
         let finalizer = yielder.clone();
-        store.data().0.lock().unwrap().yielder = Some(yielder);
+        store.data().state.lock().unwrap().yielder = Some(yielder);
 
         let handle = rt.spawn(async move {
             let command = Command::instantiate_async(&mut store, &component, &linker).await?;

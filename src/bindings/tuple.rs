@@ -184,7 +184,7 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
 
         let iter_ptr = send_ptr.0;
         let resource = self
-            .0
+            .state
             .lock()
             .unwrap()
             .table
@@ -195,7 +195,7 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
     }
 
     async fn position(&mut self, self_: Resource<box_tuple::TupleIterator>) -> u32 {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.state.lock().unwrap();
         let iter = guard
             .table
             .get_mut(&self_)
@@ -206,7 +206,7 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
     }
 
     async fn rewind(&mut self, self_: Resource<box_tuple::TupleIterator>) {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.state.lock().unwrap();
         let iter = guard
             .table
             .get_mut(&self_)
@@ -221,7 +221,7 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         self_: Resource<box_tuple::TupleIterator>,
         pos: u32,
     ) -> Result<TupleField, BoxError> {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.state.lock().unwrap();
         let iter = guard
             .table
             .get_mut(&self_)
@@ -235,7 +235,7 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         &mut self,
         self_: Resource<box_tuple::TupleIterator>,
     ) -> Result<TupleField, BoxError> {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.state.lock().unwrap();
         let iter = guard
             .table
             .get_mut(&self_)
@@ -249,7 +249,7 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         &mut self,
         self_: Resource<box_tuple::TupleIterator>,
     ) -> Result<(), wasmtime::Error> {
-        self.0.lock().unwrap().table.delete(self_)?;
+        self.state.lock().unwrap().table.delete(self_)?;
         Ok(())
     }
 }

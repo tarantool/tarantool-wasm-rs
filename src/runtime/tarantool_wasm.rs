@@ -17,7 +17,7 @@ use wasmtime::{
         types::{ComponentInstance, ComponentItem},
         Component, HasData, Linker, ResourceTable, Val,
     },
-    AsContext, Config, Engine, Store,
+    AsContext, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
 };
 use wasmtime_wasi::p2::{
     pipe::MemoryInputPipe, IoView, OutputFile, WasiCtx, WasiCtxBuilder, WasiView,
@@ -43,7 +43,7 @@ lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WasmConfig {
     pub inherit_env: bool,
     pub env: HashMap<String, String>,
@@ -60,6 +60,8 @@ pub struct WasmConfig {
     pub allow_tcp: bool,
     pub allow_udp: bool,
     pub preopened_dirs: Vec<(String, String, DirPerms, FilePerms)>,
+    pub memory_limit: Option<usize>,
+    pub max_instructions: Option<u64>,
 }
 
 impl Default for WasmConfig {
@@ -80,6 +82,8 @@ impl Default for WasmConfig {
             allow_tcp: true,
             allow_udp: true,
             preopened_dirs: Vec::new(),
+            memory_limit: None,
+            max_instructions: None,
         }
     }
 }
@@ -169,30 +173,41 @@ impl WasmStates {
     }
 }
 
-pub(crate) struct SyncWasmStates(pub(crate) Mutex<WasmStates>);
+pub(crate) struct SyncWasmStates {
+    pub(crate) state: Mutex<WasmStates>,
+    pub(crate) limits: StoreLimits,
+}
 
 impl SyncWasmStates {
     pub(crate) fn new(config: WasmConfig) -> Self {
-        SyncWasmStates(Mutex::new(WasmStates::new(config)))
+        let mut builder = StoreLimitsBuilder::new();
+        if let Some(limit) = config.memory_limit {
+            builder = builder.memory_size(limit);
+        }
+        let limits = builder.build();
+        SyncWasmStates {
+            state: Mutex::new(WasmStates::new(config)),
+            limits,
+        }
     }
 
     pub fn begin_tx(&mut self) {
-        self.0.lock().unwrap().tx_mode = TxMode::Started;
-        self.0.lock().unwrap().executor = Executor::Direct;
+        self.state.lock().unwrap().tx_mode = TxMode::Started;
+        self.state.lock().unwrap().executor = Executor::Direct;
     }
 
     pub fn end_tx(&mut self) {
-        self.0.lock().unwrap().tx_mode = TxMode::None;
-        self.0.lock().unwrap().executor = Executor::TxPush;
+        self.state.lock().unwrap().tx_mode = TxMode::None;
+        self.state.lock().unwrap().executor = Executor::TxPush;
     }
 
     pub fn executor(&self) -> Executor {
-        self.0.lock().unwrap().executor
+        self.state.lock().unwrap().executor
     }
 
     pub(crate) async fn yield_now(&self) {
         let maybe_yielder = {
-            let guard = self.0.lock().unwrap();
+            let guard = self.state.lock().unwrap();
             guard.yielder.clone()
         };
 
@@ -205,19 +220,19 @@ impl SyncWasmStates {
 
 impl WasiView for SyncWasmStates {
     fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.0.get_mut().unwrap().ctx
+        &mut self.state.get_mut().unwrap().ctx
     }
 }
 
 impl IoView for SyncWasmStates {
     fn table(&mut self) -> &mut ResourceTable {
-        &mut self.0.get_mut().unwrap().table
+        &mut self.state.get_mut().unwrap().table
     }
 }
 
 impl WasiHttpView for SyncWasmStates {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.0.get_mut().unwrap().http
+        &mut self.state.get_mut().unwrap().http
     }
 }
 
@@ -229,15 +244,18 @@ impl HasData for SyncWasmStates {
 struct LoadedModule {
     component: Component,
     config: WasmConfig,
+    fuel: bool,
 }
 
 struct RuntimeState {
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
+    pub fuel_engine: Engine,
+    pub fuel_linker: Arc<Linker<SyncWasmStates>>,
     pub modules: RwLock<HashMap<String, LoadedModule>>,
 }
 
-fn get_configuration() -> Config {
+fn get_configuration(with_fuel: bool) -> Config {
     let mut config = Config::new();
     /*
      * Async support is required to implement rescheduling into the TX
@@ -247,6 +265,9 @@ fn get_configuration() -> Config {
      * task and reschedule that task instead.
      */
     config.async_support(true);
+    if with_fuel {
+        config.consume_fuel(true);
+    }
 
     /*
      * We use epoch-based interruptions to implement graceful shutdown.
@@ -259,70 +280,81 @@ fn get_configuration() -> Config {
     config
 }
 
+fn build_linker(engine: &Engine) -> Linker<SyncWasmStates> {
+    let mut linker = Linker::<SyncWasmStates>::new(engine);
+    let _ = wasmtime_wasi::p2::add_to_linker_async(&mut linker);
+    let _ = wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker);
+
+    let mut opts = LinkOptions::default();
+    opts.tls(true);
+
+    let _ = wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
+        let state = h.state.get_mut().unwrap();
+        WasiTls::new(&state.tls, &mut state.table)
+    });
+
+    let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = txn::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = types::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = index::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = key_def::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ =
+        tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+
+    let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    linker
+}
+
 impl RuntimeState {
     pub fn new() -> Self {
-        let config = get_configuration();
-        let engine = Engine::new(&config).unwrap();
-        let mut linker = Linker::<SyncWasmStates>::new(&engine);
-        let _ = wasmtime_wasi::p2::add_to_linker_async(&mut linker);
-        let _ = wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker);
+        let engine = Engine::new(&get_configuration(false)).unwrap();
+        let fuel_engine = Engine::new(&get_configuration(true)).unwrap();
 
-        let mut opts = LinkOptions::default();
-        opts.tls(true);
-
-        let _ =
-            wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
-                let state = h.0.get_mut().unwrap();
-                WasiTls::new(&state.tls, &mut state.table)
-            });
-
-        let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ =
-            session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ =
-            msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = txn::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = types::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ = index::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ =
-            sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ =
-            key_def::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-        let _ =
-            tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| {
-                state
-            });
-        let _ =
-            box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-
-        let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+        let linker = build_linker(&engine);
+        let fuel_linker = build_linker(&fuel_engine);
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
+        let fuel_linker_ref = Arc::new(fuel_linker);
 
         let engine_ref = engine.clone();
+        let fuel_engine_ref = fuel_engine.clone();
 
         let _ = on_shutdown(move || {
             engine_ref.increment_epoch();
+            fuel_engine_ref.increment_epoch();
             fiber::sleep(Duration::new(1, 0));
         });
 
         RuntimeState {
             engine,
             linker: linker_ref,
+            fuel_engine,
+            fuel_linker: fuel_linker_ref,
             modules,
         }
     }
 }
 
 pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
-    match Component::from_file(&runtime_state.engine, path.clone()) {
+    let use_fuel = config.max_instructions.is_some();
+    let engine = if use_fuel {
+        &runtime_state.fuel_engine
+    } else {
+        &runtime_state.engine
+    };
+    match Component::from_file(engine, path.clone()) {
         Ok(module) => {
             let loaded = LoadedModule {
                 component: module,
                 config,
+                fuel: use_fuel,
             };
             runtime_state
                 .modules
@@ -369,23 +401,44 @@ pub fn tt_wasm_run_module(
     module_uid: String,
     config: Option<WasmConfig>,
 ) -> Result<JoinHandle<Result<()>>> {
+    let loaded = runtime_state
+        .modules
+        .read()
+        .unwrap()
+        .get(&module_uid)
+        .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
+        .clone();
+    let component = loaded.component;
+    let mut cfg = loaded.config;
+    if let Some(over) = config {
+        cfg = over;
+    }
+    if cfg.max_instructions.is_some() && !loaded.fuel {
+        return Err(anyhow::anyhow!(
+            "module `{}` was loaded without fuel support",
+            module_uid
+        ));
+    }
+    let fuel = loaded.fuel;
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let loaded = runtime_state
-            .modules
-            .read()
-            .unwrap()
-            .get(&module_uid)
-            .unwrap()
-            .clone();
-        let component = loaded.component;
-        let mut cfg = loaded.config;
-        if let Some(over) = config {
-            cfg = over;
-        }
-        let linker = runtime_state.linker.clone();
+        let engine = if fuel {
+            &runtime_state.fuel_engine
+        } else {
+            &runtime_state.engine
+        };
+        let linker = if fuel {
+            runtime_state.fuel_linker.clone()
+        } else {
+            runtime_state.linker.clone()
+        };
 
-        let wasi_view = SyncWasmStates::new(cfg);
-        let mut store = Store::new(&runtime_state.engine, wasi_view);
+        let wasi_view = SyncWasmStates::new(cfg.clone());
+        let mut store = Store::new(engine, wasi_view);
+        store.limiter(|state| &mut state.limits);
+        if fuel {
+            let limit = cfg.max_instructions.unwrap_or(u64::MAX);
+            let _ = store.set_fuel(limit);
+        }
 
         store.set_epoch_deadline(1);
         store.epoch_deadline_trap();
@@ -403,21 +456,36 @@ pub fn tt_wasm_call_function(
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
+    let loaded = runtime_state
+        .modules
+        .read()
+        .unwrap()
+        .get(&module_uid)
+        .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
+        .clone();
+
+    let component = loaded.component;
+    let cfg = loaded.config;
+    let fuel = loaded.fuel;
+
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let loaded = runtime_state
-            .modules
-            .read()
-            .unwrap()
-            .get(&module_uid)
-            .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
-            .clone();
-
-        let component = loaded.component;
-        let cfg = loaded.config;
-
-        let linker = runtime_state.linker.clone();
-        let wasi_view = SyncWasmStates::new(cfg);
-        let mut store = Store::new(&runtime_state.engine, wasi_view);
+        let engine = if fuel {
+            &runtime_state.fuel_engine
+        } else {
+            &runtime_state.engine
+        };
+        let linker = if fuel {
+            runtime_state.fuel_linker.clone()
+        } else {
+            runtime_state.linker.clone()
+        };
+        let wasi_view = SyncWasmStates::new(cfg.clone());
+        let mut store = Store::new(engine, wasi_view);
+        store.limiter(|state| &mut state.limits);
+        if fuel {
+            let limit = cfg.max_instructions.unwrap_or(u64::MAX);
+            let _ = store.set_fuel(limit);
+        }
 
         store.set_epoch_deadline(1);
         store.epoch_deadline_trap();
@@ -512,19 +580,29 @@ pub fn tt_wasm_call_functions(
     module_uid: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
 ) -> Result<Vec<RmpvValue>> {
+    let loaded = runtime_state
+        .modules
+        .read()
+        .unwrap()
+        .get(&module_uid)
+        .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
+        .clone();
+
+    let component = loaded.component;
+    let cfg = loaded.config;
+    let fuel = loaded.fuel;
+
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let loaded = runtime_state
-            .modules
-            .read()
-            .unwrap()
-            .get(&module_uid)
-            .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
-            .clone();
-
-        let component = loaded.component;
-        let cfg = loaded.config;
-
-        let linker = runtime_state.linker.clone();
+        let engine = if fuel {
+            &runtime_state.fuel_engine
+        } else {
+            &runtime_state.engine
+        };
+        let linker = if fuel {
+            runtime_state.fuel_linker.clone()
+        } else {
+            runtime_state.linker.clone()
+        };
 
         let rt = Builder::new_current_thread()
             .enable_time()
@@ -537,7 +615,12 @@ pub fn tt_wasm_call_functions(
 
             for (interface, func, args) in calls.into_iter() {
                 let wasi_view = SyncWasmStates::new(cfg.clone());
-                let mut store = Store::new(&runtime_state.engine, wasi_view);
+                let mut store = Store::new(engine, wasi_view);
+                store.limiter(|state| &mut state.limits);
+                if fuel {
+                    let limit = cfg.max_instructions.unwrap_or(u64::MAX);
+                    let _ = store.set_fuel(limit);
+                }
 
                 store.set_epoch_deadline(1);
                 store.epoch_deadline_trap();
@@ -667,17 +750,21 @@ fn collect_exports(
 }
 
 pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
-    let component = runtime_state
+    let loaded = runtime_state
         .modules
         .read()
         .unwrap()
         .get(&module_uid)
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
-        .component
         .clone();
 
+    let component = loaded.component;
     let ty = component.component_type();
-    let engine = &runtime_state.engine;
+    let engine = if loaded.fuel {
+        &runtime_state.fuel_engine
+    } else {
+        &runtime_state.engine
+    };
 
     let mut out: ExportMap = HashMap::new();
 

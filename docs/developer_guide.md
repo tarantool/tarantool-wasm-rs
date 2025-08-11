@@ -42,6 +42,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `inherit_network` (default: `true`) – allow the module to access host networking.
 - `allow_ip_name_lookup` (default: `true`) – enable DNS lookups.
 - `allow_tcp` / `allow_udp` (default: `true`) – enable TCP/UDP sockets.
+- `memory_limit` (default: none) – maximum size of WebAssembly linear memory in bytes.
+- `max_instructions` (default: none) – maximum fuel (approximate instruction count) the module may consume.
 - `preopened_dirs` (default: none) – array of `{ host_path, guest_path, perms }` tables exposing directories to the module.
   - `perms` is optional and can be `"ro"` (read-only) or `"rw"` (read-write, default).
 

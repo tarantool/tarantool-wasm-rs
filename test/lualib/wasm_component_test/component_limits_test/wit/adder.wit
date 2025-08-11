@@ -1,0 +1,6 @@
+package docs:adder@0.1.0;
+
+world adder {
+  export foo: func();
+  export bar: func();
+}

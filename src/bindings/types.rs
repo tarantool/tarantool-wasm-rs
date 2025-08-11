@@ -83,7 +83,7 @@ impl types::HostIterator for SyncWasmStates {
             .map_err(|e| BoxError::new(e.to_string(), "IteratorInit", 1))?;
 
         Ok(self
-            .0
+            .state
             .lock()
             .unwrap()
             .table
@@ -92,7 +92,7 @@ impl types::HostIterator for SyncWasmStates {
     }
 
     async fn next(&mut self, self_: Resource<types::Iterator>) -> Result<BoxTuple, BoxError> {
-        let mut guard = self.0.lock().unwrap();
+        let mut guard = self.state.lock().unwrap();
         let iter = guard
             .table
             .get_mut(&self_)
@@ -105,7 +105,7 @@ impl types::HostIterator for SyncWasmStates {
     }
 
     async fn drop(&mut self, self_: Resource<types::Iterator>) -> Result<(), wasmtime::Error> {
-        self.0.lock().unwrap().table.delete(self_)?;
+        self.state.lock().unwrap().table.delete(self_)?;
         Ok(())
     }
 }
