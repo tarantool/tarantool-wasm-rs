@@ -76,6 +76,16 @@ fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
         if let Ok(Some(allow_udp)) = t.get::<Option<bool>>("allow_udp") {
             cfg.allow_udp = allow_udp;
         }
+        if let Ok(ip_tbl) = t.get::<LuaTable>("allowed_ips") {
+            for ip in ip_tbl.sequence_values::<String>() {
+                cfg.allowed_ips.push(ip?);
+            }
+        }
+        if let Ok(port_tbl) = t.get::<LuaTable>("allowed_ports") {
+            for port in port_tbl.sequence_values::<u16>() {
+                cfg.allowed_ports.push(port?);
+            }
+        }
         if let Ok(po_tbl) = t.get::<LuaTable>("preopened_dirs") {
             for entry in po_tbl.sequence_values::<LuaTable>() {
                 let tbl = entry?;

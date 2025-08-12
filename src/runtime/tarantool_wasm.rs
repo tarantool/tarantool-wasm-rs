@@ -59,6 +59,8 @@ pub struct WasmConfig {
     pub allow_ip_name_lookup: bool,
     pub allow_tcp: bool,
     pub allow_udp: bool,
+    pub allowed_ips: Vec<String>,
+    pub allowed_ports: Vec<u16>,
     pub preopened_dirs: Vec<(String, String, DirPerms, FilePerms)>,
     pub memory_limit: Option<usize>,
     pub max_instructions: Option<u64>,
@@ -81,6 +83,8 @@ impl Default for WasmConfig {
             allow_ip_name_lookup: true,
             allow_tcp: true,
             allow_udp: true,
+            allowed_ips: Vec::new(),
+            allowed_ports: Vec::new(),
             preopened_dirs: Vec::new(),
             memory_limit: None,
             max_instructions: None,
@@ -150,6 +154,20 @@ impl WasmStates {
         }
         if config.inherit_network {
             builder.inherit_network();
+
+            let allowed_ips = config.allowed_ips.clone();
+            let allowed_ports = config.allowed_ports.clone();
+            builder.socket_addr_check(move |addr, _| {
+                let allowed_ips = allowed_ips.clone();
+                let allowed_ports = allowed_ports.clone();
+                Box::pin(async move {
+                    let ip_allowed = allowed_ips.is_empty()
+                        || allowed_ips.iter().any(|ip| ip == &addr.ip().to_string());
+                    let port_allowed =
+                        allowed_ports.is_empty() || allowed_ports.contains(&addr.port());
+                    ip_allowed && port_allowed
+                })
+            });
         }
         builder
             .allow_ip_name_lookup(config.allow_ip_name_lookup)

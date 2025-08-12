@@ -44,6 +44,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `allow_tcp` / `allow_udp` (default: `true`) – enable TCP/UDP sockets.
 - `memory_limit` (default: none) – maximum size of WebAssembly linear memory in bytes.
 - `max_instructions` (default: none) – maximum fuel (approximate instruction count) the module may consume.
+- `allowed_ips` (default: none) – array of IP addresses permitted for network access.
+- `allowed_ports` (default: none) – array of TCP/UDP ports permitted for network access.
 - `preopened_dirs` (default: none) – array of `{ host_path, guest_path, perms }` tables exposing directories to the module.
   - `perms` is optional and can be `"ro"` (read-only) or `"rw"` (read-write, default).
 
