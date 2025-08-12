@@ -7,6 +7,9 @@ use tarantool::index::{Index as TarantoolIndex, IndexId};
 use tarantool::space::SpaceId;
 use tarantool::tuple::Tuple as TarantoolTuple;
 
+use crate::bindings::error::map_tarantool_error;
+use tarantool::error::TarantoolErrorCode;
+
 impl index::Host for SyncWasmStates {
     async fn len(&mut self, index: Index) -> Result<i64, BoxError> {
         let ind = unsafe {
@@ -15,7 +18,7 @@ impl index::Host for SyncWasmStates {
 
         match ind.len() {
             Ok(len) => Ok(len as i64),
-            Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),
+            Err(e) => Err(map_tarantool_error(e, "IndexError")),
         }
     }
 
@@ -26,7 +29,7 @@ impl index::Host for SyncWasmStates {
 
         match ind.bsize() {
             Ok(bsize) => Ok(bsize as i64),
-            Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),
+            Err(e) => Err(map_tarantool_error(e, "IndexError")),
         }
     }
 
@@ -40,15 +43,19 @@ impl index::Host for SyncWasmStates {
             Ok(None) => Err(BoxError::new(
                 "Tuple not found or Index::random returned nothing",
                 "TupleNotFound",
-                1,
+                TarantoolErrorCode::TupleNotFound as u32,
             )),
-            Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),
+            Err(e) => Err(map_tarantool_error(e, "IndexError")),
         }
     }
 
     async fn get(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
         if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(&e, "ValidationError", 1));
+            return Err(BoxError::new(
+                &e,
+                "ValidationError",
+                TarantoolErrorCode::IllegalParams as u32,
+            ));
         }
 
         let ind = unsafe {
@@ -62,9 +69,9 @@ impl index::Host for SyncWasmStates {
             Ok(None) => Err(BoxError::new(
                 "Tuple not found or Index::get returned nothing",
                 "TupleNotFound",
-                1,
+                TarantoolErrorCode::TupleNotFound as u32,
             )),
-            Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),
+            Err(e) => Err(map_tarantool_error(e, "IndexError")),
         }
     }
 
@@ -86,13 +93,17 @@ impl index::Host for SyncWasmStates {
                 "TupleNotFound",
                 1,
             )),
-            Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),
+            Err(e) => Err(map_tarantool_error(e, "IndexError")),
         }
     }
 
     async fn max(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
         if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(&e, "ValidationError", 1));
+            return Err(BoxError::new(
+                &e,
+                "ValidationError",
+                TarantoolErrorCode::IllegalParams as u32,
+            ));
         }
 
         let ind = unsafe {
@@ -106,9 +117,9 @@ impl index::Host for SyncWasmStates {
             Ok(None) => Err(BoxError::new(
                 "Tuple not found or Index::max returned nothing",
                 "TupleNotFound",
-                1,
+                TarantoolErrorCode::TupleNotFound as u32,
             )),
-            Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),
+            Err(e) => Err(map_tarantool_error(e, "IndexError")),
         }
     }
 
@@ -119,7 +130,11 @@ impl index::Host for SyncWasmStates {
         key: Vec<u8>,
     ) -> Result<i64, BoxError> {
         if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(&e, "ValidationError", 1));
+            return Err(BoxError::new(
+                &e,
+                "ValidationError",
+                TarantoolErrorCode::IllegalParams as u32,
+            ));
         }
 
         let ind = unsafe {
@@ -131,7 +146,7 @@ impl index::Host for SyncWasmStates {
 
         match ind.count(iter, &tuple) {
             Ok(count) => Ok(count as i64),
-            Err(e) => Err(BoxError::new(e.to_string(), "IndexError", 1)),
+            Err(e) => Err(map_tarantool_error(e, "IndexError")),
         }
     }
 }

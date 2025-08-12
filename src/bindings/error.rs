@@ -3,6 +3,7 @@ use crate::bindings::tarantool::tarantool::types::BoxError;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use std::ffi::CString;
+use tarantool::error::{self as tnt_error, TarantoolErrorCode};
 
 pub fn handle_tarantool_error() -> BoxError {
     let err = tarantool::error::BoxError::last();
@@ -17,7 +18,23 @@ pub fn handle_tarantool_error() -> BoxError {
         boxed = boxed.with_file(file);
     }
 
+    if !err.fields().is_empty() {
+        let payload = err
+            .fields()
+            .iter()
+            .map(|(k, v)| (k.to_string(), format!("{v}")))
+            .collect();
+        boxed = boxed.with_payload(payload);
+    }
+
     boxed
+}
+
+pub fn map_tarantool_error(err: tnt_error::Error, type_: &str) -> BoxError {
+    match err {
+        tnt_error::Error::Tarantool(_) => handle_tarantool_error(),
+        other => BoxError::new(other.to_string(), type_, TarantoolErrorCode::Unknown as u32),
+    }
 }
 
 impl BoxError {
@@ -32,7 +49,7 @@ impl BoxError {
         }
     }
 
-    pub fn _with_payload(mut self, payload: Vec<(impl Into<String>, impl Into<String>)>) -> Self {
+    pub fn with_payload(mut self, payload: Vec<(impl Into<String>, impl Into<String>)>) -> Self {
         self.payload = Some(
             payload
                 .into_iter()
@@ -95,6 +112,15 @@ impl error::Host for SyncWasmStates {
 
                 if let Some(file) = err.file() {
                     boxed = boxed.with_file(file);
+                }
+
+                if !err.fields().is_empty() {
+                    let payload = err
+                        .fields()
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), format!("{v}")))
+                        .collect();
+                    boxed = boxed.with_payload(payload);
                 }
 
                 Some(boxed)

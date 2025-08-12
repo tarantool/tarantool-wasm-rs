@@ -8,34 +8,60 @@ use rmpv::decode::read_value;
 use serde_json::Value;
 use std::io::Cursor;
 
+use tarantool::error::TarantoolErrorCode;
+
 impl msgpack::Host for SyncWasmStates {
     async fn encode(&mut self, data: Vec<u8>) -> Result<Vec<u8>, BoxError> {
         let deserialized: Value = match serde_json::from_slice(&data) {
             Ok(val) => val,
-            Err(e) => return Err(BoxError::new(e.to_string(), "JsonError", 1)),
+            Err(e) => {
+                return Err(BoxError::new(
+                    e.to_string(),
+                    "JsonError",
+                    TarantoolErrorCode::IllegalParams as u32,
+                ))
+            }
         };
 
         match to_vec(&deserialized) {
             Ok(msgpack) => Ok(msgpack),
-            Err(e) => Err(BoxError::new(e.to_string(), "MsgpackError", 1)),
+            Err(e) => Err(BoxError::new(
+                e.to_string(),
+                "MsgpackError",
+                TarantoolErrorCode::IllegalParams as u32,
+            )),
         }
     }
 
     async fn decode(&mut self, data: Vec<u8>) -> Result<Vec<u8>, BoxError> {
         let deserialized: Value = match from_slice(&data) {
             Ok(val) => val,
-            Err(e) => return Err(BoxError::new(e.to_string(), "MsgpackError", 1)),
+            Err(e) => {
+                return Err(BoxError::new(
+                    e.to_string(),
+                    "MsgpackError",
+                    TarantoolErrorCode::IllegalParams as u32,
+                ))
+            }
         };
 
         match serde_json::to_vec(&deserialized) {
             Ok(json_bytes) => Ok(json_bytes),
-            Err(e) => Err(BoxError::new(e.to_string(), "JsonError", 1)),
+            Err(e) => Err(BoxError::new(
+                e.to_string(),
+                "JsonError",
+                TarantoolErrorCode::IllegalParams as u32,
+            )),
         }
     }
 
     async fn decode_from_raw_ptr(&mut self, ptr: u64) -> Result<Vec<u8>, BoxError> {
         if ptr == 0 {
-            return Err(BoxError::new("Null pointer provided", "DecodeError", 500));
+            return Err(BoxError::new(
+                "Null pointer provided",
+                "DecodeError",
+                TarantoolErrorCode::IllegalParams as u32,
+            ));
         }
 
         let data_ptr = ptr as *const libc::c_char;
@@ -50,11 +76,20 @@ impl msgpack::Host for SyncWasmStates {
 
         match read_value(&mut cursor) {
             Ok(value) => {
-                let json_bytes = serde_json::to_vec(&value)
-                    .map_err(|e| BoxError::new(e.to_string(), "JsonError", 1))?;
+                let json_bytes = serde_json::to_vec(&value).map_err(|e| {
+                    BoxError::new(
+                        e.to_string(),
+                        "JsonError",
+                        TarantoolErrorCode::IllegalParams as u32,
+                    )
+                })?;
                 Ok(json_bytes)
             }
-            Err(e) => Err(BoxError::new(e.to_string(), "MsgpackError", 1)),
+            Err(e) => Err(BoxError::new(
+                e.to_string(),
+                "MsgpackError",
+                TarantoolErrorCode::IllegalParams as u32,
+            )),
         }
     }
 }

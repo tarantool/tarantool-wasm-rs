@@ -9,6 +9,8 @@ use crate::runtime::tarantool_wasm::SyncWasmStates;
 use std::ffi::CString;
 use std::mem::ManuallyDrop;
 
+use tarantool::error::TarantoolErrorCode;
+
 fn field_type_to_id(field_type: &str) -> Result<&'static str, BoxError> {
     match field_type {
         "unsigned" => Ok("unsigned"),
@@ -23,8 +25,8 @@ fn field_type_to_id(field_type: &str) -> Result<&'static str, BoxError> {
         "array" => Ok("array"),
         _ => Err(BoxError::new(
             "Unsupported field type",
-            "validation error",
-            2,
+            "ValidationError",
+            TarantoolErrorCode::IllegalParams as u32,
         )),
     }
 }
@@ -66,14 +68,24 @@ impl key_def::Host for SyncWasmStates {
 
         for part in parts.iter() {
             let field_type_str = field_type_to_id(&part.field_type)?;
-            let field_type_cstr = CString::new(field_type_str)
-                .map_err(|_| BoxError::new("Invalid field_type", "validation error", 2))?;
+            let field_type_cstr = CString::new(field_type_str).map_err(|_| {
+                BoxError::new(
+                    "Invalid field type",
+                    "ValidationError",
+                    TarantoolErrorCode::IllegalParams as u32,
+                )
+            })?;
             let field_type_ptr = field_type_cstr.as_ptr();
             c_field_types.push(field_type_cstr);
 
             let collation_ptr: *const libc::c_char = if let Some(ref collation) = part.collation {
-                let collation_cstr = CString::new(collation.as_str())
-                    .map_err(|_| BoxError::new("Invalid collation", "validation error", 2))?;
+                let collation_cstr = CString::new(collation.as_str()).map_err(|_| {
+                    BoxError::new(
+                        "Invalid field type",
+                        "ValidationError",
+                        TarantoolErrorCode::IllegalParams as u32,
+                    )
+                })?;
                 let ptr = collation_cstr.as_ptr();
                 c_collations.push(collation_cstr);
                 ptr
@@ -82,8 +94,13 @@ impl key_def::Host for SyncWasmStates {
             };
 
             let path_ptr: *const libc::c_char = if let Some(ref path) = part.path {
-                let path_cstr = CString::new(path.as_str())
-                    .map_err(|_| BoxError::new("Invalid path", "validation error", 2))?;
+                let path_cstr = CString::new(path.as_str()).map_err(|_| {
+                    BoxError::new(
+                        "Invalid path",
+                        "ValidationError",
+                        TarantoolErrorCode::IllegalParams as u32,
+                    )
+                })?;
                 let ptr = path_cstr.as_ptr();
                 c_paths.push(path_cstr);
                 ptr
@@ -139,7 +156,11 @@ impl key_def::Host for SyncWasmStates {
     async fn dup(&mut self, key_def: KeyDef) -> Result<KeyDef, BoxError> {
         let ptr = key_def as *const ffi::types::BoxKeyDefT;
         if ptr.is_null() {
-            return Err(BoxError::new("Invalid key_def", "internal error", 1));
+            return Err(BoxError::new(
+                "Invalid key-def",
+                "InternalError",
+                TarantoolErrorCode::Unknown as u32,
+            ));
         }
         let new_ptr = unsafe { ffi::tuple::box_key_def_dup(ptr) };
         Ok(new_ptr as KeyDef)

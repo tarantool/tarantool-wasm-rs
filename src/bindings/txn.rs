@@ -1,4 +1,4 @@
-use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::error::{handle_tarantool_error, map_tarantool_error};
 use crate::bindings::tarantool::tarantool::txn;
 use crate::bindings::tarantool::tarantool::types::{BoxError, TxnIsolationLevel};
 use crate::ffi;
@@ -36,11 +36,11 @@ impl txn::Host for SyncWasmStates {
         self.yield_now().await;
         self.begin_tx();
 
-        transaction::begin().map_err(|e| BoxError::new(e.to_string(), "TransactionError", 1))
+        transaction::begin().map_err(|e| map_tarantool_error(e.into(), "TransactionError"))
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
-        transaction::commit().map_err(|e| BoxError::new(e.to_string(), "TransactionError", 2))?;
+        transaction::commit().map_err(|e| map_tarantool_error(e.into(), "TransactionError"))?;
 
         self.yield_now().await;
         self.end_tx();
@@ -49,7 +49,7 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
-        transaction::rollback().map_err(|e| BoxError::new(e.to_string(), "TransactionError", 2))?;
+        transaction::rollback().map_err(|e| map_tarantool_error(e.into(), "TransactionError"))?;
 
         self.yield_now().await;
         self.end_tx();

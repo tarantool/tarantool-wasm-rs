@@ -6,6 +6,8 @@ use crate::ffi;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 use sha2::{Digest, Sha256};
 
+use tarantool::error::TarantoolErrorCode;
+
 impl session::Host for SyncWasmStates {
     async fn current(&mut self) -> Session {
         let session_id = unsafe { ffi::session::box_session_id() };
@@ -21,7 +23,11 @@ impl session::Host for SyncWasmStates {
         body: Vec<u8>,
     ) -> Result<(), BoxError> {
         if let Err(e) = validate_msgpack_map(&header) {
-            return Err(BoxError::new(&e, "ValidationError", 1));
+            return Err(BoxError::new(
+                &e,
+                "ValidationError",
+                TarantoolErrorCode::IllegalParams as u32,
+            ));
         }
 
         let header_copy = header.clone();
@@ -53,10 +59,18 @@ impl session::Host for SyncWasmStates {
 
     async fn broadcast(&mut self, key: String, value: String) -> Result<(), BoxError> {
         if key.is_empty() {
-            return Err(BoxError::new("Key is empty", "ValidationError", 1));
+            return Err(BoxError::new(
+                "Key is empty",
+                "ValidationError",
+                TarantoolErrorCode::IllegalParams as u32,
+            ));
         }
         if value.is_empty() {
-            return Err(BoxError::new("Value is empty", "ValidationError", 1));
+            return Err(BoxError::new(
+                "Value is empty",
+                "ValidationError",
+                TarantoolErrorCode::IllegalParams as u32,
+            ));
         }
 
         let key_copy = key.clone();
@@ -79,7 +93,7 @@ impl session::Host for SyncWasmStates {
                     return Err(BoxError::new(
                         format!("Lua error during broadcast: {err:?}"),
                         "LuaError",
-                        1,
+                        TarantoolErrorCode::Unknown as u32,
                     ));
                 }
                 Ok(())

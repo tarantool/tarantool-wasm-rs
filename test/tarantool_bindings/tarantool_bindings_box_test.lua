@@ -165,15 +165,15 @@ g.test_box_ops_negative = function(cg)
     -- t_insert into nonexistent space
     res = cg.m:t_insert(fake_space, enc({ 1, "x" }))
     t.assert_equals(res[1], false)
-    t.assert_str_contains(res[2].message, "NoSuchSpace")
+    t.assert_str_contains(res[2].message, "Space '9999' does not exist")
 
     -- t_update with nonexistent index
     res = cg.m:t_update(fake_index, enc({ 1 }), ops)
     t.assert_equals(res[1], false)
-    t.assert_str_contains(res[2].message, "NoSuchSpace")
+    t.assert_str_contains(res[2].message, "Space '9999' does not exist")
 
     -- t_truncate with invalid space
     res = cg.m:t_truncate(fake_space)
     t.assert_equals(res[1], false)
-    t.assert_str_contains(res[2].message, "NoSuchSpace")
+    t.assert_str_contains(res[2].message, "Space '9999' does not exist")
 end

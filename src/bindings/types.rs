@@ -4,6 +4,9 @@ use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use wasmtime::component::Resource;
 
+use crate::bindings::error::map_tarantool_error;
+use tarantool::error::TarantoolErrorCode;
+
 use rmpv::decode::read_value;
 
 pub fn validate_msgpack_array(data: &[u8]) -> Result<(), String> {
@@ -53,7 +56,7 @@ pub fn convert_iterator_type(t: IteratorType) -> Result<tarantool::index::Iterat
             return Err(BoxError::new(
                 "Unsupported iterator type",
                 "IteratorType",
-                1,
+                TarantoolErrorCode::IteratorType as u32,
             ))
         }
     })
@@ -80,7 +83,7 @@ impl types::HostIterator for SyncWasmStates {
 
         let iter = ind
             .select(native_iter_type, &tuple)
-            .map_err(|e| BoxError::new(e.to_string(), "IteratorInit", 1))?;
+            .map_err(|e| map_tarantool_error(e, "IteratorInit"))?;
 
         Ok(self
             .state
@@ -93,10 +96,13 @@ impl types::HostIterator for SyncWasmStates {
 
     async fn next(&mut self, self_: Resource<types::Iterator>) -> Result<BoxTuple, BoxError> {
         let mut guard = self.state.lock().unwrap();
-        let iter = guard
-            .table
-            .get_mut(&self_)
-            .map_err(|e| BoxError::new(format!("Resource error: {e}"), "internal", 2))?;
+        let iter = guard.table.get_mut(&self_).map_err(|e| {
+            BoxError::new(
+                format!("Resource error: {e}"),
+                "internal",
+                TarantoolErrorCode::Unknown as u32,
+            )
+        })?;
 
         match iter.inner.next() {
             Some(t) => Ok(t.as_ptr() as BoxTuple),
