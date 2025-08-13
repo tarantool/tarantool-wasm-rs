@@ -84,18 +84,28 @@ impl types::HostIterator for SyncWasmStates {
         let iter = ind
             .select(native_iter_type, &tuple)
             .map_err(|e| map_tarantool_error(e, "IteratorInit"))?;
-
-        Ok(self
+        let mut guard = self
             .state
             .lock()
-            .unwrap()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let resource = guard
             .table
             .push(IteratorImpl { inner: iter })
-            .unwrap())
+            .map_err(|e| {
+                BoxError::new(
+                    format!("Resource table error: {e}"),
+                    "ResourceTableError",
+                    TarantoolErrorCode::Unknown as u32,
+                )
+            })?;
+        Ok(resource)
     }
 
     async fn next(&mut self, self_: Resource<types::Iterator>) -> Result<BoxTuple, BoxError> {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let iter = guard.table.get_mut(&self_).map_err(|e| {
             BoxError::new(
                 format!("Resource error: {e}"),
@@ -111,7 +121,11 @@ impl types::HostIterator for SyncWasmStates {
     }
 
     async fn drop(&mut self, self_: Resource<types::Iterator>) -> Result<(), wasmtime::Error> {
-        self.state.lock().unwrap().table.delete(self_)?;
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        guard.table.delete(self_)?;
         Ok(())
     }
 }
