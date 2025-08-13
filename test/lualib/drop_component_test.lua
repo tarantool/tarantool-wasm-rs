@@ -20,7 +20,7 @@ g.test_drop_component = function()
 
     ok, err = pcall(wasm.call, m, "docs:adder/nums@0.1.0::t-bool", true)
     t.assert_not(ok)
-    t.assert_str_contains(tostring(err), "module `./test/lualib/wasm_component_test/component_exports_test/adder.wasm` not found")
+    t.assert_str_contains(tostring(err), "not found")
 
     ok, err = pcall(wasm.drop, "unknown-module-uid")
     t.assert_not(ok)

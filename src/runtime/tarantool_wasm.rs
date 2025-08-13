@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     fs::OpenOptions,
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, RwLock,
+    },
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -271,6 +274,7 @@ struct RuntimeState {
     pub fuel_engine: Engine,
     pub fuel_linker: Arc<Linker<SyncWasmStates>>,
     pub modules: RwLock<HashMap<String, LoadedModule>>,
+    pub next_uid: AtomicU64,
 }
 
 fn get_configuration(with_fuel: bool) -> Config {
@@ -356,6 +360,7 @@ impl RuntimeState {
             fuel_engine,
             fuel_linker: fuel_linker_ref,
             modules,
+            next_uid: AtomicU64::new(0),
         }
     }
 }
@@ -374,12 +379,17 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 config,
                 fuel: use_fuel,
             };
+            let uid = format!(
+                "{}#{}",
+                path,
+                runtime_state.next_uid.fetch_add(1, Ordering::Relaxed)
+            );
             runtime_state
                 .modules
                 .write()
                 .unwrap()
-                .insert(path.clone(), loaded);
-            Ok(path)
+                .insert(uid.clone(), loaded);
+            Ok(uid)
         }
         Err(e) => Err(e),
     }
