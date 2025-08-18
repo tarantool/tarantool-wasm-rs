@@ -78,10 +78,10 @@ g.test_tuple_fields = function(cg)
     t.assert(res[5][1])
     t.assert(res[6][1])
 
-    t.assert_equals(utils.dec_ptr(res[3][2]), 1)
-    t.assert_equals(utils.dec_ptr(res[4][2]), "abc")
-    t.assert_equals(utils.dec_ptr(res[5][2]), { x = 42 })
-    t.assert_equals(utils.dec_ptr(res[6][2]), 42)
+    t.assert_equals(utils.dec_ptr(res[3][2].ptr), 1)
+    t.assert_equals(utils.dec_ptr(res[4][2].ptr), "abc")
+    t.assert_equals(utils.dec_ptr(res[5][2].ptr), { x = 42 })
+    t.assert_equals(utils.dec_ptr(res[6][2].ptr), 42)
 end
 
 g.test_tuple_format_and_validation = function(cg)

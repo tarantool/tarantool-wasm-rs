@@ -144,10 +144,10 @@ func init() {
                 break
             }
             field := *nextRes.OK()
-            if field == 0 {
+            if field.Ptr == 0 {
                 break
             }
-            res = append(res, []any{pos, field})
+            res = append(res, []any{pos, field.Ptr})
         }
     
         // rewind
@@ -158,7 +158,7 @@ func init() {
         if rfield_result.IsOK() {
 			rfield = *rfield_result.OK()
 		}
-        res = append(res, []any{"rewind", rpos, rfield})
+        res = append(res, []any{"rewind", rpos, rfield.Ptr})
     
         // seek
         sfield_result := iter.Seek(1)
@@ -168,14 +168,13 @@ func init() {
 		}
 
         spos := iter.Position()
-        res = append(res, []any{"seek", spos, sfield})
+        res = append(res, []any{"seek", spos, sfield.Ptr})
     
         jsonBytes, err := json.Marshal(res)
         if err != nil {
             return cm.Err[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](BoxError{
                 Code:    1,
                 Message: err.Error(),
-                Type:    "JsonError",
             })
         }
     

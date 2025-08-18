@@ -7,64 +7,64 @@ bool exports_adder_t_new(adder_list_u8_t *data, adder_box_tuple_t *ret, adder_bo
     return tarantool_tarantool_box_tuple_new(data, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
 }
 
-int32_t exports_adder_t_ref(adder_box_tuple_t t) {
-    return tarantool_tarantool_box_tuple_ref((tarantool_tarantool_box_tuple_box_tuple_t) t);
+int32_t exports_adder_t_ref(adder_box_tuple_t *t) {
+    return tarantool_tarantool_box_tuple_ref(t);
 }
 
-void exports_adder_t_unref(adder_box_tuple_t t) {
-    return tarantool_tarantool_box_tuple_unref((tarantool_tarantool_box_tuple_box_tuple_t) t);
+void exports_adder_t_unref(adder_box_tuple_t *t) {
+    return tarantool_tarantool_box_tuple_unref(t);
 }
 
-uint32_t exports_adder_t_field_count(adder_box_tuple_t t) {
-    return tarantool_tarantool_box_tuple_field_count((tarantool_tarantool_box_tuple_box_tuple_t) t);
+uint32_t exports_adder_t_field_count(adder_box_tuple_t *t) {
+    return tarantool_tarantool_box_tuple_field_count(t);
 }
 
-uint64_t exports_adder_t_bsize(adder_box_tuple_t t) {
-    return tarantool_tarantool_box_tuple_bsize((tarantool_tarantool_box_tuple_box_tuple_t) t);
+uint64_t exports_adder_t_bsize(adder_box_tuple_t *t) {
+    return tarantool_tarantool_box_tuple_bsize(t);
 }
 
-bool exports_adder_t_to_buf(adder_box_tuple_t t, adder_list_u8_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_to_buf((tarantool_tarantool_box_tuple_box_tuple_t) t, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_to_buf(adder_box_tuple_t *t, adder_list_u8_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_to_buf(t, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
 }
 
-adder_tuple_format_t exports_adder_t_format(adder_box_tuple_t t) {
-    return tarantool_tarantool_box_tuple_format((tarantool_tarantool_box_tuple_box_tuple_t) t);
+void exports_adder_t_format(adder_box_tuple_t *t, adder_tuple_format_t *ret) {
+    return tarantool_tarantool_box_tuple_format(t, ret);
 }
 
-bool exports_adder_t_field(adder_box_tuple_t t, uint32_t idx, adder_tuple_field_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_field((tarantool_tarantool_box_tuple_box_tuple_t) t, idx, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_field(adder_box_tuple_t *t, uint32_t idx, adder_tuple_field_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_field(t, idx, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
 }
 
-bool exports_adder_t_field_by_path(adder_box_tuple_t t, adder_string_t *path, int32_t index_base, adder_tuple_field_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_field_by_path((tarantool_tarantool_box_tuple_box_tuple_t) t, path, index_base, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_field_by_path(adder_box_tuple_t *t, adder_string_t *path, int32_t index_base, adder_tuple_field_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_field_by_path(t, path, index_base, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
 }
 
-bool exports_adder_t_update(adder_box_tuple_t t, adder_list_u8_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_update((tarantool_tarantool_box_tuple_box_tuple_t) t, expr, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_update(adder_box_tuple_t *t, adder_list_u8_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_update(t, expr, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
 }
 
-bool exports_adder_t_upsert(adder_box_tuple_t t, adder_list_u8_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_upsert((tarantool_tarantool_box_tuple_box_tuple_t) t, expr, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_upsert(adder_box_tuple_t *t, adder_list_u8_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_upsert(t, expr, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
 }
 
-bool exports_adder_t_validate(adder_box_tuple_t t, adder_tuple_format_t format) {
-    return tarantool_tarantool_box_tuple_validate((tarantool_tarantool_box_tuple_box_tuple_t) t, (tarantool_tarantool_types_tuple_format_t) format);
+bool exports_adder_t_validate(adder_box_tuple_t *t, adder_tuple_format_t *format) {
+    return tarantool_tarantool_box_tuple_validate(t, format);
 }
 
-int32_t exports_adder_t_compare(adder_key_def_t key_def, adder_box_tuple_t left, adder_box_tuple_t right) {
-    return tarantool_tarantool_box_tuple_compare((tarantool_tarantool_box_tuple_key_def_t) key_def, (tarantool_tarantool_box_tuple_box_tuple_t) left, (tarantool_tarantool_box_tuple_box_tuple_t) right);
+int32_t exports_adder_t_compare(adder_key_def_t *key_def, adder_box_tuple_t *left, adder_box_tuple_t *right) {
+    return tarantool_tarantool_box_tuple_compare(key_def, left, right);
 }
 
-int32_t exports_adder_t_compare_with_key(adder_box_tuple_t tuple, adder_list_u8_t *key, adder_key_def_t key_def) {
-    return tarantool_tarantool_box_tuple_compare_with_key((tarantool_tarantool_box_tuple_box_tuple_t) tuple, key, (tarantool_tarantool_box_tuple_key_def_t) key_def);
+int32_t exports_adder_t_compare_with_key(adder_box_tuple_t *tuple, adder_list_u8_t *key, adder_key_def_t *key_def) {
+    return tarantool_tarantool_box_tuple_compare_with_key(tuple, key, key_def);
 }
 
 bool exports_adder_t_key_def_new(adder_list_key_part_t *parts, adder_key_def_t *ret, adder_box_error_t *err) {
     return tarantool_tarantool_key_def_new((tarantool_tarantool_key_def_list_key_part_t *)parts, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
 }
 
-adder_tuple_format_t exports_adder_t_tuple_format_default(void) {
-    return tarantool_tarantool_tuple_format_default();
+void exports_adder_t_tuple_format_default(adder_tuple_format_t *ret) {
+    return tarantool_tarantool_tuple_format_default(ret);
 }
 
 bool exports_adder_t_tuple_format_new(adder_list_key_def_t *key_defs, adder_tuple_format_t *ret, adder_box_error_t *err) {
@@ -80,7 +80,7 @@ MessagePack is encoded manually because C lacks native JSON support.
 Using tarantool_msgpack_encode would require constructing a JSON string,
 which is complex and error-prone in C. Manual encoding avoids this overhead.
 */
-bool exports_adder_t_iter_test_all(adder_box_tuple_t t, adder_list_u8_t *ret, adder_box_error_t *err) {
+bool exports_adder_t_iter_test_all(adder_box_tuple_t *t, adder_list_u8_t *ret, adder_box_error_t *err) {
 
     tarantool_tarantool_box_tuple_own_tuple_iterator_t iter;
     tarantool_tarantool_box_tuple_box_error_t iter_err;
@@ -109,7 +109,7 @@ bool exports_adder_t_iter_test_all(adder_box_tuple_t t, adder_list_u8_t *ret, ad
         if (!tarantool_tarantool_box_tuple_method_tuple_iterator_next(biter, &field, &field_err)) {
             break;
         }
-        if (field == 0)
+        if (field.ptr == 0)
             break;
 
         // [pos, field] as fixarray 2
@@ -118,7 +118,7 @@ bool exports_adder_t_iter_test_all(adder_box_tuple_t t, adder_list_u8_t *ret, ad
         buf[offset++] = 0xcc; buf[offset++] = pos; // uint8
         buf[offset++] = 0xcf; // uint64
         for (int i = 7; i >= 0; i--)
-            buf[offset++] = (field >> (i * 8)) & 0xFF;
+            buf[offset++] = (field.ptr >> (i * 8)) & 0xFF;
         count++;
     }
 
@@ -134,7 +134,7 @@ bool exports_adder_t_iter_test_all(adder_box_tuple_t t, adder_list_u8_t *ret, ad
     buf[offset++] = 0xcc; buf[offset++] = rpos;
     buf[offset++] = 0xcf;
     for (int i = 7; i >= 0; i--)
-        buf[offset++] = (rfield >> (i * 8)) & 0xFF;
+        buf[offset++] = (rfield.ptr >> (i * 8)) & 0xFF;
     count++;
 
     // seek(1)
@@ -148,7 +148,7 @@ bool exports_adder_t_iter_test_all(adder_box_tuple_t t, adder_list_u8_t *ret, ad
     buf[offset++] = 0xcc; buf[offset++] = spos;
     buf[offset++] = 0xcf;
     for (int i = 7; i >= 0; i--)
-        buf[offset++] = (sfield >> (i * 8)) & 0xFF;
+        buf[offset++] = (sfield.ptr >> (i * 8)) & 0xFF;
     count++;
 
     // Fix top-level array length

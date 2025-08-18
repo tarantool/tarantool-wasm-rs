@@ -1,7 +1,7 @@
-import { new as boxTupleNew, ref, unref, fieldCount, bsize, toBuf, format, field, fieldByPath, update, upsert, validate, compare, compareWithKey, TupleIterator } from 'tarantool:tarantool/box-tuple@0.1.1';
-import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.1.1';
-import { new as tupleFormatNew, default as tupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.1.1';
-import { encode, decodeFromRawPtr } from 'tarantool:tarantool/msgpack@0.1.1';
+import { new as boxTupleNew, ref, unref, fieldCount, bsize, toBuf, format, field, fieldByPath, update, upsert, validate, compare, compareWithKey, TupleIterator } from 'tarantool:tarantool/box-tuple@0.1.2';
+import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.1.2';
+import { new as tupleFormatNew, default as tupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.1.2';
+import { encode, decodeFromRawPtr } from 'tarantool:tarantool/msgpack@0.1.2';
 
 export function tNew(data) {
     return boxTupleNew(data)
@@ -85,21 +85,21 @@ export function tIterTestAll(t) {
     while (true) {
         const pos = iter.position()
         const field = iter.next()
-        if (field == 0)
+        if (field.ptr == 0)
             break
-        result.push([pos, field.toString()])
+        result.push([pos, field.ptr.toString()])
     }
 
     // Rewind and take next field again
     iter.rewind()
     const rewind_pos = iter.position()
     const rewind_field = iter.next()
-    result.push(['rewind', rewind_pos, rewind_field.toString()])
+    result.push(['rewind', rewind_pos, rewind_field.ptr.toString()])
 
     // Seek to 1
     const seek_field = iter.seek(1)
     const seek_pos = iter.position()
-    result.push(['seek', seek_pos, seek_field.toString()])
+    result.push(['seek', seek_pos, seek_field.ptr.toString()])
 
     const jsonString = JSON.stringify(result);
     const jsonBytes = new TextEncoder().encode(jsonString);
