@@ -19,7 +19,7 @@ g.after_all(function()
 end)
 
 local wasm_path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", 
-                         "wasm_component_test", "box_iterator_test", "adder.wasm")
+                         "wasm_component_test", "bindings_index_iterator_test", "adder.wasm")
 
 g.test_box_iterator = function()
     box.cfg{}
