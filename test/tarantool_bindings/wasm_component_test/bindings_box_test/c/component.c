@@ -17,7 +17,7 @@ bool exports_adder_t_insert(adder_space_t *space, adder_list_u8_t *tup, adder_li
     if (!tarantool_tarantool_ttbox_insert((tarantool_tarantool_ttbox_space_t *) space, tup, &tuple, err)) {
         return false;
     }
-    bool ok = tarantool_tarantool_box_tuple_to_buf(tuple, ret, err);
+    bool ok = tarantool_tarantool_box_tuple_to_buf(&tuple, ret, err);
     return ok;
 }
 
@@ -26,7 +26,7 @@ bool exports_adder_t_update(adder_index_t *index, adder_list_u8_t *key, adder_li
     if (!tarantool_tarantool_ttbox_update((tarantool_tarantool_ttbox_index_t *) index, key, ops, &tuple, err)) {
         return false;
     }
-    bool ok = tarantool_tarantool_box_tuple_to_buf(tuple, ret, err);
+    bool ok = tarantool_tarantool_box_tuple_to_buf(&tuple, ret, err);
     return ok;
 }
 
@@ -35,7 +35,7 @@ bool exports_adder_t_replace(adder_space_t *space, adder_list_u8_t *tup, adder_l
     if (!tarantool_tarantool_ttbox_replace((tarantool_tarantool_ttbox_space_t *) space, tup, &tuple, err)) {
         return false;
     }
-    bool ok = tarantool_tarantool_box_tuple_to_buf(tuple, ret, err);
+    bool ok = tarantool_tarantool_box_tuple_to_buf(&tuple, ret, err);
     return ok;
 }
 
@@ -48,7 +48,7 @@ bool exports_adder_t_delete(adder_index_t *index, adder_list_u8_t *key, adder_li
     if (!tarantool_tarantool_ttbox_delete((tarantool_tarantool_ttbox_index_t *) index, key, &tuple, err)) {
         return false;
     }
-    bool ok = tarantool_tarantool_box_tuple_to_buf(tuple, ret, err);
+    bool ok = tarantool_tarantool_box_tuple_to_buf(&tuple, ret, err);
     return ok;
 }
 

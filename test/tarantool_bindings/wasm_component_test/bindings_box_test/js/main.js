@@ -1,5 +1,5 @@
-import {schemaVersion, spaceByName, indexByName, insert, update, replace, upsert, delete as ttDelete, truncate} from 'tarantool:tarantool/ttbox@0.1.1';
-import { toBuf, unref } from 'tarantool:tarantool/box-tuple@0.1.1';
+import {schemaVersion, spaceByName, indexByName, insert, update, replace, upsert, delete as ttDelete, truncate} from 'tarantool:tarantool/ttbox@0.1.2';
+import { toBuf, unref } from 'tarantool:tarantool/box-tuple@0.1.2';
 
 export function tSchemaVersion() {
     return schemaVersion();
