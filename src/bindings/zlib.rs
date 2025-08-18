@@ -15,20 +15,9 @@ impl zlib::Host for SyncWasmStates {
         let mut encoder = ZlibEncoder::new(Vec::new(), compression);
 
         if let Err(e) = encoder.write_all(&data) {
-            let payload = vec![
-                ("operation".to_string(), "write_all".to_string()),
-                ("level".to_string(), level.to_string()),
-                ("data_len".to_string(), data.len().to_string()),
-            ];
-
-            let err = BoxError::new(
-                e.to_string(),
-                "ZlibCompressError",
-                TarantoolErrorCode::Unknown as u32,
-            )
-            .with_file(file!())
-            .with_line(line!())
-            .with_payload(payload);
+            let err = BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string())
+                .with_file(file!())
+                .with_line(line!());
 
             println!("{err}");
             return Vec::new();
@@ -37,18 +26,9 @@ impl zlib::Host for SyncWasmStates {
         match encoder.finish() {
             Ok(res) => res,
             Err(e) => {
-                let payload = vec![
-                    ("operation".to_string(), "finish".to_string()),
-                    ("level".to_string(), level.to_string()),
-                ];
-                let err = BoxError::new(
-                    e.to_string(),
-                    "ZlibCompressError",
-                    TarantoolErrorCode::Unknown as u32,
-                )
-                .with_file(file!())
-                .with_line(line!())
-                .with_payload(payload);
+                let err = BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string())
+                    .with_file(file!())
+                    .with_line(line!());
 
                 println!("{err}");
                 Vec::new()
@@ -60,18 +40,9 @@ impl zlib::Host for SyncWasmStates {
         let mut decoder = ZlibDecoder::new(Vec::new());
 
         if let Err(e) = decoder.write_all(&data) {
-            let payload = vec![
-                ("operation".to_string(), "write_all".to_string()),
-                ("data_len".to_string(), data.len().to_string()),
-            ];
-            let err = BoxError::new(
-                e.to_string(),
-                "ZlibDecompressError",
-                TarantoolErrorCode::Unknown as u32,
-            )
-            .with_file(file!())
-            .with_line(line!())
-            .with_payload(payload);
+            let err = BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string())
+                .with_file(file!())
+                .with_line(line!());
 
             println!("{err}");
             return Vec::new();
@@ -80,15 +51,9 @@ impl zlib::Host for SyncWasmStates {
         match decoder.finish() {
             Ok(res) => res,
             Err(e) => {
-                let payload = vec![("operation".to_string(), "finish".to_string())];
-                let err = BoxError::new(
-                    e.to_string(),
-                    "ZlibDecompressError",
-                    TarantoolErrorCode::Unknown as u32,
-                )
-                .with_file(file!())
-                .with_line(line!())
-                .with_payload(payload);
+                let err = BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string())
+                    .with_file(file!())
+                    .with_line(line!());
 
                 println!("{err}");
                 Vec::new()

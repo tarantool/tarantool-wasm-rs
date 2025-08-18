@@ -23,11 +23,7 @@ impl session::Host for SyncWasmStates {
         body: Vec<u8>,
     ) -> Result<(), BoxError> {
         if let Err(e) = validate_msgpack_map(&header) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
         let header_copy = header.clone();
@@ -60,16 +56,14 @@ impl session::Host for SyncWasmStates {
     async fn broadcast(&mut self, key: String, value: String) -> Result<(), BoxError> {
         if key.is_empty() {
             return Err(BoxError::new(
-                "Key is empty",
-                "ValidationError",
                 TarantoolErrorCode::IllegalParams as u32,
+                "Key is empty",
             ));
         }
         if value.is_empty() {
             return Err(BoxError::new(
-                "Value is empty",
-                "ValidationError",
                 TarantoolErrorCode::IllegalParams as u32,
+                "Value is empty",
             ));
         }
 
@@ -91,9 +85,8 @@ impl session::Host for SyncWasmStates {
 
                 if let Err(err) = broadcast_result {
                     return Err(BoxError::new(
-                        format!("Lua error during broadcast: {err:?}"),
-                        "LuaError",
                         TarantoolErrorCode::Unknown as u32,
+                        format!("Lua error during broadcast: {err:?}"),
                     ));
                 }
                 Ok(())

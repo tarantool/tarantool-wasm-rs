@@ -1,5 +1,5 @@
 use crate::bindings::tarantool::tarantool::error;
-use crate::bindings::tarantool::tarantool::types::BoxError;
+use crate::bindings::tarantool::tarantool::types::{BoxError, ErrorCode};
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
 use std::ffi::CString;
@@ -8,7 +8,7 @@ use tarantool::error::{self as tnt_error, TarantoolErrorCode};
 pub fn handle_tarantool_error() -> BoxError {
     let err = tarantool::error::BoxError::last();
 
-    let mut boxed = BoxError::new(err.message(), err.error_type(), err.error_code());
+    let mut boxed = BoxError::new(err.error_code(), err.message());
 
     if let Some(line) = err.line() {
         boxed = boxed.with_line(line);
@@ -18,45 +18,33 @@ pub fn handle_tarantool_error() -> BoxError {
         boxed = boxed.with_file(file);
     }
 
-    if !err.fields().is_empty() {
-        let payload = err
-            .fields()
-            .iter()
-            .map(|(k, v)| (k.to_string(), format!("{v}")))
-            .collect();
-        boxed = boxed.with_payload(payload);
-    }
-
     boxed
 }
 
-pub fn map_tarantool_error(err: tnt_error::Error, type_: &str) -> BoxError {
+pub fn map_tarantool_error(err: tnt_error::Error) -> BoxError {
     match err {
         tnt_error::Error::Tarantool(_) => handle_tarantool_error(),
-        other => BoxError::new(other.to_string(), type_, TarantoolErrorCode::Unknown as u32),
+        other => BoxError::new(TarantoolErrorCode::Unknown as u32, other.to_string()),
     }
 }
 
 impl BoxError {
-    pub fn new(message: impl Into<String>, type_: impl Into<String>, code: u32) -> Self {
-        Self {
-            message: message.into(),
-            type_: type_.into(),
-            code,
-            payload: None,
-            file: None,
-            line: None,
-        }
-    }
+    pub fn new(code: u32, message: impl Into<String>) -> Self {
+        let msg: String = message.into();
+        let code_t = ErrorCode::try_from(code).unwrap_or(ErrorCode::Unknown);
+        let tmp = tarantool::error::BoxError::new(code, &msg);
+        let error_type = tmp.error_type().to_string();
 
-    pub fn with_payload(mut self, payload: Vec<(impl Into<String>, impl Into<String>)>) -> Self {
-        self.payload = Some(
-            payload
-                .into_iter()
-                .map(|(k, v)| (k.into(), v.into()))
-                .collect(),
-        );
-        self
+        let file = None;
+        let line = None;
+
+        Self {
+            code: code_t,
+            message: msg,
+            error_type,
+            file,
+            line,
+        }
     }
 
     pub fn with_file(mut self, file: impl Into<String>) -> Self {
@@ -71,21 +59,26 @@ impl BoxError {
 }
 
 impl error::Host for SyncWasmStates {
-    async fn error_new(
+    async fn new(&mut self, code: ErrorCode, message: String) -> BoxError {
+        BoxError::new(code.into(), message)
+    }
+
+    async fn new_with_location(
         &mut self,
+        code: ErrorCode,
         message: String,
-        type_: String,
-        code: u32,
         file: Option<String>,
         line: Option<u32>,
     ) -> BoxError {
-        let mut err = BoxError::new(message, type_, code);
+        let mut err = BoxError::new(code.into(), message);
+
         if let Some(file) = file {
             err = err.with_file(file);
         }
         if let Some(line) = line {
             err = err.with_line(line);
         }
+
         err
     }
 
@@ -98,13 +91,13 @@ impl error::Host for SyncWasmStates {
             _ => None,
         };
 
-        tarantool::error::set_last_error(file_line, err.code, &message_cstr);
+        tarantool::error::set_last_error(file_line, err.code.into(), &message_cstr);
     }
 
     async fn last(&mut self) -> Option<BoxError> {
         match tarantool::error::BoxError::maybe_last() {
             Err(err) => {
-                let mut boxed = BoxError::new(err.message(), err.error_type(), err.error_code());
+                let mut boxed = BoxError::new(err.error_code(), err.message());
 
                 if let Some(line) = err.line() {
                     boxed = boxed.with_line(line);
@@ -112,15 +105,6 @@ impl error::Host for SyncWasmStates {
 
                 if let Some(file) = err.file() {
                     boxed = boxed.with_file(file);
-                }
-
-                if !err.fields().is_empty() {
-                    let payload = err
-                        .fields()
-                        .iter()
-                        .map(|(k, v)| (k.to_string(), format!("{v}")))
-                        .collect();
-                    boxed = boxed.with_payload(payload);
                 }
 
                 Some(boxed)
@@ -134,7 +118,7 @@ impl error::Host for SyncWasmStates {
     }
 
     async fn to_string(&mut self, err: BoxError) -> String {
-        let mut output = format!("[{}] {}: {}", err.code, err.type_, err.message);
+        let mut output = format!("[{}] {}: {}", err.code as u32, err.error_type, err.message);
 
         if let (Some(file), Some(line)) = (err.file.as_ref(), err.line) {
             output.push_str(&format!(" (at {file}:{line})"));
@@ -142,13 +126,6 @@ impl error::Host for SyncWasmStates {
             output.push_str(&format!(" (in file {file})"));
         } else if let Some(line) = err.line {
             output.push_str(&format!(" (at line {line})"));
-        }
-
-        if let Some(ref payload) = err.payload {
-            output.push_str("\nPayload:");
-            for (k, v) in payload {
-                output.push_str(&format!("\n  - {k}: {v}"));
-            }
         }
 
         output

@@ -16,9 +16,8 @@ impl msgpack::Host for SyncWasmStates {
             Ok(val) => val,
             Err(e) => {
                 return Err(BoxError::new(
-                    e.to_string(),
-                    "JsonError",
                     TarantoolErrorCode::IllegalParams as u32,
+                    e.to_string(),
                 ))
             }
         };
@@ -26,9 +25,8 @@ impl msgpack::Host for SyncWasmStates {
         match to_vec(&deserialized) {
             Ok(msgpack) => Ok(msgpack),
             Err(e) => Err(BoxError::new(
-                e.to_string(),
-                "MsgpackError",
                 TarantoolErrorCode::IllegalParams as u32,
+                e.to_string(),
             )),
         }
     }
@@ -38,9 +36,8 @@ impl msgpack::Host for SyncWasmStates {
             Ok(val) => val,
             Err(e) => {
                 return Err(BoxError::new(
-                    e.to_string(),
-                    "MsgpackError",
                     TarantoolErrorCode::IllegalParams as u32,
+                    e.to_string(),
                 ))
             }
         };
@@ -48,9 +45,8 @@ impl msgpack::Host for SyncWasmStates {
         match serde_json::to_vec(&deserialized) {
             Ok(json_bytes) => Ok(json_bytes),
             Err(e) => Err(BoxError::new(
-                e.to_string(),
-                "JsonError",
                 TarantoolErrorCode::IllegalParams as u32,
+                e.to_string(),
             )),
         }
     }
@@ -58,9 +54,8 @@ impl msgpack::Host for SyncWasmStates {
     async fn decode_from_raw_ptr(&mut self, ptr: u64) -> Result<Vec<u8>, BoxError> {
         if ptr == 0 {
             return Err(BoxError::new(
-                "Null pointer provided",
-                "DecodeError",
                 TarantoolErrorCode::IllegalParams as u32,
+                "Null pointer provided",
             ));
         }
 
@@ -77,18 +72,13 @@ impl msgpack::Host for SyncWasmStates {
         match read_value(&mut cursor) {
             Ok(value) => {
                 let json_bytes = serde_json::to_vec(&value).map_err(|e| {
-                    BoxError::new(
-                        e.to_string(),
-                        "JsonError",
-                        TarantoolErrorCode::IllegalParams as u32,
-                    )
+                    BoxError::new(TarantoolErrorCode::IllegalParams as u32, e.to_string())
                 })?;
                 Ok(json_bytes)
             }
             Err(e) => Err(BoxError::new(
-                e.to_string(),
-                "MsgpackError",
                 TarantoolErrorCode::IllegalParams as u32,
+                e.to_string(),
             )),
         }
     }

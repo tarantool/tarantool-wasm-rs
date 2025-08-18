@@ -1,5 +1,5 @@
 use crate::bindings::tarantool::tarantool::ttbox;
-use crate::bindings::tarantool::tarantool::types::{BoxError, Index, Space};
+use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, Space};
 use crate::bindings::types::validate_msgpack_array;
 use crate::ffi;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
@@ -10,8 +10,6 @@ use tarantool::tuple::Tuple as TarantoolTuple;
 
 use crate::bindings::error::map_tarantool_error;
 use tarantool::error::TarantoolErrorCode;
-
-pub type BoxTuple = u64;
 
 impl ttbox::Host for SyncWasmStates {
     async fn schema_version(&mut self) -> i64 {
@@ -24,9 +22,8 @@ impl ttbox::Host for SyncWasmStates {
                 id: space.id() as i32,
             }),
             None => Err(BoxError::new(
-                format!("Space '{name}' not found"),
-                "SpaceNotFound",
                 TarantoolErrorCode::NoSuchSpace as u32,
+                format!("Space '{name}' not found"),
             )),
         }
     }
@@ -41,20 +38,15 @@ impl ttbox::Host for SyncWasmStates {
                 index_base: 0,
             }),
             None => Err(BoxError::new(
-                format!("Index '{}' not found in space {}", name, space.id),
-                "IndexNotFound",
                 TarantoolErrorCode::NoSuchIndexName as u32,
+                format!("Index '{}' not found in space {}", name, space.id),
             )),
         }
     }
 
     async fn insert(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
         if let Err(e) = validate_msgpack_array(&tup) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
         let tup_copy = tup.clone();
@@ -65,8 +57,10 @@ impl ttbox::Host for SyncWasmStates {
 
                 let tuple = unsafe { TarantoolTuple::from_slice(&tup_copy) };
                 match spc.insert(&tuple) {
-                    Ok(t) => Ok(t.as_ptr() as BoxTuple),
-                    Err(e) => Err(map_tarantool_error(e, "InsertError")),
+                    Ok(t) => Ok(BoxTuple {
+                        ptr: t.as_ptr() as u64,
+                    }),
+                    Err(e) => Err(map_tarantool_error(e)),
                 }
             })
             .await
@@ -79,18 +73,10 @@ impl ttbox::Host for SyncWasmStates {
         ops: Vec<u8>,
     ) -> Result<BoxTuple, BoxError> {
         if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
         if let Err(e) = validate_msgpack_array(&ops) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
         let key_copy = key.clone();
@@ -106,13 +92,14 @@ impl ttbox::Host for SyncWasmStates {
                 };
 
                 match unsafe { ind.update_raw(&key_copy, &ops_copy) } {
-                    Ok(Some(t)) => Ok(t.as_ptr() as BoxTuple),
+                    Ok(Some(t)) => Ok(BoxTuple {
+                        ptr: t.as_ptr() as u64,
+                    }),
                     Ok(None) => Err(BoxError::new(
-                        "Tuple not found or update returned nothing",
-                        "TupleNotFound",
                         TarantoolErrorCode::TupleNotFound as u32,
+                        "Tuple not found or update returned nothing",
                     )),
-                    Err(e) => Err(map_tarantool_error(e, "UpdateError")),
+                    Err(e) => Err(map_tarantool_error(e)),
                 }
             })
             .await
@@ -120,11 +107,7 @@ impl ttbox::Host for SyncWasmStates {
 
     async fn replace(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
         if let Err(e) = validate_msgpack_array(&tup) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
         let tup_copy = tup.clone();
@@ -135,8 +118,10 @@ impl ttbox::Host for SyncWasmStates {
 
                 let tuple = unsafe { TarantoolTuple::from_slice(&tup_copy) };
                 match spc.replace(&tuple) {
-                    Ok(t) => Ok(t.as_ptr() as BoxTuple),
-                    Err(e) => Err(map_tarantool_error(e, "ReplaceError")),
+                    Ok(t) => Ok(BoxTuple {
+                        ptr: t.as_ptr() as u64,
+                    }),
+                    Err(e) => Err(map_tarantool_error(e)),
                 }
             })
             .await
@@ -144,18 +129,10 @@ impl ttbox::Host for SyncWasmStates {
 
     async fn upsert(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<(), BoxError> {
         if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
         if let Err(e) = validate_msgpack_array(&ops) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
         let key_copy = key.clone();
@@ -172,7 +149,7 @@ impl ttbox::Host for SyncWasmStates {
 
                 match unsafe { ind.upsert_raw(&key_copy, &ops_copy) } {
                     Ok(()) => Ok(()),
-                    Err(e) => Err(map_tarantool_error(e, "UpsertError")),
+                    Err(e) => Err(map_tarantool_error(e)),
                 }
             })
             .await
@@ -180,11 +157,7 @@ impl ttbox::Host for SyncWasmStates {
 
     async fn delete(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
         if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(
-                &e,
-                "ValidationError",
-                TarantoolErrorCode::IllegalParams as u32,
-            ));
+            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
         let key_copy = key.clone();
@@ -200,13 +173,14 @@ impl ttbox::Host for SyncWasmStates {
 
                 let tuple = unsafe { TarantoolTuple::from_slice(&key_copy) };
                 match ind.delete(&tuple) {
-                    Ok(Some(t)) => Ok(t.as_ptr() as BoxTuple),
+                    Ok(Some(t)) => Ok(BoxTuple {
+                        ptr: t.as_ptr() as u64,
+                    }),
                     Ok(None) => Err(BoxError::new(
-                        "Tuple not found or delete returned nothing",
-                        "TupleNotFound",
                         TarantoolErrorCode::TupleNotFound as u32,
+                        "Tuple not found or delete returned nothing",
                     )),
-                    Err(e) => Err(map_tarantool_error(e, "DeleteError")),
+                    Err(e) => Err(map_tarantool_error(e)),
                 }
             })
             .await
@@ -219,7 +193,7 @@ impl ttbox::Host for SyncWasmStates {
 
                 match spc.truncate() {
                     Ok(()) => Ok(()),
-                    Err(e) => Err(map_tarantool_error(e, "TruncateError")),
+                    Err(e) => Err(map_tarantool_error(e)),
                 }
             })
             .await

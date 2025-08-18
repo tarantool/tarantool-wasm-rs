@@ -36,11 +36,11 @@ impl txn::Host for SyncWasmStates {
         self.yield_now().await;
         self.begin_tx();
 
-        transaction::begin().map_err(|e| map_tarantool_error(e.into(), "TransactionError"))
+        transaction::begin().map_err(|e| map_tarantool_error(e.into()))
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
-        transaction::commit().map_err(|e| map_tarantool_error(e.into(), "TransactionError"))?;
+        transaction::commit().map_err(|e| map_tarantool_error(e.into()))?;
 
         self.yield_now().await;
         self.end_tx();
@@ -49,7 +49,7 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
-        transaction::rollback().map_err(|e| map_tarantool_error(e.into(), "TransactionError"))?;
+        transaction::rollback().map_err(|e| map_tarantool_error(e.into()))?;
 
         self.yield_now().await;
         self.end_tx();
