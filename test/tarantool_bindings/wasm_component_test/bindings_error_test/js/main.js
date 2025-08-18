@@ -1,7 +1,11 @@
-import { errorNew, set, clear, last, toString } from 'tarantool:tarantool/error@0.1.0';
+import { new as errorNew, newWithLocation, set, clear, last, toString } from 'tarantool:tarantool/error@0.1.2';
 
-export function tErrorNew(message, type, code, file, line) {
-    return errorNew(message, type, code, file, line)
+export function tNew(code, message) {
+    return errorNew(code, message)
+}
+
+export function tNewWithLocation(code, message, file, line) {
+    return newWithLocation(code, message, file, line)
 }
 
 export function tSet(err) {
