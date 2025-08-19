@@ -79,10 +79,11 @@ g.test_new = function(cg)
 
     t.assert(res[1])
 
-    local ptr = res[2]
-    t.assert_type(ptr, "number")
+    local kd = res[2]
+    t.assert_type(kd, "table")
+    t.assert_type(kd.ptr, "number")
 
-    res = cg.m:t_dump_parts(ptr)
+    res = cg.m:t_dump_parts(res[2])
     t.assert(res[1])
 
     local parts = res[2]
@@ -90,7 +91,7 @@ g.test_new = function(cg)
     t.assert_equals(#parts, 1)
     assert_part(parts[1], key_parts[1])
 
-    cg.m:t_delete(ptr)
+    cg.m:t_delete(kd)
 end
 
 -- dump_parts
