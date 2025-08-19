@@ -1,4 +1,4 @@
-import { next, current, set, reset } from 'tarantool:tarantool/sequence@0.1.1';
+import { next, current, set, reset } from 'tarantool:tarantool/sequence@0.1.2';
 
 export function tNext(seq) {
     return next(seq)
