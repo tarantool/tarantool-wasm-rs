@@ -25,7 +25,7 @@ static bool index_to_buf(
         return false;
     }
 
-    bool ok = tarantool_tarantool_box_tuple_to_buf(tuple, ret, &tmp_err);
+    bool ok = tarantool_tarantool_box_tuple_to_buf(&tuple, ret, &tmp_err);
     if (!ok) {
         *err = tmp_err;
         return false;

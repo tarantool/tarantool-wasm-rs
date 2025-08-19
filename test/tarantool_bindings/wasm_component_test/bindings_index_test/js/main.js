@@ -1,5 +1,5 @@
-import { len, bsize, random, get, min, max, count } from 'tarantool:tarantool/index@0.1.0';
-import { toBuf } from 'tarantool:tarantool/box-tuple@0.1.0';
+import { len, bsize, random, get, min, max, count } from 'tarantool:tarantool/index@0.1.2';
+import { toBuf } from 'tarantool:tarantool/box-tuple@0.1.2';
 
 export function tLen(index) {
     return len(index)
