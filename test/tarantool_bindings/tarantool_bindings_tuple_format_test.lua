@@ -52,12 +52,14 @@ g.test_tuple_format_lifecycle = function(cg)
     local res = cg.m:t_key_def_new(parts)
     t.assert(res[1])
     local kd = res[2]
-    t.assert_type(kd, "number")
+    t.assert_type(kd, "table")
+    t.assert_type(kd.ptr, "number")
 
     res = cg.m:t_new({ kd })
     t.assert(res[1])
     local tf = res[2]
-    t.assert_type(tf, "number")
+    t.assert_type(tf, "table")
+    t.assert_type(tf.ptr, "number")
 
     -- Increase refcount
     cg.m:t_ref(tf)
@@ -67,6 +69,7 @@ g.test_tuple_format_lifecycle = function(cg)
 
     -- Get default tuple_format
     local default_tf = cg.m:t_default()
-    t.assert_type(default_tf, "number")
+    t.assert_type(default_tf, "table")
+    t.assert_type(default_tf.ptr, "number")
 end
 

@@ -1,5 +1,5 @@
-import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.1.1';
-import { new as TupleFormatNew, ref, unref, default as TupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.1.1';
+import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.1.2';
+import { new as TupleFormatNew, ref, unref, default as TupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.1.2';
 
 export function tDefault() {
     return TupleFormatDefault()
