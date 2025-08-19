@@ -1,4 +1,4 @@
-import { say, sayError, sayCrit, sayWarn, sayInfo, sayVerbose, sayDebug, saySyserror } from 'tarantool:tarantool/say@0.1.1';
+import { say, sayError, sayCrit, sayWarn, sayInfo, sayVerbose, sayDebug, saySyserror } from 'tarantool:tarantool/say@0.1.2';
 
 export function tSay(level, msg, ctx) {
     say(level, msg, ctx)
