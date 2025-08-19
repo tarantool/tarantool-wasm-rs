@@ -7,9 +7,9 @@ import {
     begin,
     commit,
     rollback
-} from 'tarantool:tarantool/txn@0.1.1';
+} from 'tarantool:tarantool/txn@0.1.2';
 
-import { sayInfo } from 'tarantool:tarantool/say@0.1.1';
+import { sayInfo } from 'tarantool:tarantool/say@0.1.2';
 
 const isolationToStr = {
     'txn-isolation-default': 'TXN_ISOLATION_DEFAULT',
