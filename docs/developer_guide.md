@@ -26,6 +26,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `join(handle)` – wait for completion of a module started with `run`.
 - `call(uid, func, ...) -> any` – call an exported function synchronously. Arguments and results are encoded with MessagePack.
 - `batch(uid, calls) -> table` – execute multiple exports sequentially inside one worker thread.
+- `exports(uid) -> table` – return a map of exported function names to their parameter and result types.
+- `drop(uid) -> bool` – unload a module and free associated resources.
 
 `opts` is a table configuring the WASI environment:
 

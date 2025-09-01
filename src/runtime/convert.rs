@@ -1,8 +1,13 @@
+//! Conversion utilities between MessagePack values and Wasmtime component types.
+//! These helpers are used by the public API to bridge Lua, MessagePack and
+//! WebAssembly worlds.
+
 use anyhow::Result;
 use rmpv::Value as RmpvValue;
 use wasmtime::component::Type;
 use wasmtime::component::Val;
 
+/// Convert a [`rmpv::Value`] into a [`Val`] according to the expected [`Type`].
 pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
     Ok(match ty {
         // Signed integers
@@ -236,6 +241,7 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
     })
 }
 
+/// Convert a [`Val`] produced by Wasmtime back into a MessagePack value.
 pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
     Ok(match val {
         Val::S8(i) => RmpvValue::Integer((*i as i64).into()),
@@ -298,6 +304,7 @@ pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
     })
 }
 
+/// Convert a [`mlua::Value`] into an [`rmpv::Value`].
 pub fn to_rmpv(val: &mlua::Value) -> Result<rmpv::Value, mlua::Error> {
     use mlua::Value::*;
     Ok(match val {
@@ -336,6 +343,7 @@ pub fn to_rmpv(val: &mlua::Value) -> Result<rmpv::Value, mlua::Error> {
     })
 }
 
+/// Convert a [`rmpv::Value`] into a Lua value using the provided [`Lua`] state.
 pub fn from_rmpv(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value> {
     use mlua::Value as LV;
     use rmpv::Value::*;
@@ -364,6 +372,7 @@ pub fn from_rmpv(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value
     })
 }
 
+/// Human readable string representation of a Wasmtime [`Type`].
 pub fn pretty_type(ty: &Type) -> String {
     match ty {
         Type::Bool => "bool".into(),

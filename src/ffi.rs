@@ -1,4 +1,11 @@
+//! Low level bindings to Tarantool's C API.
+//!
+//! Only the pieces required by the WASM runtime are defined here. The
+//! structures are mostly opaque wrappers around their C counterparts and all
+//! functions are unsafe by definition.
+
 pub mod types {
+    //! Opaque representations of various Tarantool C structures.
     use libc;
 
     const BOX_KEY_PART_DEF_T_SIZE: usize = 64;
@@ -46,6 +53,8 @@ pub mod types {
 }
 
 pub mod tnt {
+    //! Functions for communicating with Tarantool's transaction thread and
+    //! transaction utilities.
     use std::os::raw::c_void;
 
     extern "C" {
@@ -81,6 +90,7 @@ pub mod tnt {
 }
 
 pub mod r#box {
+    //! Bindings to selected `box_*` functions from Tarantool.
     extern "C" {
         pub fn box_schema_version() -> u32;
         pub fn box_sequence_current(seq_id: u32, result: *mut i64) -> i32;
@@ -91,6 +101,7 @@ pub mod r#box {
 }
 
 pub mod session {
+    //! Session and network related helpers.
     extern "C" {
         pub fn box_session_id() -> u64;
         pub fn box_iproto_send(
@@ -104,6 +115,7 @@ pub mod session {
 }
 
 pub mod tuple {
+    //! Tuple manipulation routines.
     use crate::ffi::types::{
         BoxKeyDefT, BoxKeyPartDefT, BoxTupleFormatT, BoxTupleIteratorT, BoxTupleT,
     };

@@ -112,8 +112,8 @@ Start a new component:
 
 ```sh
 mkdir my-component && cd my-component
-cp ../docs:adder@0.1.0.wasm .
-tarawasm init --lang python --wasm-file docs:adder@0.1.0.wasm adder
+cp ../docs:adder@0.1.2.wasm .
+tarawasm init --lang python --wasm-file docs:adder@0.1.2.wasm adder
 tarawasm bind
 ```
 
@@ -130,8 +130,8 @@ package example:<your-world>@0.1.0;
 
 world <your-world> {
   // Optional Tarantool APIs
-  import tarantool:tarantool/types@0.1.1;
-  import tarantool:tarantool/say@0.1.1;
+  import tarantool:tarantool/types@0.1.2;
+  import tarantool:tarantool/say@0.1.2;
   ...
 
   // Optional standard WASI interfaces
@@ -207,6 +207,16 @@ tarantool> wasm.call(m, "add", 1, 2)
 - 3
 ...
 
+tarantool> wasm.batch(m, {{"add", 1, 2}, {"add", 3, 4}})
+---
+- {3, 7}
+...
+
+tarantool> wasm.exports(m)
+---
+- { add = { params = {{"x", "s32"}, {"y", "s32"}}, result = {"s32"} } }
+...
+
 tarantool> handle = wasm.run(m)
 ---
 ...
@@ -217,6 +227,11 @@ Hello from Python WASM!
 ...
 
 tarantool> wasm.join(handle)
+---
+- true
+...
+
+tarantool> wasm.drop(m)
 ---
 - true
 ...

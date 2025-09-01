@@ -1,3 +1,10 @@
+//! Lua bindings for executing WebAssembly modules inside Tarantool.
+//!
+//! The functions exposed from this crate are intended to be loaded from Lua
+//! and provide high level access to the WASI-enabled Wasmtime runtime. Each
+//! helper translates Lua values into the structures expected by the runtime and
+//! back, hiding the underlying complexity from the user.
+
 mod bindings;
 mod ffi;
 mod runtime;
@@ -14,6 +21,8 @@ use std::thread::JoinHandle;
 use tarantool::coio::coio_call;
 use wasmtime_wasi::{DirPerms, FilePerms};
 
+/// A lightweight wrapper around [`JoinHandle`] used to expose join
+/// operations to the Lua side.
 struct WasmJoinHandle(JoinHandle<Result<()>>);
 
 impl LuaUserData for WasmJoinHandle {}
@@ -26,6 +35,10 @@ impl FromLua for WasmJoinHandle {
     }
 }
 
+/// Parse a Lua table into a [`WasmConfig`].
+///
+/// Every configuration option is optional; if a field is absent the default
+/// value from [`WasmConfig::default`] is used.
 fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
     let mut cfg = WasmConfig::default();
     if let Some(t) = tbl {
@@ -112,6 +125,11 @@ fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
     Ok(cfg)
 }
 
+/// Load a WebAssembly component and return its unique identifier.
+///
+/// The first argument is a path to the component binary. The optional second
+/// argument is a table with configuration options understood by
+/// [`WasmConfig`].
 fn load(lua: &Lua, args: LuaMultiValue) -> LuaResult<String> {
     let mut iter = args.into_iter();
     let path = match iter.next() {
@@ -136,6 +154,9 @@ fn load(lua: &Lua, args: LuaMultiValue) -> LuaResult<String> {
     tt_wasm_load_module(path, cfg).map_err(LuaError::runtime)
 }
 
+/// Start execution of a previously loaded module in a background fiber.
+///
+/// Returns a [`WasmJoinHandle`] that can be used to wait for completion.
 fn run(lua: &Lua, args: LuaMultiValue) -> LuaResult<WasmJoinHandle> {
     let mut iter = args.into_iter();
     let module_uid = match iter.next() {
@@ -164,6 +185,7 @@ fn run(lua: &Lua, args: LuaMultiValue) -> LuaResult<WasmJoinHandle> {
         .map_err(LuaError::runtime)
 }
 
+/// Wait for a background task represented by [`WasmJoinHandle`].
 fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
     let mut result: Result<()> = Ok(());
     coio_call(
@@ -179,6 +201,11 @@ fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
     }
 }
 
+/// Call a function exported by a loaded module.
+///
+/// The first argument is the module identifier, the second is the function
+/// name (optionally prefixed with `"interface::"`). Remaining values are
+/// passed as arguments.
 fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let mut iter = args.into_iter();
 
@@ -227,6 +254,7 @@ fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     Ok(lua_val)
 }
 
+/// Execute multiple function calls in a single roundtrip to the WASM runtime.
 fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let mut iter = args.into_iter();
 
@@ -312,6 +340,7 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     Ok(LuaValue::Table(results_tbl))
 }
 
+/// Return a Lua table describing all exported functions of a module.
 fn exports(lua: &Lua, module_uid: String) -> LuaResult<Value> {
     match tt_wasm_export_names(module_uid) {
         Ok(export_map) => {
@@ -357,6 +386,7 @@ fn exports(lua: &Lua, module_uid: String) -> LuaResult<Value> {
     }
 }
 
+/// Drop a previously loaded module and free associated resources.
 fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
     match tt_wasm_drop_module(module_uid) {
         Ok(()) => Ok(true),
@@ -364,6 +394,7 @@ fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
     }
 }
 
+/// Register the `wasm` Lua module with Tarantool.
 #[mlua::lua_module(name = "wasm")]
 fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;

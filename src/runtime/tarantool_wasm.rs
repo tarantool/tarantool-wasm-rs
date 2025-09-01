@@ -1,3 +1,8 @@
+//! High level management of WebAssembly modules executed within Tarantool.
+//!
+//! This module contains functions exposed to the Lua layer along with runtime
+//! helpers required to load, run and interact with WASM components.
+
 use std::{
     collections::HashMap,
     fs::OpenOptions,
@@ -47,25 +52,45 @@ lazy_static! {
 }
 
 #[derive(Clone, Debug)]
+/// Configuration options controlling how a module is executed.
 pub struct WasmConfig {
+    /// Inherit environment variables from the Tarantool process.
     pub inherit_env: bool,
+    /// Additional environment variables to set.
     pub env: HashMap<String, String>,
+    /// Inherit command line arguments of the process.
     pub inherit_args: bool,
+    /// Extra arguments passed to the module.
     pub args: Vec<String>,
+    /// Inherit standard input handle.
     pub inherit_stdin: bool,
+    /// Inherit standard output handle.
     pub inherit_stdout: bool,
+    /// Inherit standard error handle.
     pub inherit_stderr: bool,
+    /// File path to use as standard input instead of inheriting.
     pub stdin: Option<String>,
+    /// File path to use as standard output instead of inheriting.
     pub stdout: Option<String>,
+    /// File path to use as standard error instead of inheriting.
     pub stderr: Option<String>,
+    /// Allow access to the host network.
     pub inherit_network: bool,
+    /// Allow DNS name resolution.
     pub allow_ip_name_lookup: bool,
+    /// Allow creating TCP sockets.
     pub allow_tcp: bool,
+    /// Allow creating UDP sockets.
     pub allow_udp: bool,
+    /// Restrict networking to these IP addresses.
     pub allowed_ips: Vec<String>,
+    /// Restrict networking to these ports.
     pub allowed_ports: Vec<u16>,
+    /// Directories pre-opened for WASI with their permissions.
     pub preopened_dirs: Vec<(String, String, DirPerms, FilePerms)>,
+    /// Maximum amount of linear memory a module may allocate.
     pub memory_limit: Option<usize>,
+    /// Limit on the number of Wasmtime instructions (fuel) a module may consume.
     pub max_instructions: Option<u64>,
 }
 
@@ -95,6 +120,7 @@ impl Default for WasmConfig {
     }
 }
 
+/// Mutable runtime state associated with an executing module.
 pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
     pub(crate) ctx: WasiCtx,
@@ -194,6 +220,8 @@ impl WasmStates {
     }
 }
 
+/// Thread safe wrapper providing access to [`WasmStates`] along with store
+/// limits.
 pub(crate) struct SyncWasmStates {
     pub(crate) state: Mutex<WasmStates>,
     pub(crate) limits: StoreLimits,
@@ -365,6 +393,8 @@ impl RuntimeState {
     }
 }
 
+/// Load a WebAssembly component from disk and register it in the runtime,
+/// returning a unique module identifier.
 pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
     let use_fuel = config.max_instructions.is_some();
     let engine = if use_fuel {
@@ -395,6 +425,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
     }
 }
 
+/// Drop a previously loaded module, freeing associated resources.
 pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
     let mut modules = runtime_state.modules.write().unwrap();
     if modules.remove(&module_uid).is_some() {
@@ -425,6 +456,7 @@ where
     Ok(handle?)
 }
 
+/// Run a loaded module in a background thread, returning a join handle.
 pub fn tt_wasm_run_module(
     module_uid: String,
     config: Option<WasmConfig>,
@@ -478,6 +510,7 @@ pub fn tt_wasm_run_module(
     Ok(handle)
 }
 
+/// Call a single exported function of a module.
 pub fn tt_wasm_call_function(
     module_uid: String,
     interface: Option<String>,
@@ -604,6 +637,7 @@ pub fn tt_wasm_call_function(
     result
 }
 
+/// Call multiple exported functions of a module in sequence.
 pub fn tt_wasm_call_functions(
     module_uid: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
@@ -777,6 +811,7 @@ fn collect_exports(
     }
 }
 
+/// Retrieve a map of exported functions grouped by namespace.
 pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
     let loaded = runtime_state
         .modules
