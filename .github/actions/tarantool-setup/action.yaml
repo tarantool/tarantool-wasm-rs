@@ -25,4 +25,3 @@ runs:
         git submodule update --init --recursive third-party/tarantool
         ./scripts/build_tarantool_wasm.sh
       shell: bash
-

@@ -10,7 +10,7 @@ A library for integrating WebAssembly (WASM) components into Tarantool.
 
 3. **[tarantool-wasm-samples](https://github.com/mandesero/tarantool-wasm-samples)** – Examples demonstrating how to use Tarantool with WASM.
 
-4. **[tarantool-wasm-module](https://github.com/mandesero/tarantool/tree/wasm-module)** *(Work in Progress)* – A patched Tarantool build with native WASM runtime integration and Lua bindings.
+4. **[tarantool-luawasm-module](https://github.com/tarantool/tarantool/pull/11793)** *(Work in Progress)* – A patched Tarantool build with native WASM runtime integration and Lua bindings.
 
 See [developer\_guide.md](docs/developer_guide.md) for details on architecture and contribution workflow.
 
@@ -18,30 +18,11 @@ See [developer\_guide.md](docs/developer_guide.md) for details on architecture a
 
 ## Table of Contents
 
-* [Building the Patched Tarantool](#building-the-patched-tarantool-wasm-compatible-with-fiber-signal-stack-disabled)
 * [Building the WASM Runtime Library](#building-the-wasm-runtime-library)
+* [Building the Patched Tarantool](#building-the-patched-tarantool-wasm-compatible-with-fiber-signal-stack-disabled)
 * [Working with tarawasm](#working-with-tarawasm)
 * [Manual WIT Interface Definition](#manual-wit-interface-definition)
 * [Using in Tarantool](#using-in-tarantool)
-
-  * [Option 1: Using wasm.so directly](#option-1-using-wasmso-directly)
-  * [Option 2: Using luawasm wrapper](#option-2-using-luawasm-wrapper)
-
----
-
-## Building the Patched Tarantool (WASM-Compatible with Fiber Signal Stack Disabled)
-
-To enable WASM integration, build Tarantool with `TARANTOOL_WASM=ON`:
-
-```sh
-git clone https://github.com/mandesero/tarantool
-cd tarantool
-git checkout wasm-module
-
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_BACKTRACE=ON -DTARANTOOL_WASM=ON
-make -j
-```
 
 ---
 
@@ -92,6 +73,16 @@ Then place the compiled `.so` file in a location accessible to Tarantool:
 
 ```sh
 sudo ln -s <path-to>/target/debug/libtarantool_wasm_rs.so /usr/local/lib/tarantool/wasm.so
+```
+
+---
+
+## Building Tarantool (WASM-Compatible with Fiber Signal Stack Disabled)
+
+To enable WASM integration, build Tarantool with `TARANTOOL_WASM=ON`:
+
+```sh
+./scripts/build_tarantool_wasm.sh
 ```
 
 ---
@@ -187,8 +178,6 @@ tarawasm build
 
 ## Using in Tarantool
 
-### Option 1: Using `wasm.so` directly
-
 ```sh
 $ tarantool -i
 
@@ -232,55 +221,6 @@ tarantool> wasm.join(handle)
 ...
 
 tarantool> wasm.drop(m)
----
-- true
-...
-```
-
----
-
-### Option 2: Using `luawasm` wrapper
-
-```sh
-$ tarantool -i
-
-Tarantool 3.5.0-entrypoint-62-g40dc5c548d
-type 'help' for interactive help
-tarantool> wasm = require('wasm')
----
-...
-
-tarantool> lwasm = require('luawasm')
----
-...
-
-tarantool> m = lwasm:new({ dir = "."})
----
-...
-
-tarantool> m:help()
-Exported functions:
-
-add(x: s32, y: s32) -> s32
-
----
-...
-
-tarantool> m:add(1, 2)
----
-- 3
-...
-
-tarantool> m:run()
----
-...
-
-tarantool> Hello from Python WASM!
-
----
-...
-
-tarantool> m:join()
 ---
 - true
 ...
