@@ -1,5 +1,5 @@
 local t = require('luatest')
-local luawasm = require('luawasm')
+local wasm = require('wasm')
 local fio = require('fio')
 local fiber = require('fiber')
 
@@ -19,26 +19,26 @@ local g = t.group(
 g.before_all(function(cg)
     box.cfg{log_level = 7}
 
-    local path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", "wasm_component_test", test_group, cg.params.lang)
-    local wasm
+    local path =
+    fio.pathjoin(utils.get_test_dir(), "tarantool_bindings",
+                 "wasm_component_test", test_group, cg.params.lang)
     if cg.params.lang == "c" then
-        wasm = "adder.component.wasm"
+        path = fio.pathjoin(path, "adder.component.wasm")
+    else
+        path = fio.pathjoin(path, "adder.wasm")
     end
-    cg.m = luawasm:new({
-        dir = path,
-        wasm = wasm,
-    })
+    cg.m = wasm.load(path)
 end)
 
 local function log(cg, ctx)
-    cg.m:t_say("s-info", "hello from t_say", ctx)
-    cg.m:t_say_error("an error occurred", ctx)
-    cg.m:t_say_crit("critical message", ctx)
-    cg.m:t_say_warn("warning message", ctx)
-    cg.m:t_say_info("info message", ctx)
-    cg.m:t_say_verbose("verbose output", ctx)
-    cg.m:t_say_debug("debug output", ctx)
-    cg.m:t_say_syserror("sys error occurred", ctx)
+    wasm.call(cg.m, "t-say", "s-info", "hello from t_say", ctx)
+    wasm.call(cg.m, "t-say-error", "an error occurred", ctx)
+    wasm.call(cg.m, "t-say-crit", "critical message", ctx)
+    wasm.call(cg.m, "t-say-warn", "warning message", ctx)
+    wasm.call(cg.m, "t-say-info", "info message", ctx)
+    wasm.call(cg.m, "t-say-verbose", "verbose output", ctx)
+    wasm.call(cg.m, "t-say-debug", "debug output", ctx)
+    wasm.call(cg.m, "t-say-syserror", "sys error occurred", ctx)
 end
 
 g.test_say_interfaces = function(cg)

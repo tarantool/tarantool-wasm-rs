@@ -1,7 +1,6 @@
 local t = require('luatest')
-local luawasm = require('luawasm')
+local wasm = require('wasm')
 local fio = require('fio')
-local fiber = require('fiber')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
@@ -16,21 +15,26 @@ local g = t.group(
 )
 
 g.before_all(function(cg)
-    local path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", "wasm_component_test", test_group, cg.params.lang)
-    local wasm
+    local path =
+    fio.pathjoin(utils.get_test_dir(), "tarantool_bindings",
+                 "wasm_component_test", test_group, cg.params.lang)
     if cg.params.lang == "c" then
-        wasm = "adder.component.wasm"
+    path = fio.pathjoin(path, "adder.component.wasm")
+    else
+    path = fio.pathjoin(path, "adder.wasm")
     end
-    cg.m = luawasm:new({
-        dir = path,
-        wasm = wasm,
-    })
+    cg.m = wasm.load(path)
+
     box.cfg{}
 end)
 
 g.before_each(function(cg)
-    cg.seq = box.schema.sequence.create('test_seq', { if_not_exists = true })
-    cg.wasm_seq = { id = cg.seq.id }
+    cg.seq = box.schema.sequence.create('test_seq', {
+        if_not_exists = true
+    })
+    cg.wasm_seq = {
+        id = cg.seq.id
+    }
 end)
 
 g.after_each(function(cg)
@@ -43,41 +47,48 @@ g.after_all(function()
 end)
 
 g.test_sequence_basic = function(cg)
-    local res = cg.m:t_current(cg.wasm_seq)
+    local res = wasm.call(cg.m, "t-current", cg.wasm_seq)
     t.assert_not(res[1])
-    t.assert_str_contains(res[2].message, "Sequence 'test_seq' is not started")
+    t.assert_str_contains(
+        res[2].message,
+        "Sequence 'test_seq' is not started"
+    )
 
-    res = cg.m:t_next(cg.wasm_seq)
-    t.assert_equals(res, { true, 1 })
+    res = wasm.call(cg.m, "t-next", cg.wasm_seq)
+    t.assert_equals(res, {true, 1})
 
-    res = cg.m:t_current(cg.wasm_seq)
-    t.assert_equals(res, { true, 1 })
+    res = wasm.call(cg.m, "t-current", cg.wasm_seq)
+    t.assert_equals(res, {true, 1})
 
-    res = cg.m:t_next(cg.wasm_seq)
-    t.assert_equals(res, { true, 2 })
+    res = wasm.call(cg.m, "t-next", cg.wasm_seq)
+    t.assert_equals(res, {true, 2})
 
-    res = cg.m:t_set(cg.wasm_seq, 100)
-    t.assert_equals(res, { true })
+    res = wasm.call(cg.m, "t-set", cg.wasm_seq, 100)
+    t.assert_equals(res, {true})
 
-    res = cg.m:t_current(cg.wasm_seq)
-    t.assert_equals(res, { true, 100 })
+    res = wasm.call(cg.m, "t-current", cg.wasm_seq)
+    t.assert_equals(res, {true, 100})
 
-    res = cg.m:t_next(cg.wasm_seq)
-    t.assert_equals(res, { true, 101 })
+    res = wasm.call(cg.m, "t-next", cg.wasm_seq)
+    t.assert_equals(res, {true, 101})
 
-    res = cg.m:t_next(cg.wasm_seq)
-    t.assert_equals(res, { true, 102 })
+    res = wasm.call(cg.m, "t-next", cg.wasm_seq)
+    t.assert_equals(res, {true, 102})
 
-    res = cg.m:t_reset(cg.wasm_seq)
-    t.assert_equals(res, { true })
+    res = wasm.call(cg.m, "t-reset", cg.wasm_seq)
+    t.assert_equals(res, {true})
 
-    res = cg.m:t_current(cg.wasm_seq)
+    res = wasm.call(cg.m, "t-current", cg.wasm_seq)
     t.assert_not(res[1])
-    t.assert_str_contains(res[2].message, "Sequence 'test_seq' is not started")
+    t.assert_str_contains(
+        res[2].message,
+        "Sequence 'test_seq' is not started"
+    )
 
-    res = cg.m:t_next(cg.wasm_seq)
-    t.assert_equals(res, { true, 1 })
+    res = wasm.call(cg.m, "t-next", cg.wasm_seq)
+    t.assert_equals(res, {true, 1})
 
-    res = cg.m:t_next(cg.wasm_seq)
-    t.assert_equals(res, { true, 2 })
+    res = wasm.call(cg.m, "t-next", cg.wasm_seq)
+    t.assert_equals(res, {true, 2})
 end
+

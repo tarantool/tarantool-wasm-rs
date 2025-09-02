@@ -1,8 +1,7 @@
 local t = require('luatest')
-local luawasm = require('luawasm')
+local wasm = require('wasm')
 local fio = require('fio')
 local fiber = require('fiber')
-local net = require('net.box')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
@@ -20,15 +19,15 @@ local g = t.group(
 )
 
 g.before_all(function(cg)
-    local path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", "wasm_component_test", test_group, cg.params.lang)
-    local wasm
+    local path =
+    fio.pathjoin(utils.get_test_dir(), "tarantool_bindings",
+                 "wasm_component_test", test_group, cg.params.lang)
     if cg.params.lang == "c" then
-        wasm = "adder.component.wasm"
+        path = fio.pathjoin(path, "adder.component.wasm")
+    else
+        path = fio.pathjoin(path, "adder.wasm")
     end
-    cg.m = luawasm:new({
-        dir = path,
-        wasm = wasm,
-    })
+    cg.m = wasm.load(path)
 
     box.cfg{}
 end)
@@ -39,7 +38,7 @@ end)
 
 -- current
 g.test_current = function(cg)
-    local res = cg.m:t_current()
+    local res = wasm.call(cg.m, "t-current")
     t.assert_type(res.id, "number")
 end
 
@@ -56,43 +55,47 @@ g.test_broadcast = function(cg)
     box.watch("foo", my_callback)
 
     local payload = "{a = 42}"
-    local res = cg.m:t_broadcast("foo", payload)
+    local res = wasm.call(cg.m, "t-broadcast", "foo", payload)
 
     t.assert_equals(res, {true})
-    
+
     fiber.sleep(0.01)
 
     t.assert(called, true)
-    t.assert_equals(received_value, {"foo", {a = 42}}) 
+    t.assert_equals(received_value, {"foo", {a = 42}})
 end
 
 -- iproto-send
 g.test_iproto_send = function(cg)
     t.skip("Skipping: unclear how to use box_iproto_send in current test")
-    
+
     local captured = {}
 
-    box.iproto.override(box.iproto.type.UNKNOWN, function(sid, header, body)
-        table.insert(captured, {
-            sid = sid,
-            header = dec(header),
-            body = dec(body),
-        })
-        box.iproto.send(sid, {
-            request_type = box.iproto.type.OK,
-            sync = header.SYNC,
-            schema_version = box.info.schema_version,
-        }, { ok = true })
-        return true
-    end)
+    box.iproto.override(box.iproto.type.UNKNOWN,
+        function(sid, header, body)
+            table.insert(captured, {
+                sid = sid,
+                header = dec(header),
+                body = dec(body),
+            })
+            box.iproto.send(sid, {
+                request_type = box.iproto.type.OK,
+                sync = header.SYNC,
+                schema_version = box.info.schema_version,
+            }, {ok = true})
+            return true
+        end
+    )
 
     local header = enc({
         SYNC = 42,
         request_type = 999,
     })
-    local body = enc({ message = "hi" })
+    local body = enc({message = "hi"})
 
-    local res = cg.m:t_iproto_send({ id = box.session.id() }, header, body)
+    local res = wasm.call(
+        cg.m, "t-iproto-send", {id = box.session.id()}, header, body
+    )
 
     t.assert_equals(res, {true})
 

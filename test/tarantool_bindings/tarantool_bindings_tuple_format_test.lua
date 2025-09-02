@@ -1,5 +1,5 @@
 local t = require('luatest')
-local luawasm = require('luawasm')
+local wasm = require('wasm')
 local fio = require('fio')
 
 package.path = "./test/?.lua;" .. package.path
@@ -15,15 +15,15 @@ local g = t.group(
 )
 
 g.before_all(function(cg)
-    local path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", "wasm_component_test",  test_group, cg.params.lang)
-    local wasm
+    local path =
+    fio.pathjoin(utils.get_test_dir(), "tarantool_bindings",
+                 "wasm_component_test", test_group, cg.params.lang)
     if cg.params.lang == "c" then
-        wasm = "adder.component.wasm"
+        path = fio.pathjoin(path, "adder.component.wasm")
+    else
+        path = fio.pathjoin(path, "adder.wasm")
     end
-    cg.m = luawasm:new({
-        dir = path,
-        wasm = wasm,
-    })
+    cg.m = wasm.load(path)
 
     box.cfg{}
 end)
@@ -33,43 +33,41 @@ g.after_all(function()
 end)
 
 g.test_tuple_format_lifecycle = function(cg)
-
     local parts = {
         {
             ["field-no"] = 1,
             ["field-type"] = "unsigned",
-            ["flags"] = { "is-nullable" },
+            ["flags"] = {"is-nullable"},
         },
         {
             ["field-no"] = 2,
             ["field-type"] = "string",
             ["collation"] = "unicode",
             ["path"] = "tmp",
-            ["flags"] = { "exclude-null" },
+            ["flags"] = {"exclude-null"},
         },
     }
 
-    local res = cg.m:t_key_def_new(parts)
+    local res = wasm.call(cg.m, "t-key-def-new", parts)
     t.assert(res[1])
     local kd = res[2]
     t.assert_type(kd, "table")
     t.assert_type(kd.ptr, "number")
 
-    res = cg.m:t_new({ kd })
+    res = wasm.call(cg.m, "t-new", {kd})
     t.assert(res[1])
     local tf = res[2]
     t.assert_type(tf, "table")
     t.assert_type(tf.ptr, "number")
 
     -- Increase refcount
-    cg.m:t_ref(tf)
+    wasm.call(cg.m, "t-ref", tf)
 
     -- Decrease refcount
-    cg.m:t_unref(tf)
+    wasm.call(cg.m, "t-unref", tf)
 
     -- Get default tuple_format
-    local default_tf = cg.m:t_default()
+    local default_tf = wasm.call(cg.m, "t-default")
     t.assert_type(default_tf, "table")
     t.assert_type(default_tf.ptr, "number")
 end
-

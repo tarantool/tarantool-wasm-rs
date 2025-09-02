@@ -1,5 +1,5 @@
 local t = require('luatest')
-local luawasm = require('luawasm')
+local wasm = require('wasm')
 local fio = require('fio')
 local fiber = require('fiber')
 
@@ -17,18 +17,18 @@ local g = t.group(
 )
 
 g.before_all(function(cg)
-    local path = fio.pathjoin(utils.get_test_dir(), "tarantool_bindings", "wasm_component_test", test_group, cg.params.lang)
-    local wasm
+    local path =
+    fio.pathjoin(utils.get_test_dir(), "tarantool_bindings",
+                 "wasm_component_test", test_group, cg.params.lang)
     if cg.params.lang == "c" then
-        wasm = "adder.component.wasm"
+        path = fio.pathjoin(path, "adder.component.wasm")
+    else
+        path = fio.pathjoin(path, "adder.wasm")
     end
-    cg.m = luawasm:new({
-        dir = path,
-        wasm = wasm,
-    })
+    cg.m = wasm.load(path)
+
     box.cfg{}
 end)
-
 
 g.after_all(function()
     utils.cleanup_logs(fio.cwd())
@@ -66,12 +66,11 @@ local function match_line(actual, pattern)
     return cleaned:match(pattern) ~= nil
 end
 
-
 g.test_txn_lifecycle = function(cg)
     local get_new_log = read_new_log()
 
-    cg.m:run()
-    local res = cg.m:join()
+    local handle = wasm.run(cg.m)
+    local res = wasm.join(handle)
     t.assert(res)
 
     fiber.sleep(0.05)
@@ -90,4 +89,3 @@ g.test_txn_lifecycle = function(cg)
         t.assert(found, ("Expected log line not found: %s"):format(expected))
     end
 end
-
