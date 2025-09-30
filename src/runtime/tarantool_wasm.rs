@@ -37,8 +37,8 @@ use wasmtime_wasi_tls::{LinkOptions, WasiTls, WasiTlsCtx, WasiTlsCtxBuilder};
 use crate::bindings::{
     docs::adder::zlib,
     tarantool::tarantool::{
-        box_tuple, error, index, key_def, msgpack, say, sequence, session, ttbox, tuple_format,
-        txn, types,
+        box_tuple, error, index, key_def, metrics, msgpack, say, sequence, session, ttbox,
+        tuple_format, txn, types,
     },
 };
 use crate::runtime::{
@@ -356,6 +356,7 @@ fn build_linker(engine: &Engine) -> Linker<SyncWasmStates> {
     let _ =
         tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = metrics::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
 
     let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     linker

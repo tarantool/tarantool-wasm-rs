@@ -30,6 +30,7 @@ pub struct TupleIteratorImpl {
 pub mod error;
 pub mod index;
 pub mod key_def;
+pub mod metrics;
 pub mod msgpack;
 pub mod say;
 pub mod sequence;

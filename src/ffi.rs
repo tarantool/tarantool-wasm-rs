@@ -234,3 +234,12 @@ pub mod tuple {
         pub fn box_tuple_next(iterator: *mut BoxTupleIteratorT) -> *const libc::c_char;
     }
 }
+
+pub mod tarantool_extra {
+    use libc::c_double;
+
+    extern "C" {
+        /// C: double tarantool_uptime(void);
+        pub fn tarantool_uptime() -> c_double;
+    }
+}
