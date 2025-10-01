@@ -20,12 +20,14 @@ use crate::runtime::{
 pub(crate) enum WasmFiberStatus {
     Suspended,
     Finished,
+    Canceled,
 }
 
 pub(crate) struct WasmFiber {
     rt: tokio::runtime::Runtime,
     awaiter: mpsc::Receiver<WasmFiberStatus>,
     handle: Option<JoinHandle<Result<()>>>,
+    canceler: mpsc::Sender<WasmFiberStatus>,
 }
 
 impl WasmFiber {
@@ -40,9 +42,10 @@ impl WasmFiber {
             .enable_io()
             .build()
             .unwrap();
-        let (yielder, awaiter) = mpsc::channel(1);
-        let finalizer = yielder.clone();
-        store.data().state.lock().unwrap().yielder = Some(yielder);
+        let (sender, awaiter) = mpsc::channel(1);
+        let canceler = sender.clone();
+        let finalizer = sender.clone();
+        store.data().state.lock().unwrap().yielder = Some(sender);
 
         let handle = rt.spawn(async move {
             let command = Command::instantiate_async(&mut store, &component, &linker).await?;
@@ -57,6 +60,17 @@ impl WasmFiber {
             rt,
             awaiter,
             handle: Some(handle),
+            canceler,
+        }
+    }
+
+    pub(crate) fn canceler(&self) -> mpsc::Sender<WasmFiberStatus> {
+        self.canceler.clone()
+    }
+
+    fn cancel_task(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
         }
     }
 
@@ -74,32 +88,55 @@ impl WasmFiber {
         })
     }
 
-    fn resume_on_tx(self) -> Result<WasmFiber> {
+    fn resume_on_tx(self) -> Result<(WasmFiber, WasmFiberStatus)> {
         let (tx, rx) = oneshot::channel();
         let (ret_tx, ret_rx) = oneshot::channel();
+        let (status_tx, status_rx) = oneshot::channel();
         let _ = tx.send(self);
         let cb = move || {
             if let Ok(mut fiber) = rx.blocking_recv() {
-                let _ = fiber.resume();
+                let status = fiber.resume();
                 let _ = ret_tx.send(fiber);
+                let _ = status_tx.send(status);
             }
         };
 
         tx_push(Box::new(TxCtx { cb: Box::new(cb) }));
         tx_flush();
 
-        ret_rx
+        let fiber = ret_rx
             .blocking_recv()
-            .map_err(|_| anyhow!("fiber cancelled during resume"))
+            .map_err(|_| anyhow!("fiber cancelled during resume"))?;
+        let status = status_rx
+            .blocking_recv()
+            .map_err(|_| anyhow!("fiber cancelled during resume"))??;
+        Ok((fiber, status))
     }
 
     pub(crate) fn block_on(mut self) -> Result<()> {
         loop {
             match self.resume()? {
                 WasmFiberStatus::Suspended => {
-                    self = self.resume_on_tx()?;
+                    let (fiber, status) = self.resume_on_tx()?;
+                    self = fiber;
+                    match status {
+                        WasmFiberStatus::Suspended => {
+                            continue;
+                        }
+                        WasmFiberStatus::Finished => {
+                            return Ok(());
+                        }
+                        WasmFiberStatus::Canceled => {
+                            self.cancel_task();
+                            return Ok(());
+                        }
+                    }
                 }
                 WasmFiberStatus::Finished => {
+                    return Ok(());
+                }
+                WasmFiberStatus::Canceled => {
+                    self.cancel_task();
                     return Ok(());
                 }
             }

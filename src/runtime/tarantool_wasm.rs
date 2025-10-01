@@ -8,13 +8,13 @@ use std::{
     fs::OpenOptions,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex, RwLock,
+        mpsc as std_mpsc, Arc, Mutex, RwLock,
     },
     thread::{self, JoinHandle},
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
 use nix::sys::signal::{SigSet, Signal};
 use rmpv::Value as RmpvValue;
@@ -46,6 +46,31 @@ use crate::runtime::{
     executor::{Executor, TxMode},
     wasm_fiber::{WasmFiber, WasmFiberStatus},
 };
+
+pub(crate) struct WasmRunHandle {
+    join_handle: Option<JoinHandle<Result<()>>>,
+    cancel_tx: mpsc::Sender<WasmFiberStatus>,
+}
+
+impl WasmRunHandle {
+    fn new(join_handle: JoinHandle<Result<()>>, cancel_tx: mpsc::Sender<WasmFiberStatus>) -> Self {
+        WasmRunHandle {
+            join_handle: Some(join_handle),
+            cancel_tx,
+        }
+    }
+
+    pub(crate) fn cancel(&self) -> Result<()> {
+        let _ = self.cancel_tx.blocking_send(WasmFiberStatus::Canceled);
+        Ok(())
+    }
+
+    pub(crate) fn take_join_handle(&mut self) -> Result<JoinHandle<Result<()>>> {
+        self.join_handle
+            .take()
+            .ok_or_else(|| anyhow!("join handle already taken"))
+    }
+}
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
@@ -458,10 +483,7 @@ where
 }
 
 /// Run a loaded module in a background thread, returning a join handle.
-pub fn tt_wasm_run_module(
-    module_uid: String,
-    config: Option<WasmConfig>,
-) -> Result<JoinHandle<Result<()>>> {
+pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Result<WasmRunHandle> {
     let loaded = runtime_state
         .modules
         .read()
@@ -481,6 +503,7 @@ pub fn tt_wasm_run_module(
         ));
     }
     let fuel = loaded.fuel;
+    let (canceler_tx, canceler_rx) = std_mpsc::channel();
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let engine = if fuel {
             &runtime_state.fuel_engine
@@ -505,10 +528,14 @@ pub fn tt_wasm_run_module(
         store.epoch_deadline_trap();
 
         let fiber = WasmFiber::new(store, linker, component);
+        let _ = canceler_tx.send(fiber.canceler());
         let _ = fiber.block_on();
         Ok::<(), wasmtime::Error>(())
     })?;
-    Ok(handle)
+    let cancel_tx = canceler_rx
+        .recv()
+        .map_err(|_| anyhow!("failed to receive fiber cancel handle"))?;
+    Ok(WasmRunHandle::new(handle, cancel_tx))
 }
 
 /// Call a single exported function of a module.

@@ -12,7 +12,7 @@ mod runtime;
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
     tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_drop_module, tt_wasm_export_names,
-    tt_wasm_load_module, tt_wasm_run_module, WasmConfig,
+    tt_wasm_load_module, tt_wasm_run_module, WasmConfig, WasmRunHandle,
 };
 use anyhow::Result;
 use mlua::prelude::*;
@@ -21,9 +21,9 @@ use std::thread::JoinHandle;
 use tarantool::coio::coio_call;
 use wasmtime_wasi::{DirPerms, FilePerms};
 
-/// A lightweight wrapper around [`JoinHandle`] used to expose join
+/// A lightweight wrapper around [`WasmRunHandle`] used to expose join
 /// operations to the Lua side.
-struct WasmJoinHandle(JoinHandle<Result<()>>);
+struct WasmJoinHandle(WasmRunHandle);
 
 impl LuaUserData for WasmJoinHandle {}
 impl FromLua for WasmJoinHandle {
@@ -32,6 +32,16 @@ impl FromLua for WasmJoinHandle {
             .as_userdata()
             .ok_or(LuaError::runtime("argument is not a join handle"))?
             .take()
+    }
+}
+
+impl WasmJoinHandle {
+    fn cancel(&self) -> Result<()> {
+        self.0.cancel()
+    }
+
+    fn take_join_handle(&mut self) -> Result<JoinHandle<Result<()>>> {
+        self.0.take_join_handle()
     }
 }
 
@@ -187,13 +197,34 @@ fn run(lua: &Lua, args: LuaMultiValue) -> LuaResult<WasmJoinHandle> {
 
 /// Wait for a background task represented by [`WasmJoinHandle`].
 fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
+    let mut handle = handle;
     let mut result: Result<()> = Ok(());
+    let join_handle = handle.take_join_handle().map_err(LuaError::runtime)?;
     coio_call(
         &mut |handle: Box<JoinHandle<Result<()>>>| {
             result = handle.join().unwrap();
             0
         },
-        handle.0,
+        join_handle,
+    );
+    match result {
+        Ok(()) => Ok(true),
+        Err(err) => Err(LuaError::runtime(err)),
+    }
+}
+
+/// Cancel execution of a background task represented by [`WasmJoinHandle`].
+fn cancel(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
+    let mut handle = handle;
+    handle.cancel().map_err(LuaError::runtime)?;
+    let mut result: Result<()> = Ok(());
+    let join_handle = handle.take_join_handle().map_err(LuaError::runtime)?;
+    coio_call(
+        &mut |handle: Box<JoinHandle<Result<()>>>| {
+            result = handle.join().unwrap();
+            0
+        },
+        join_handle,
     );
     match result {
         Ok(()) => Ok(true),
@@ -401,6 +432,7 @@ fn my_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("load", lua.create_function(load)?)?;
     module.set("run", lua.create_function(run)?)?;
     module.set("join", lua.create_function(join)?)?;
+    module.set("cancel", lua.create_function(cancel)?)?;
     module.set("call", lua.create_function(call)?)?;
     module.set("batch", lua.create_function(batch)?)?;
     module.set("exports", lua.create_function(exports)?)?;

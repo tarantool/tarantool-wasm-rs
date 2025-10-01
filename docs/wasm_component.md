@@ -10,6 +10,11 @@ This document describes how the `run` function works (which calls `wasi:cli.run`
 4. Once initialized, it calls `wasi_cli_run().call_run` on the instance, which triggers execution of the WASM module logic.
 5. While the module is running, any tasks that require interaction with Tarantool are forwarded to the TX thread using `tx_push`/`tx_flush`.
 
+If Lua calls `wasm.cancel(handle)`, the runtime sends a `Canceled` status back to the worker. The `WasmFiber`
+aborts the asynchronous task running inside the Tokio runtime and the OS thread exits once cleanup is
+complete. The Lua helper waits for the join handle to finish so callers can rely on the worker thread being
+terminated before continuing.
+
 ## Calling Exported Functions
 
 To invoke an exported function, use `wasm.call(module_uid, func, ...)`:

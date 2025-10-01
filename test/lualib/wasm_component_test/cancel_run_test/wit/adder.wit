@@ -1,0 +1,10 @@
+package docs:adder@0.1.0;
+
+world adder {
+  export wasi:cli/run@0.2.3;
+}
+package wasi:cli@0.2.3 {
+  interface run {
+    run: func() -> result;
+  }
+}

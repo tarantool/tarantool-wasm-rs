@@ -225,3 +225,20 @@ tarantool> wasm.drop(m)
 - true
 ...
 ```
+
+To stop a long running (or stuck) component without waiting for it to finish,  
+cancel the handle instead of joining it:
+
+```sh
+tarantool> handle = wasm.run(m)
+---
+...
+
+tarantool> wasm.cancel(handle)
+---
+- true
+...
+```
+
+> NOTE: After `cancel`, calling `wasm.join(handle)` will raise an error,
+> because the handle has already been destroyed.

@@ -23,6 +23,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
   configures the WASI context for subsequent runs.
 - `run(uid[, opts]) -> join_handle` – run a component using `wasi:cli.run` entry point in a background
   thread. `opts` overrides the configuration passed to `load`.
+- `cancel(handle) -> bool` – request cancellation of a fiber started with `run` and wait for the worker
+  thread to terminate.
 - `join(handle)` – wait for completion of a module started with `run`.
 - `call(uid, func, ...) -> any` – call an exported function synchronously. Arguments and results are encoded with MessagePack.
 - `batch(uid, calls) -> table` – execute multiple exports sequentially inside one worker thread.
