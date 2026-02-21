@@ -68,7 +68,7 @@ impl box_tuple::Host for SyncWasmStates {
         let mut buf = Vec::with_capacity(size);
 
         let actual_size =
-            unsafe { ffi::tuple::box_tuple_to_buf(t.ptr as *mut _, buf.as_ptr() as _, size) };
+            unsafe { ffi::tuple::box_tuple_to_buf(t.ptr as *mut _, buf.as_mut_ptr() as _, size) };
 
         if actual_size < 0 {
             return Err(handle_tarantool_error());
@@ -203,10 +203,10 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
             .await?;
 
         let iter_ptr = send_ptr.0;
-        let resource = self
-            .state
-            .lock()
-            .unwrap()
+        let mut guard = self.state.lock().map_err(|_| {
+            BoxError::new(TarantoolErrorCode::Unknown as u32, "state lock poisoned")
+        })?;
+        let resource = guard
             .table
             .push(TupleIteratorImpl { iter: iter_ptr })
             .map_err(|e| BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string()))?;
@@ -215,23 +215,27 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
     }
 
     async fn position(&mut self, self_: Resource<box_tuple::TupleIterator>) -> u32 {
-        let mut guard = self.state.lock().unwrap();
-        let iter = guard
-            .table
-            .get_mut(&self_)
-            .map_err(|e| BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string()))
-            .unwrap();
+        let mut guard = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(_) => return 0,
+        };
+        let iter = match guard.table.get_mut(&self_) {
+            Ok(iter) => iter,
+            Err(_) => return 0,
+        };
 
         unsafe { ffi::tuple::box_tuple_position(iter.iter) }
     }
 
     async fn rewind(&mut self, self_: Resource<box_tuple::TupleIterator>) {
-        let mut guard = self.state.lock().unwrap();
-        let iter = guard
-            .table
-            .get_mut(&self_)
-            .map_err(|e| BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string()))
-            .unwrap();
+        let mut guard = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        let iter = match guard.table.get_mut(&self_) {
+            Ok(iter) => iter,
+            Err(_) => return,
+        };
 
         unsafe { ffi::tuple::box_tuple_rewind(iter.iter) };
     }
@@ -241,7 +245,9 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         self_: Resource<box_tuple::TupleIterator>,
         pos: u32,
     ) -> Result<TupleField, BoxError> {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = self.state.lock().map_err(|_| {
+            BoxError::new(TarantoolErrorCode::Unknown as u32, "state lock poisoned")
+        })?;
         let iter = guard
             .table
             .get_mut(&self_)
@@ -255,7 +261,9 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         &mut self,
         self_: Resource<box_tuple::TupleIterator>,
     ) -> Result<TupleField, BoxError> {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = self.state.lock().map_err(|_| {
+            BoxError::new(TarantoolErrorCode::Unknown as u32, "state lock poisoned")
+        })?;
         let iter = guard
             .table
             .get_mut(&self_)
@@ -269,7 +277,11 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         &mut self,
         self_: Resource<box_tuple::TupleIterator>,
     ) -> Result<(), wasmtime::Error> {
-        self.state.lock().unwrap().table.delete(self_)?;
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| wasmtime::Error::msg("state lock poisoned"))?;
+        guard.table.delete(self_)?;
         Ok(())
     }
 }

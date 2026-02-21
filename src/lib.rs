@@ -17,6 +17,7 @@ use crate::runtime::tarantool_wasm::{
 use anyhow::Result;
 use mlua::prelude::*;
 use mlua::Value;
+use std::any::Any;
 use std::thread::JoinHandle;
 use tarantool::coio::coio_call;
 use wasmtime_wasi::{DirPerms, FilePerms};
@@ -42,6 +43,26 @@ impl WasmJoinHandle {
 
     fn take_join_handle(&mut self) -> Result<JoinHandle<Result<()>>> {
         self.0.take_join_handle()
+    }
+}
+
+fn panic_payload_to_string(payload: Box<dyn Any + Send + 'static>) -> String {
+    if let Some(msg) = payload.downcast_ref::<&str>() {
+        return (*msg).to_string();
+    }
+    if let Some(msg) = payload.downcast_ref::<String>() {
+        return msg.clone();
+    }
+    "unknown panic payload".to_string()
+}
+
+fn join_result_to_anyhow(result: std::thread::Result<Result<()>>) -> Result<()> {
+    match result {
+        Ok(inner) => inner,
+        Err(payload) => Err(anyhow::anyhow!(
+            "worker thread panicked: {}",
+            panic_payload_to_string(payload)
+        )),
     }
 }
 
@@ -202,7 +223,7 @@ fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
     let join_handle = handle.take_join_handle().map_err(LuaError::runtime)?;
     coio_call(
         &mut |handle: Box<JoinHandle<Result<()>>>| {
-            result = handle.join().unwrap();
+            result = join_result_to_anyhow(handle.join());
             0
         },
         join_handle,
@@ -221,7 +242,7 @@ fn cancel(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
     let join_handle = handle.take_join_handle().map_err(LuaError::runtime)?;
     coio_call(
         &mut |handle: Box<JoinHandle<Result<()>>>| {
-            result = handle.join().unwrap();
+            result = join_result_to_anyhow(handle.join());
             0
         },
         join_handle,
