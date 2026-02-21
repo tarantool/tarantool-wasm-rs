@@ -4,8 +4,9 @@
 //! helpers required to load, run and interact with WASM components.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::OpenOptions,
+    net::IpAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc as std_mpsc, Arc, Mutex, RwLock,
@@ -208,18 +209,18 @@ impl WasmStates {
         if config.inherit_network {
             builder.inherit_network();
 
-            let allowed_ips = config.allowed_ips.clone();
-            let allowed_ports = config.allowed_ports.clone();
+            let allow_all_ips = config.allowed_ips.is_empty();
+            let allowed_ips: HashSet<IpAddr> = config
+                .allowed_ips
+                .iter()
+                .filter_map(|ip| ip.parse::<IpAddr>().ok())
+                .collect();
+            let allow_all_ports = config.allowed_ports.is_empty();
+            let allowed_ports: HashSet<u16> = config.allowed_ports.iter().copied().collect();
             builder.socket_addr_check(move |addr, _| {
-                let allowed_ips = allowed_ips.clone();
-                let allowed_ports = allowed_ports.clone();
-                Box::pin(async move {
-                    let ip_allowed = allowed_ips.is_empty()
-                        || allowed_ips.iter().any(|ip| ip == &addr.ip().to_string());
-                    let port_allowed =
-                        allowed_ports.is_empty() || allowed_ports.contains(&addr.port());
-                    ip_allowed && port_allowed
-                })
+                let ip_allowed = allow_all_ips || allowed_ips.contains(&addr.ip());
+                let port_allowed = allow_all_ports || allowed_ports.contains(&addr.port());
+                Box::pin(async move { ip_allowed && port_allowed })
             });
         }
         builder
@@ -265,13 +266,15 @@ impl SyncWasmStates {
     }
 
     pub fn begin_tx(&mut self) {
-        self.state.lock().unwrap().tx_mode = TxMode::Started;
-        self.state.lock().unwrap().executor = Executor::Direct;
+        let mut state = self.state.lock().unwrap();
+        state.tx_mode = TxMode::Started;
+        state.executor = Executor::Direct;
     }
 
     pub fn end_tx(&mut self) {
-        self.state.lock().unwrap().tx_mode = TxMode::None;
-        self.state.lock().unwrap().executor = Executor::TxPush;
+        let mut state = self.state.lock().unwrap();
+        state.tx_mode = TxMode::None;
+        state.executor = Executor::TxPush;
     }
 
     pub fn executor(&self) -> Executor {

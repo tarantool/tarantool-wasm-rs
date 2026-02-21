@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use rmpv::Value as RmpvValue;
+use std::collections::{HashMap, HashSet};
 use wasmtime::component::Type;
 use wasmtime::component::Val;
 
@@ -132,23 +133,23 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
                 .as_map()
                 .ok_or_else(|| anyhow::anyhow!("expected map for record"))?;
 
+            let mut map_by_name: HashMap<&str, &RmpvValue> = HashMap::with_capacity(map.len());
+            for (key, value) in map {
+                if let Some(name) = key.as_str() {
+                    map_by_name.entry(name).or_insert(value);
+                }
+            }
+
             let mut fields = Vec::new();
 
             for field in record_ty.fields() {
-                let key = RmpvValue::String(field.name.into());
-
-                let val_item = map
-                    .iter()
-                    .find(|(k, _)| *k == key)
-                    .map(|(_, v)| Some(v))
-                    .unwrap_or_else(|| {
-                        if matches!(field.ty, Type::Option(_)) {
-                            Some(&RmpvValue::Nil)
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or_else(|| anyhow::anyhow!("missing field `{}` in record", field.name))?;
+                let val_item = if let Some(value) = map_by_name.get(field.name) {
+                    *value
+                } else if matches!(field.ty, Type::Option(_)) {
+                    &RmpvValue::Nil
+                } else {
+                    return Err(anyhow::anyhow!("missing field `{}` in record", field.name));
+                };
 
                 let field_val = to_component_val(&field.ty, val_item)?;
                 fields.push((field.name.into(), field_val));
@@ -222,13 +223,14 @@ pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
                 .as_array()
                 .ok_or_else(|| anyhow::anyhow!("expected array for flags"))?;
 
-            let mut active_flags = vec![];
+            let valid_flags: HashSet<&str> = flags_ty.names().collect();
+            let mut active_flags = Vec::with_capacity(arr.len());
 
             for v in arr {
                 let name = v
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("expected string in flags array"))?;
-                if !flags_ty.names().any(|f| f == name) {
+                if !valid_flags.contains(name) {
                     return Err(anyhow::anyhow!("invalid flag name: {}", name));
                 }
                 active_flags.push(name.to_string());
