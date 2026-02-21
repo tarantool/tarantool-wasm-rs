@@ -152,6 +152,12 @@ fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
         if let Ok(max_instructions) = t.get::<u64>("max_instructions") {
             cfg.max_instructions = Some(max_instructions);
         }
+        if let Ok(pool_size) = t.get::<u64>("pool_size") {
+            cfg.pool_size = pool_size as usize;
+        }
+        if let Ok(warm_instances) = t.get::<u64>("warm_instances") {
+            cfg.warm_instances = warm_instances as usize;
+        }
     }
     Ok(cfg)
 }

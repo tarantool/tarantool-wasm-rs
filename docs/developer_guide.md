@@ -27,7 +27,7 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
   thread to terminate.
 - `join(handle)` – wait for completion of a module started with `run`.
 - `call(uid, func, ...) -> any` – call an exported function synchronously. Arguments and results are encoded with MessagePack.
-- `batch(uid, calls) -> table` – execute multiple exports sequentially inside one worker thread.
+- `batch(uid, calls) -> table` – execute multiple exports sequentially in a `coio_call` worker context.
 - `exports(uid) -> table` – return a map of exported function names to their parameter and result types.
 - `drop(uid) -> bool` – unload a module and free associated resources.
 
@@ -48,6 +48,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `allow_tcp` / `allow_udp` (default: `true`) – enable TCP/UDP sockets.
 - `memory_limit` (default: none) – maximum size of WebAssembly linear memory in bytes.
 - `max_instructions` (default: none) – maximum fuel (approximate instruction count) the module may consume.
+- `pool_size` (default: `0`) – number of reusable instantiated components kept per loaded module for `wasm.call` and `wasm.batch`.
+- `warm_instances` (default: `0`) – number of instances prewarmed during `wasm.load` (clamped to `pool_size`).
 - `allowed_ips` (default: none) – array of IP addresses permitted for network access.
 - `allowed_ports` (default: none) – array of TCP/UDP ports permitted for network access.
 - `preopened_dirs` (default: none) – array of `{ host_path, guest_path, perms }` tables exposing directories to the module.

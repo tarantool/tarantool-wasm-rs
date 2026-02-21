@@ -128,3 +128,53 @@ g.test_default_values = function(cg)
     local res = wasm.call(m, "t-inherit-env")
     t.assert_equals(res, "HOME IS NONE")
 end
+
+g.test_instance_pool_with_prewarm = function(cg)
+    local m = wasm.load(wasm_path, {
+        env = {
+            TEST_VAR = "POOL-OK",
+        },
+        pool_size = 2,
+        warm_instances = 2,
+    })
+
+    t.assert_equals(wasm.call(m, "t-env"), "POOL-OK")
+    t.assert_equals(wasm.call(m, "t-env"), "POOL-OK")
+    t.assert_equals(wasm.call(m, "t-env"), "POOL-OK")
+end
+
+g.test_instance_pool_fallback_to_on_demand = function(cg)
+    local m = wasm.load(wasm_path, {
+        env = {
+            TEST_VAR = "FALLBACK-OK",
+        },
+        pool_size = 1,
+        warm_instances = 0,
+    })
+
+    t.assert_equals(wasm.call(m, "t-env"), "FALLBACK-OK")
+    t.assert_equals(wasm.call(m, "t-env"), "FALLBACK-OK")
+end
+
+g.test_instance_pool_batch = function(cg)
+    local m = wasm.load(wasm_path, {
+        env = {
+            TEST_VAR = "BATCH-POOL-OK",
+        },
+        pool_size = 1,
+        warm_instances = 1,
+    })
+
+    local res = wasm.batch(m, {
+        { "t-env" },
+        { "t-env" },
+    })
+
+    t.assert_equals(res[1], "BATCH-POOL-OK")
+    t.assert_equals(res[2], "BATCH-POOL-OK")
+
+    local res2 = wasm.batch(m, {
+        { "t-env" },
+    })
+    t.assert_equals(res2[1], "BATCH-POOL-OK")
+end

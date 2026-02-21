@@ -19,10 +19,16 @@ terminated before continuing.
 
 To invoke an exported function, use `wasm.call(module_uid, func, ...)`:
 
-1. The `tt_wasm_call_function` also spawns a separate thread for the WASM execution.
-2. Within that thread, the component is instantiated, the export is located by name, and `call_async` is executed.
-3. Arguments and results are converted to/from MsgPack.
-4. The result is returned to the Lua caller via `coio_call`.
+1. `tt_wasm_call_function` executes the request inside Tarantool's `coio_call` worker context.
+2. If instance pooling is enabled (`pool_size > 0`), `wasm.call` reuses a pre-instantiated instance from the module pool.
+3. If the pool is empty, the runtime falls back to on-demand instantiation for that call.
+4. The export is located by name and `call_async` is executed.
+5. The instance is returned back to the pool (when pooling is enabled).
+6. Arguments and results are converted to/from MsgPack.
+7. The result is returned to the Lua caller via `coio_call`.
+
+`wasm.load(path, { pool_size = N, warm_instances = M })` can prewarm up to `M` instances
+(`M` is clamped to `N`) so that first calls avoid cold instantiation latency.
 
 ### Executing Multiple Functions Sequentially
 
@@ -35,7 +41,9 @@ local results = wasm.batch(m, {
 })
 ```
 
-All functions are executed within a single OS thread. The result is returned as a Lua array of values. Each export is executed in its own `Store` and component instance, but without spawning new OS threads.
+All functions are executed in `coio_call` worker context. The result is returned as a Lua array of values. Without pooling, each export is executed in its own `Store` and component instance.
+
+When instance pooling is enabled (`pool_size > 0`), each call in `wasm.batch` first tries to borrow a ready instance from the module pool and returns it back after success. If the pool is empty, the runtime falls back to on-demand instantiation for that call.
 
 ## Diagrams
 
@@ -75,9 +83,8 @@ flowchart TD
 
     LC -- call --> FC[tt_wasm_call_function]
 
-    subgraph Worker thread
-        FC -- spawn --> ST[spawn_tt_thread]
-        ST -- start --> TR[Tokio runtime]
+    subgraph Coio worker
+        FC -- dispatch --> TR[Tokio runtime (pooled instance)]
         TR -- instantiate --> CI[instantiate_async]
         CI -- lookup --> Find[find export]
         Find -- call --> CCall[export.call_async]
@@ -100,10 +107,8 @@ flowchart TD
 
     LB -- batch --> FB[tt_wasm_call_functions]
 
-    subgraph Worker thread
-        FB -- spawn --> ST[spawn_tt_thread]
-        ST -- start --> TR[Tokio runtime]
-        TR -- loop --> Loop{{for each call}}
+    subgraph Coio worker
+        FB -- dispatch --> Loop{{for each call}}
         Loop -- store --> BS[new Store]
         BS -- instantiate --> BI[instantiate_async]
         BI -- lookup --> BFind[find export]

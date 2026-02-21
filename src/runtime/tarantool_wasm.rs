@@ -4,6 +4,7 @@
 //! helpers required to load, run and interact with WASM components.
 
 use std::{
+    any::Any,
     collections::{HashMap, HashSet},
     fs::OpenOptions,
     net::IpAddr,
@@ -24,7 +25,8 @@ use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
     component::{
         types::{ComponentInstance, ComponentItem},
-        Component, HasData, Linker, ResourceTable, Val,
+        Component, ComponentExportIndex, HasData, Instance as RuntimeComponentInstance, Linker,
+        ResourceTable, Val,
     },
     AsContext, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
 };
@@ -117,6 +119,10 @@ pub struct WasmConfig {
     pub memory_limit: Option<usize>,
     /// Limit on the number of Wasmtime instructions (fuel) a module may consume.
     pub max_instructions: Option<u64>,
+    /// Maximum number of warm component instances retained in the pool.
+    pub pool_size: usize,
+    /// Number of instances to instantiate during `wasm.load`.
+    pub warm_instances: usize,
 }
 
 impl Default for WasmConfig {
@@ -141,6 +147,8 @@ impl Default for WasmConfig {
             preopened_dirs: Vec::new(),
             memory_limit: None,
             max_instructions: None,
+            pool_size: 0,
+            warm_instances: 0,
         }
     }
 }
@@ -323,6 +331,107 @@ struct LoadedModule {
     component: Component,
     config: WasmConfig,
     fuel: bool,
+    pool: Option<Arc<ModuleInstancePool>>,
+    export_cache: Arc<ModuleExportCache>,
+}
+
+struct PooledModuleInstance {
+    store: Store<SyncWasmStates>,
+    instance: RuntimeComponentInstance,
+    runtime: tokio::runtime::Runtime,
+}
+
+struct ModuleInstancePool {
+    capacity: usize,
+    instances: Mutex<Vec<PooledModuleInstance>>,
+}
+
+impl ModuleInstancePool {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            instances: Mutex::new(Vec::with_capacity(capacity)),
+        }
+    }
+
+    fn try_take(&self) -> Option<PooledModuleInstance> {
+        self.instances.lock().unwrap().pop()
+    }
+
+    fn put(&self, instance: PooledModuleInstance) {
+        let mut guard = self.instances.lock().unwrap();
+        if guard.len() < self.capacity {
+            guard.push(instance);
+        }
+    }
+}
+
+#[derive(Default)]
+struct ModuleExportCache {
+    indices: RwLock<ModuleExportIndices>,
+}
+
+#[derive(Default)]
+struct ModuleExportIndices {
+    top_level: HashMap<String, ComponentExportIndex>,
+    by_interface: HashMap<String, HashMap<String, ComponentExportIndex>>,
+}
+
+impl ModuleExportCache {
+    fn resolve(
+        &self,
+        component: &Component,
+        interface: Option<&str>,
+        func: &str,
+    ) -> Result<ComponentExportIndex> {
+        {
+            let guard = self.indices.read().unwrap();
+            if let Some(interface_name) = interface {
+                if let Some(index) = guard
+                    .by_interface
+                    .get(interface_name)
+                    .and_then(|funcs| funcs.get(func))
+                {
+                    return Ok(*index);
+                }
+            } else if let Some(index) = guard.top_level.get(func) {
+                return Ok(*index);
+            }
+        }
+
+        let index = if let Some(interface_name) = interface {
+            let interface_index = component
+                .get_export_index(None, interface_name)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(format!("interface export `{}` not found", interface_name))
+                })?;
+
+            component
+                .get_export_index(Some(&interface_index), func)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(format!(
+                        "function `{}` not found in interface `{}`",
+                        func, interface_name
+                    ))
+                })?
+        } else {
+            component.get_export_index(None, func).ok_or_else(|| {
+                anyhow::anyhow!(format!("function `{}` not found at top level", func))
+            })?
+        };
+
+        let mut guard = self.indices.write().unwrap();
+        if let Some(interface_name) = interface {
+            guard
+                .by_interface
+                .entry(interface_name.to_string())
+                .or_default()
+                .insert(func.to_string(), index);
+        } else {
+            guard.top_level.insert(func.to_string(), index);
+        }
+        Ok(index)
+    }
 }
 
 struct RuntimeState {
@@ -423,6 +532,330 @@ impl RuntimeState {
     }
 }
 
+fn panic_payload_to_string(payload: Box<dyn Any + Send + 'static>) -> String {
+    if let Some(msg) = payload.downcast_ref::<&str>() {
+        return (*msg).to_string();
+    }
+    if let Some(msg) = payload.downcast_ref::<String>() {
+        return msg.clone();
+    }
+    "unknown panic payload".to_string()
+}
+
+struct SignalMaskGuard {
+    oldset: SigSet,
+}
+
+impl SignalMaskGuard {
+    fn new(oldset: SigSet) -> Self {
+        Self { oldset }
+    }
+}
+
+impl Drop for SignalMaskGuard {
+    fn drop(&mut self) {
+        let _ = self.oldset.thread_set_mask();
+    }
+}
+
+fn with_wasm_signal_mask<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
+    let mut newset = SigSet::all();
+    newset.remove(Signal::SIGILL);
+    newset.remove(Signal::SIGBUS);
+    newset.remove(Signal::SIGFPE);
+    newset.remove(Signal::SIGSEGV);
+
+    let oldset = SigSet::thread_get_mask()?;
+    let _guard = SignalMaskGuard::new(oldset);
+    newset.thread_set_mask()?;
+    f()
+}
+
+fn prepare_store_for_instance(
+    cfg: &WasmConfig,
+    fuel: bool,
+) -> (Store<SyncWasmStates>, Arc<Linker<SyncWasmStates>>) {
+    let engine = if fuel {
+        &runtime_state.fuel_engine
+    } else {
+        &runtime_state.engine
+    };
+    let linker = if fuel {
+        runtime_state.fuel_linker.clone()
+    } else {
+        runtime_state.linker.clone()
+    };
+    let wasi_view = SyncWasmStates::new(cfg.clone());
+    let mut store = Store::new(engine, wasi_view);
+    store.limiter(|state| &mut state.limits);
+    if fuel {
+        let limit = cfg.max_instructions.unwrap_or(u64::MAX);
+        let _ = store.set_fuel(limit);
+    }
+
+    store.set_epoch_deadline(1);
+    store.epoch_deadline_trap();
+
+    (store, linker)
+}
+
+fn instantiate_with_runtime(
+    component: &Component,
+    cfg: &WasmConfig,
+    fuel: bool,
+    runtime: &tokio::runtime::Runtime,
+) -> Result<(Store<SyncWasmStates>, RuntimeComponentInstance)> {
+    let (mut store, linker) = prepare_store_for_instance(cfg, fuel);
+    let instance =
+        runtime.block_on(async { linker.instantiate_async(&mut store, component).await })?;
+    Ok((store, instance))
+}
+
+fn instantiate_with_store(
+    component: &Component,
+    cfg: &WasmConfig,
+    fuel: bool,
+) -> Result<PooledModuleInstance> {
+    let rt = Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .unwrap();
+    let (store, instance) = instantiate_with_runtime(component, cfg, fuel, &rt)?;
+
+    Ok(PooledModuleInstance {
+        store,
+        instance,
+        runtime: rt,
+    })
+}
+
+struct ExportCall {
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+}
+
+async fn call_component_export(
+    component: &Component,
+    export_cache: &ModuleExportCache,
+    store: &mut Store<SyncWasmStates>,
+    instance: RuntimeComponentInstance,
+    fuel_limit: Option<u64>,
+    call: ExportCall,
+) -> Result<RmpvValue> {
+    if let Some(limit) = fuel_limit {
+        store.set_fuel(limit)?;
+    }
+
+    let func_index = export_cache.resolve(component, call.interface.as_deref(), &call.func)?;
+
+    let export = instance
+        .get_func(&mut *store, func_index)
+        .ok_or_else(|| anyhow::anyhow!(format!("function export `{}` not found", call.func)))?;
+
+    let export_ty = export.ty(store.as_context());
+    let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
+
+    if call.args.len() != param_types.len() {
+        return Err(anyhow::anyhow!(
+            "argument count mismatch: expected {}, got {}",
+            param_types.len(),
+            call.args.len()
+        ));
+    }
+
+    let mut wasm_args = Vec::new();
+    for (ty, val) in param_types.iter().zip(call.args.iter()) {
+        let v = to_component_val(ty, val)?;
+        wasm_args.push(v);
+    }
+
+    let result_types = export_ty.results().collect::<Vec<_>>();
+    let mut results_buf = vec![Val::Bool(false); result_types.len()];
+
+    export
+        .call_async(&mut *store, &wasm_args, &mut results_buf)
+        .await?;
+
+    // Convert results before post-return; after post-return the canonical ABI
+    // return area is no longer guaranteed to remain valid.
+    let converted = match results_buf.as_slice() {
+        [] => RmpvValue::Nil,
+        [val] => val_to_rmpv(val)?,
+        many => {
+            let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
+            RmpvValue::Array(converted)
+        }
+    };
+
+    // Required by the component model after each successful call. Without this
+    // the instance cannot be entered again.
+    export.post_return_async(&mut *store).await?;
+
+    Ok(converted)
+}
+
+fn with_module_instance<T>(
+    component: &Component,
+    cfg: &WasmConfig,
+    fuel: bool,
+    pool: Option<&Arc<ModuleInstancePool>>,
+    f: impl FnOnce(&mut PooledModuleInstance) -> Result<T>,
+) -> Result<T> {
+    let mut pooled = pool.and_then(|module_pool| module_pool.try_take());
+    if pooled.is_none() {
+        pooled = Some(instantiate_with_store(component, cfg, fuel)?);
+    }
+
+    let mut pooled_instance =
+        pooled.ok_or_else(|| anyhow::anyhow!("failed to prepare component instance"))?;
+    let result = f(&mut pooled_instance);
+
+    match result {
+        Ok(value) => {
+            if let Some(module_pool) = pool {
+                module_pool.put(pooled_instance);
+            }
+            Ok(value)
+        }
+        Err(err) => {
+            // Drop the instance on errors to avoid returning a potentially
+            // poisoned component instance into the pool.
+            drop(pooled_instance);
+            Err(err)
+        }
+    }
+}
+
+fn execute_component_export(
+    component: &Component,
+    export_cache: &ModuleExportCache,
+    cfg: &WasmConfig,
+    fuel: bool,
+    pooled_instance: &mut PooledModuleInstance,
+    call: ExportCall,
+) -> Result<RmpvValue> {
+    let fuel_limit = if fuel { cfg.max_instructions } else { None };
+    let instance = pooled_instance.instance;
+
+    pooled_instance.runtime.block_on(call_component_export(
+        component,
+        export_cache,
+        &mut pooled_instance.store,
+        instance,
+        fuel_limit,
+        call,
+    ))
+}
+
+struct CallFunctionJob {
+    component: Component,
+    cfg: WasmConfig,
+    fuel: bool,
+    pool: Option<Arc<ModuleInstancePool>>,
+    export_cache: Arc<ModuleExportCache>,
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+}
+
+fn execute_call_function_job(job: CallFunctionJob) -> Result<RmpvValue> {
+    with_module_instance(
+        &job.component,
+        &job.cfg,
+        job.fuel,
+        job.pool.as_ref(),
+        |pooled_instance| {
+            execute_component_export(
+                &job.component,
+                &job.export_cache,
+                &job.cfg,
+                job.fuel,
+                pooled_instance,
+                ExportCall {
+                    interface: job.interface,
+                    func: job.func,
+                    args: job.args,
+                },
+            )
+        },
+    )
+}
+
+struct CallBatchJob {
+    component: Component,
+    cfg: WasmConfig,
+    fuel: bool,
+    pool: Option<Arc<ModuleInstancePool>>,
+    export_cache: Arc<ModuleExportCache>,
+    calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
+}
+
+fn execute_call_batch_job(job: CallBatchJob) -> Result<Vec<RmpvValue>> {
+    let CallBatchJob {
+        component,
+        cfg,
+        fuel,
+        pool,
+        export_cache,
+        calls,
+    } = job;
+
+    // Keep one Tokio runtime for the whole batch when pooling is disabled.
+    // Creating runtime per call regresses `wasm.batch` throughput.
+    if pool.is_none() {
+        let rt = Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
+            .unwrap();
+        let fuel_limit = if fuel { cfg.max_instructions } else { None };
+        let mut results_all = Vec::with_capacity(calls.len());
+
+        for (interface, func, args) in calls {
+            let (mut store, instance) = instantiate_with_runtime(&component, &cfg, fuel, &rt)?;
+
+            let result = rt.block_on(call_component_export(
+                &component,
+                &export_cache,
+                &mut store,
+                instance,
+                fuel_limit,
+                ExportCall {
+                    interface,
+                    func,
+                    args,
+                },
+            ))?;
+            results_all.push(result);
+        }
+        return Ok(results_all);
+    }
+
+    let mut results_all = Vec::with_capacity(calls.len());
+    for (interface, func, args) in calls {
+        let result =
+            with_module_instance(&component, &cfg, fuel, pool.as_ref(), |pooled_instance| {
+                execute_component_export(
+                    &component,
+                    &export_cache,
+                    &cfg,
+                    fuel,
+                    pooled_instance,
+                    ExportCall {
+                        interface,
+                        func,
+                        args,
+                    },
+                )
+            })?;
+        results_all.push(result);
+    }
+
+    Ok(results_all)
+}
+
 /// Load a WebAssembly component from disk and register it in the runtime,
 /// returning a unique module identifier.
 pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
@@ -434,10 +867,26 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
     };
     match Component::from_file(engine, path.clone()) {
         Ok(module) => {
+            let pool = if config.pool_size > 0 {
+                let pool = Arc::new(ModuleInstancePool::new(config.pool_size));
+                let warm_instances = config.warm_instances.min(config.pool_size);
+
+                for _ in 0..warm_instances {
+                    let instance = instantiate_with_store(&module, &config, use_fuel)?;
+                    pool.put(instance);
+                }
+                Some(pool)
+            } else {
+                None
+            };
+            let export_cache = Arc::new(ModuleExportCache::default());
+
             let loaded = LoadedModule {
                 component: module,
                 config,
                 fuel: use_fuel,
+                pool,
+                export_cache,
             };
             let uid = format!(
                 "{}#{}",
@@ -560,110 +1009,35 @@ pub fn tt_wasm_call_function(
     let component = loaded.component;
     let cfg = loaded.config;
     let fuel = loaded.fuel;
-
-    let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let engine = if fuel {
-            &runtime_state.fuel_engine
-        } else {
-            &runtime_state.engine
-        };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
-        };
-        let wasi_view = SyncWasmStates::new(cfg.clone());
-        let mut store = Store::new(engine, wasi_view);
-        store.limiter(|state| &mut state.limits);
-        if fuel {
-            let limit = cfg.max_instructions.unwrap_or(u64::MAX);
-            let _ = store.set_fuel(limit);
-        }
-
-        store.set_epoch_deadline(1);
-        store.epoch_deadline_trap();
-
-        let rt = Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
-            .build()
-            .unwrap();
-
-        rt.block_on(async move {
-            let instance = linker.instantiate_async(&mut store, &component).await?;
-
-            let func_index = if let Some(interface_name) = interface {
-                let interface_index = component
-                    .get_export_index(None, &interface_name)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(format!("interface export `{}` not found", interface_name))
-                    })?;
-
-                component
-                    .get_export_index(Some(&interface_index), &func)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(format!(
-                            "function `{}` not found in interface `{}`",
-                            func, interface_name
-                        ))
-                    })?
-            } else {
-                component.get_export_index(None, &func).ok_or_else(|| {
-                    anyhow::anyhow!(format!("function `{}` not found at top level", func))
-                })?
-            };
-
-            let export = instance
-                .get_func(&mut store, func_index)
-                .ok_or_else(|| anyhow::anyhow!(format!("function export `{func}` not found")))?;
-
-            let export_ty = export.ty(store.as_context());
-            let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
-
-            if args.len() != param_types.len() {
-                return Err(anyhow::anyhow!(
-                    "argument count mismatch: expected {}, got {}",
-                    param_types.len(),
-                    args.len()
-                ));
-            }
-
-            let mut wasm_args = Vec::new();
-            for (ty, val) in param_types.iter().zip(args.iter()) {
-                let v = to_component_val(ty, val)?;
-                wasm_args.push(v);
-            }
-
-            let result_types = export_ty.results().collect::<Vec<_>>();
-            let mut results_buf = vec![Val::Bool(false); result_types.len()];
-
-            export
-                .call_async(&mut store, &wasm_args, &mut results_buf)
-                .await?;
-
-            let res_val = match results_buf.as_slice() {
-                [] => RmpvValue::Nil,
-                [val] => val_to_rmpv(val)?,
-                many => {
-                    let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-                    RmpvValue::Array(converted)
-                }
-            };
-
-            Ok(res_val)
-        })
-    })?;
+    let pool = loaded.pool;
+    let export_cache = loaded.export_cache;
 
     let mut result: Result<RmpvValue> = Ok(RmpvValue::Nil);
+    let job = CallFunctionJob {
+        component,
+        cfg,
+        fuel,
+        pool,
+        export_cache,
+        interface,
+        func,
+        args,
+    };
 
     coio_call(
-        &mut |h: Box<JoinHandle<Result<RmpvValue>>>| {
-            result = h
-                .join()
-                .unwrap_or_else(|_| Err(anyhow::anyhow!("thread panicked")));
+        &mut |job: Box<CallFunctionJob>| {
+            result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_wasm_signal_mask(|| execute_call_function_job(*job))
+            }))
+            .unwrap_or_else(|payload| {
+                Err(anyhow!(
+                    "worker thread panicked: {}",
+                    panic_payload_to_string(payload)
+                ))
+            });
             0
         },
-        handle,
+        job,
     );
 
     result
@@ -685,121 +1059,33 @@ pub fn tt_wasm_call_functions(
     let component = loaded.component;
     let cfg = loaded.config;
     let fuel = loaded.fuel;
-
-    let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let engine = if fuel {
-            &runtime_state.fuel_engine
-        } else {
-            &runtime_state.engine
-        };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
-        };
-
-        let rt = Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
-            .build()
-            .unwrap();
-
-        rt.block_on(async move {
-            let mut results_all = Vec::new();
-
-            for (interface, func, args) in calls.into_iter() {
-                let wasi_view = SyncWasmStates::new(cfg.clone());
-                let mut store = Store::new(engine, wasi_view);
-                store.limiter(|state| &mut state.limits);
-                if fuel {
-                    let limit = cfg.max_instructions.unwrap_or(u64::MAX);
-                    let _ = store.set_fuel(limit);
-                }
-
-                store.set_epoch_deadline(1);
-                store.epoch_deadline_trap();
-
-                let instance = linker.instantiate_async(&mut store, &component).await?;
-
-                let func_index = if let Some(interface_name) = interface {
-                    let interface_index = component
-                        .get_export_index(None, &interface_name)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(format!(
-                                "interface export `{}` not found",
-                                interface_name
-                            ))
-                        })?;
-
-                    component
-                        .get_export_index(Some(&interface_index), &func)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(format!(
-                                "function `{}` not found in interface `{}`",
-                                func, interface_name
-                            ))
-                        })?
-                } else {
-                    component.get_export_index(None, &func).ok_or_else(|| {
-                        anyhow::anyhow!(format!("function `{}` not found at top level", func))
-                    })?
-                };
-
-                let export = instance.get_func(&mut store, func_index).ok_or_else(|| {
-                    anyhow::anyhow!(format!("function export `{func}` not found"))
-                })?;
-
-                let export_ty = export.ty(store.as_context());
-                let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
-
-                if args.len() != param_types.len() {
-                    return Err(anyhow::anyhow!(
-                        "argument count mismatch for `{}`: expected {}, got {}",
-                        func,
-                        param_types.len(),
-                        args.len()
-                    ));
-                }
-
-                let mut wasm_args = Vec::new();
-                for (ty, val) in param_types.iter().zip(args.iter()) {
-                    let v = to_component_val(ty, val)?;
-                    wasm_args.push(v);
-                }
-
-                let result_types = export_ty.results().collect::<Vec<_>>();
-                let mut results_buf = vec![Val::Bool(false); result_types.len()];
-
-                export
-                    .call_async(&mut store, &wasm_args, &mut results_buf)
-                    .await?;
-
-                let res_val = match results_buf.as_slice() {
-                    [] => RmpvValue::Nil,
-                    [val] => val_to_rmpv(val)?,
-                    many => {
-                        let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-                        RmpvValue::Array(converted)
-                    }
-                };
-
-                results_all.push(res_val);
-            }
-
-            Ok(results_all)
-        })
-    })?;
+    let pool = loaded.pool;
+    let export_cache = loaded.export_cache;
 
     let mut result: Result<Vec<RmpvValue>> = Ok(Vec::new());
+    let job = CallBatchJob {
+        component,
+        cfg,
+        fuel,
+        pool,
+        export_cache,
+        calls,
+    };
 
     coio_call(
-        &mut |h: Box<JoinHandle<Result<Vec<RmpvValue>>>>| {
-            result = h
-                .join()
-                .unwrap_or_else(|_| Err(anyhow::anyhow!("thread panicked")));
+        &mut |job: Box<CallBatchJob>| {
+            result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_wasm_signal_mask(|| execute_call_batch_job(*job))
+            }))
+            .unwrap_or_else(|payload| {
+                Err(anyhow!(
+                    "worker thread panicked: {}",
+                    panic_payload_to_string(payload)
+                ))
+            });
             0
         },
-        handle,
+        job,
     );
     result
 }

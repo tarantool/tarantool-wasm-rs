@@ -26,6 +26,10 @@ g.before_all(function(cg)
     cg.m = wasm.load(path)
 end)
 
+g.after_each(function(cg)
+    wasm.call(cg.m, "t-clear")
+end)
+
 -- error_new
 g.test_error_new_without_context = function(cg)
     local err = wasm.call(cg.m, "t-new", "timeout", "Connection timeout")
