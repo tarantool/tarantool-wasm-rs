@@ -121,7 +121,7 @@ impl box_tuple::Host for SyncWasmStates {
         path: String,
         index_base: i32,
     ) -> Result<TupleField, BoxError> {
-        let c_path = std::ffi::CString::new(path.clone())
+        let c_path = std::ffi::CString::new(path.as_str())
             .map_err(|_| BoxError::new(TarantoolErrorCode::IllegalParams as u32, "Invalid path"))?;
 
         let ptr = unsafe {
