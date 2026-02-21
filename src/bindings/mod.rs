@@ -9,10 +9,11 @@ use wasmtime::component::bindgen;
 
 bindgen!({
     world: "adder",
-    async: true,
+    imports: { default: async },
+    exports: { default: async },
     with: {
-        "tarantool:tarantool/index/index-iterator": IndexIteratorImpl,
-        "tarantool:tarantool/box-tuple/tuple-iterator": TupleIteratorImpl,
+        "tarantool:tarantool/index.index-iterator": IndexIteratorImpl,
+        "tarantool:tarantool/box-tuple.tuple-iterator": TupleIteratorImpl,
     }
 });
 
