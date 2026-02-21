@@ -13,13 +13,11 @@ use std::str::FromStr;
 use tarantool::error::TarantoolErrorCode;
 
 fn encode_key_part_flags(flags: &KeyPartFlags) -> u32 {
-    let raw: u8 = unsafe { std::mem::transmute_copy(flags) };
-
     let mut result = 0;
-    if raw & (1 << 0) != 0 {
+    if flags.contains(KeyPartFlags::IS_NULLABLE) {
         result |= 1 << 0; // is-nullable
     }
-    if raw & (1 << 1) != 0 {
+    if flags.contains(KeyPartFlags::EXCLUDE_NULL) {
         result |= 1 << 1; // exclude-null
     }
 
@@ -27,15 +25,14 @@ fn encode_key_part_flags(flags: &KeyPartFlags) -> u32 {
 }
 
 fn decode_key_part_flags(bits: u32) -> KeyPartFlags {
-    let mut raw: u8 = 0;
+    let mut flags = KeyPartFlags::empty();
     if bits & (1 << 0) != 0 {
-        raw |= 1 << 0; // is-nullable
+        flags |= KeyPartFlags::IS_NULLABLE;
     }
     if bits & (1 << 1) != 0 {
-        raw |= 1 << 1; // exclude-null
+        flags |= KeyPartFlags::EXCLUDE_NULL;
     }
-
-    unsafe { std::mem::transmute(raw) }
+    flags
 }
 
 impl key_def::Host for SyncWasmStates {

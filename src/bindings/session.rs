@@ -4,7 +4,6 @@ use crate::bindings::tarantool::tarantool::types::{BoxError, Session};
 use crate::bindings::types::validate_msgpack_map;
 use crate::ffi;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
-use sha2::{Digest, Sha256};
 
 use tarantool::error::TarantoolErrorCode;
 
@@ -66,16 +65,22 @@ impl session::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
-                let mut hasher = Sha256::new();
-                hasher.update(value.as_bytes());
-                let hash = hasher.finalize();
-                let hash_str = format!("{hash:x}");
-                let var_name = format!("__wasm_{hash_str}");
                 let lua = tarantool::lua_state();
-                lua.exec_with(&format!("{var_name} = {value};"), ())
-                    .unwrap();
-                let broadcast_result =
-                    lua.exec_with(&format!("box.broadcast(..., {var_name})"), key);
+                let broadcast_result = lua.exec_with(
+                    r#"
+                        local key, expr = ...
+                        local chunk, err = load("return " .. expr)
+                        if chunk == nil then
+                            error(err)
+                        end
+                        local ok, payload = pcall(chunk)
+                        if not ok then
+                            error(payload)
+                        end
+                        box.broadcast(key, payload)
+                    "#,
+                    (key, value),
+                );
 
                 if let Err(err) = broadcast_result {
                     return Err(BoxError::new(
