@@ -27,10 +27,9 @@ use wasmtime::{
     },
     AsContext, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
 };
-use wasmtime_wasi::p2::{
-    pipe::MemoryInputPipe, IoView, OutputFile, WasiCtx, WasiCtxBuilder, WasiView,
-};
-use wasmtime_wasi::{DirPerms, FilePerms};
+use wasmtime_wasi::cli::OutputFile;
+use wasmtime_wasi::p2::pipe::MemoryInputPipe;
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 use wasmtime_wasi_tls::{LinkOptions, WasiTls, WasiTlsCtx, WasiTlsCtxBuilder};
 
@@ -293,20 +292,22 @@ impl SyncWasmStates {
 }
 
 impl WasiView for SyncWasmStates {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.state.get_mut().unwrap().ctx
-    }
-}
-
-impl IoView for SyncWasmStates {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.state.get_mut().unwrap().table
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        let state = self.state.get_mut().unwrap();
+        WasiCtxView {
+            ctx: &mut state.ctx,
+            table: &mut state.table,
+        }
     }
 }
 
 impl WasiHttpView for SyncWasmStates {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.state.get_mut().unwrap().http
+    }
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.state.get_mut().unwrap().table
     }
 }
 
@@ -613,8 +614,8 @@ pub fn tt_wasm_call_function(
                 .get_func(&mut store, func_index)
                 .ok_or_else(|| anyhow::anyhow!(format!("function export `{func}` not found")))?;
 
-            let params = export.params(store.as_context());
-            let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
+            let export_ty = export.ty(store.as_context());
+            let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
 
             if args.len() != param_types.len() {
                 return Err(anyhow::anyhow!(
@@ -630,7 +631,7 @@ pub fn tt_wasm_call_function(
                 wasm_args.push(v);
             }
 
-            let result_types = export.results(store.as_context());
+            let result_types = export_ty.results().collect::<Vec<_>>();
             let mut results_buf = vec![Val::Bool(false); result_types.len()];
 
             export
@@ -745,8 +746,8 @@ pub fn tt_wasm_call_functions(
                     anyhow::anyhow!(format!("function export `{func}` not found"))
                 })?;
 
-                let params = export.params(store.as_context());
-                let param_types = params.iter().map(|(_, t)| t).collect::<Vec<_>>();
+                let export_ty = export.ty(store.as_context());
+                let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
 
                 if args.len() != param_types.len() {
                     return Err(anyhow::anyhow!(
@@ -763,7 +764,7 @@ pub fn tt_wasm_call_functions(
                     wasm_args.push(v);
                 }
 
-                let result_types = export.results(store.as_context());
+                let result_types = export_ty.results().collect::<Vec<_>>();
                 let mut results_buf = vec![Val::Bool(false); result_types.len()];
 
                 export
