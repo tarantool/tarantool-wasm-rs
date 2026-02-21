@@ -49,13 +49,11 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
-        let tup_copy = tup.clone();
-
         self.executor()
             .execute(move || {
                 let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
-                let tuple = unsafe { TarantoolTuple::from_slice(&tup_copy) };
+                let tuple = unsafe { TarantoolTuple::from_slice(&tup) };
                 match spc.insert(&tuple) {
                     Ok(t) => Ok(BoxTuple {
                         ptr: t.as_ptr() as u64,
@@ -79,9 +77,6 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
-        let key_copy = key.clone();
-        let ops_copy = ops.clone();
-
         self.executor()
             .execute(move || {
                 let ind = unsafe {
@@ -91,7 +86,7 @@ impl ttbox::Host for SyncWasmStates {
                     )
                 };
 
-                match unsafe { ind.update_raw(&key_copy, &ops_copy) } {
+                match unsafe { ind.update_raw(&key, &ops) } {
                     Ok(Some(t)) => Ok(BoxTuple {
                         ptr: t.as_ptr() as u64,
                     }),
@@ -110,13 +105,11 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
-        let tup_copy = tup.clone();
-
         self.executor()
             .execute(move || {
                 let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
-                let tuple = unsafe { TarantoolTuple::from_slice(&tup_copy) };
+                let tuple = unsafe { TarantoolTuple::from_slice(&tup) };
                 match spc.replace(&tuple) {
                     Ok(t) => Ok(BoxTuple {
                         ptr: t.as_ptr() as u64,
@@ -135,9 +128,6 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
-        let key_copy = key.clone();
-        let ops_copy = ops.clone();
-
         self.executor()
             .execute(move || {
                 let ind = unsafe {
@@ -147,7 +137,7 @@ impl ttbox::Host for SyncWasmStates {
                     )
                 };
 
-                match unsafe { ind.upsert_raw(&key_copy, &ops_copy) } {
+                match unsafe { ind.upsert_raw(&key, &ops) } {
                     Ok(()) => Ok(()),
                     Err(e) => Err(map_tarantool_error(e)),
                 }
@@ -160,8 +150,6 @@ impl ttbox::Host for SyncWasmStates {
             return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
-        let key_copy = key.clone();
-
         self.executor()
             .execute(move || {
                 let ind = unsafe {
@@ -171,7 +159,7 @@ impl ttbox::Host for SyncWasmStates {
                     )
                 };
 
-                let tuple = unsafe { TarantoolTuple::from_slice(&key_copy) };
+                let tuple = unsafe { TarantoolTuple::from_slice(&key) };
                 match ind.delete(&tuple) {
                     Ok(Some(t)) => Ok(BoxTuple {
                         ptr: t.as_ptr() as u64,

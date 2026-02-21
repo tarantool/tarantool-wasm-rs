@@ -26,15 +26,12 @@ impl session::Host for SyncWasmStates {
             return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
         }
 
-        let header_copy = header.clone();
-        let body_copy = body.clone();
-
         self.executor()
             .execute(move || {
-                let header_start = header_copy.as_ptr();
-                let header_end = unsafe { header_start.add(header_copy.len()) };
-                let body_start = body_copy.as_ptr();
-                let body_end = unsafe { body_start.add(body_copy.len()) };
+                let header_start = header.as_ptr();
+                let header_end = unsafe { header_start.add(header.len()) };
+                let body_start = body.as_ptr();
+                let body_end = unsafe { body_start.add(body.len()) };
 
                 let rc = unsafe {
                     ffi::session::box_iproto_send(
@@ -67,21 +64,18 @@ impl session::Host for SyncWasmStates {
             ));
         }
 
-        let key_copy = key.clone();
-        let value_copy = value.clone();
-
         self.executor()
             .execute(move || {
                 let mut hasher = Sha256::new();
-                hasher.update(value_copy.as_bytes());
+                hasher.update(value.as_bytes());
                 let hash = hasher.finalize();
                 let hash_str = format!("{hash:x}");
                 let var_name = format!("__wasm_{hash_str}");
                 let lua = tarantool::lua_state();
-                lua.exec_with(&format!("{var_name} = {value_copy};"), ())
+                lua.exec_with(&format!("{var_name} = {value};"), ())
                     .unwrap();
                 let broadcast_result =
-                    lua.exec_with(&format!("box.broadcast(..., {var_name})"), key_copy);
+                    lua.exec_with(&format!("box.broadcast(..., {var_name})"), key);
 
                 if let Err(err) = broadcast_result {
                     return Err(BoxError::new(

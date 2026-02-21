@@ -83,15 +83,23 @@ impl error::Host for SyncWasmStates {
     }
 
     async fn set(&mut self, err: BoxError) {
-        let message_cstr =
-            CString::new(err.message.clone()).expect("Failed to convert error message to CString");
+        let BoxError {
+            code,
+            message,
+            file,
+            line,
+            ..
+        } = err;
 
-        let file_line = match (err.file.as_ref(), err.line) {
-            (Some(file), Some(line)) => Some((file.as_str(), line)),
+        let message_cstr =
+            CString::new(message).expect("Failed to convert error message to CString");
+
+        let file_line = match (file.as_deref(), line) {
+            (Some(file), Some(line)) => Some((file, line)),
             _ => None,
         };
 
-        tarantool::error::set_last_error(file_line, err.code.into(), &message_cstr);
+        tarantool::error::set_last_error(file_line, code.into(), &message_cstr);
     }
 
     async fn last(&mut self) -> Option<BoxError> {
