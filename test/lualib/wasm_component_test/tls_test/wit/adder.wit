@@ -1,0 +1,219 @@
+package docs:adder@0.1.0;
+
+world adder {
+  import wasi:sockets/network@0.2.3;
+  import wasi:sockets/instance-network@0.2.3;
+  import wasi:io/poll@0.2.3;
+  import wasi:clocks/monotonic-clock@0.2.3;
+  import wasi:io/error@0.2.3;
+  import wasi:io/streams@0.2.3;
+  import wasi:sockets/tcp@0.2.3;
+  import wasi:sockets/tcp-create-socket@0.2.3;
+  import wasi:tls/types@0.2.0-draft;
+
+  export t-tls-handshake: func(host: string, port: u16, server-name: string) -> string;
+  export t-tls-handshake-plain-fails: func(host: string, port: u16) -> string;
+}
+package wasi:io@0.2.3 {
+  interface poll {
+    resource pollable {
+      ready: func() -> bool;
+      block: func();
+    }
+
+    poll: func(in: list<borrow<pollable>>) -> list<u32>;
+  }
+  interface error {
+    resource error {
+      to-debug-string: func() -> string;
+    }
+  }
+  interface streams {
+    use error.{error};
+    use poll.{pollable};
+
+    variant stream-error {
+      last-operation-failed(error),
+      closed,
+    }
+
+    resource input-stream {
+      read: func(len: u64) -> result<list<u8>, stream-error>;
+      blocking-read: func(len: u64) -> result<list<u8>, stream-error>;
+      skip: func(len: u64) -> result<u64, stream-error>;
+      blocking-skip: func(len: u64) -> result<u64, stream-error>;
+      subscribe: func() -> pollable;
+    }
+
+    resource output-stream {
+      check-write: func() -> result<u64, stream-error>;
+      write: func(contents: list<u8>) -> result<_, stream-error>;
+      blocking-write-and-flush: func(contents: list<u8>) -> result<_, stream-error>;
+      flush: func() -> result<_, stream-error>;
+      blocking-flush: func() -> result<_, stream-error>;
+      subscribe: func() -> pollable;
+      write-zeroes: func(len: u64) -> result<_, stream-error>;
+      blocking-write-zeroes-and-flush: func(len: u64) -> result<_, stream-error>;
+      splice: func(src: borrow<input-stream>, len: u64) -> result<u64, stream-error>;
+      blocking-splice: func(src: borrow<input-stream>, len: u64) -> result<u64, stream-error>;
+    }
+  }
+}
+
+
+package wasi:clocks@0.2.3 {
+  interface monotonic-clock {
+    use wasi:io/poll@0.2.3.{pollable};
+
+    type instant = u64;
+
+    type duration = u64;
+
+    now: func() -> instant;
+
+    resolution: func() -> duration;
+
+    subscribe-instant: func(when: instant) -> pollable;
+
+    subscribe-duration: func(when: duration) -> pollable;
+  }
+}
+
+
+package wasi:sockets@0.2.3 {
+  interface network {
+    resource network;
+
+    enum error-code {
+      unknown,
+      access-denied,
+      not-supported,
+      invalid-argument,
+      out-of-memory,
+      timeout,
+      concurrency-conflict,
+      not-in-progress,
+      would-block,
+      invalid-state,
+      new-socket-limit,
+      address-not-bindable,
+      address-in-use,
+      remote-unreachable,
+      connection-refused,
+      connection-reset,
+      connection-aborted,
+      datagram-too-large,
+      name-unresolvable,
+      temporary-resolver-failure,
+      permanent-resolver-failure,
+    }
+
+    enum ip-address-family {
+      ipv4,
+      ipv6,
+    }
+
+    type ipv4-address = tuple<u8, u8, u8, u8>;
+
+    type ipv6-address = tuple<u16, u16, u16, u16, u16, u16, u16, u16>;
+
+    variant ip-address {
+      ipv4(ipv4-address),
+      ipv6(ipv6-address),
+    }
+
+    record ipv4-socket-address {
+      port: u16,
+      address: ipv4-address,
+    }
+
+    record ipv6-socket-address {
+      port: u16,
+      flow-info: u32,
+      address: ipv6-address,
+      scope-id: u32,
+    }
+
+    variant ip-socket-address {
+      ipv4(ipv4-socket-address),
+      ipv6(ipv6-socket-address),
+    }
+  }
+  interface instance-network {
+    use network.{network};
+
+    instance-network: func() -> network;
+  }
+  interface tcp {
+    use wasi:io/streams@0.2.3.{input-stream, output-stream};
+    use wasi:io/poll@0.2.3.{pollable};
+    use wasi:clocks/monotonic-clock@0.2.3.{duration};
+    use network.{network, error-code, ip-socket-address, ip-address-family};
+
+    enum shutdown-type {
+      receive,
+      send,
+      both,
+    }
+
+    resource tcp-socket {
+      start-bind: func(network: borrow<network>, local-address: ip-socket-address) -> result<_, error-code>;
+      finish-bind: func() -> result<_, error-code>;
+      start-connect: func(network: borrow<network>, remote-address: ip-socket-address) -> result<_, error-code>;
+      finish-connect: func() -> result<tuple<input-stream, output-stream>, error-code>;
+      start-listen: func() -> result<_, error-code>;
+      finish-listen: func() -> result<_, error-code>;
+      accept: func() -> result<tuple<tcp-socket, input-stream, output-stream>, error-code>;
+      local-address: func() -> result<ip-socket-address, error-code>;
+      remote-address: func() -> result<ip-socket-address, error-code>;
+      is-listening: func() -> bool;
+      address-family: func() -> ip-address-family;
+      set-listen-backlog-size: func(value: u64) -> result<_, error-code>;
+      keep-alive-enabled: func() -> result<bool, error-code>;
+      set-keep-alive-enabled: func(value: bool) -> result<_, error-code>;
+      keep-alive-idle-time: func() -> result<duration, error-code>;
+      set-keep-alive-idle-time: func(value: duration) -> result<_, error-code>;
+      keep-alive-interval: func() -> result<duration, error-code>;
+      set-keep-alive-interval: func(value: duration) -> result<_, error-code>;
+      keep-alive-count: func() -> result<u32, error-code>;
+      set-keep-alive-count: func(value: u32) -> result<_, error-code>;
+      hop-limit: func() -> result<u8, error-code>;
+      set-hop-limit: func(value: u8) -> result<_, error-code>;
+      receive-buffer-size: func() -> result<u64, error-code>;
+      set-receive-buffer-size: func(value: u64) -> result<_, error-code>;
+      send-buffer-size: func() -> result<u64, error-code>;
+      set-send-buffer-size: func(value: u64) -> result<_, error-code>;
+      subscribe: func() -> pollable;
+      shutdown: func(shutdown-type: shutdown-type) -> result<_, error-code>;
+    }
+  }
+  interface tcp-create-socket {
+    use network.{network, error-code, ip-address-family};
+    use tcp.{tcp-socket};
+
+    create-tcp-socket: func(address-family: ip-address-family) -> result<tcp-socket, error-code>;
+  }
+}
+
+
+package wasi:tls@0.2.0-draft {
+  interface types {
+    use wasi:io/streams@0.2.3.{input-stream, output-stream};
+    use wasi:io/poll@0.2.3.{pollable};
+    use wasi:io/error@0.2.3.{error as io-error};
+
+    resource client-handshake {
+      constructor(server-name: string, input: input-stream, output: output-stream);
+      finish: static func(this: client-handshake) -> future-client-streams;
+    }
+
+    resource client-connection {
+      close-output: func();
+    }
+
+    resource future-client-streams {
+      subscribe: func() -> pollable;
+      get: func() -> option<result<result<tuple<client-connection, input-stream, output-stream>, io-error>>>;
+    }
+  }
+}
