@@ -10,7 +10,7 @@ This document explains the internal structure of the project, the main APIs and 
 - `docs/` – documentation. The user facing `wasm_component.md` and this guide live here.
 - `test/` – Lua tests executed via `luatest`.
 - `scripts/` – helper scripts used by `just` tasks.
-- `third-party/` – git submodules with patched Tarantool and WASI TLS.
+- `third-party/` – git submodules with WASI TLS.
 - `wit/` – local WIT interface files used by the examples and tests.
 - `justfile` – automation tasks for building the project and running tests.
 - `wkg.toml` / `wkg.lock` – configuration for the `wkg` package manager used to fetch WIT dependencies.
@@ -85,10 +85,9 @@ Bindings under `src/bindings/` provide the implementation of WIT interfaces for 
 
 ## Running tests
 
-Tests require a Tarantool build with WASM support. The workflow is automated in the CI and can be reproduced locally:
+Tests require a Tarantool binary. The workflow is automated in the CI and can be reproduced locally:
 
 ```sh
-just build-tarantool   # build patched Tarantool under third-party/
 just install-luatest   # one time installation of the testing framework
 just test              # run the Lua test suite
 ```

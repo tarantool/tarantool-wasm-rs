@@ -5,29 +5,18 @@ wkg_fetch := "wkg wit fetch"
 wkg_build := "wkg wit build"
 add_registry_patch := "./scripts/add_tarantool_registry.sh"
 
-git_submodule_update_wasi_tls := "git submodule update --init --recursive third-party/wasi-tls"
-git_submodule_update_tarantool := "git submodule update --init --recursive third-party/tarantool"
-
+git_submodule_update_wasi_tls := "git submodule update --init --recursive --jobs 8 third-party/wasi-tls"
 build_tarantool_with_wasm := "./scripts/build_tarantool_wasm.sh"
 
 all:
-    just submodules patch-wkg-config wit-fetch
+    just git_submodule_update_wasi_tls patch-wkg-config wit-fetch
     sh -c 'if [ "${RELEASE:-}" = "1" ]; then just build-release; else just build; fi'
-
-submodules:
-    just submodule-wasi-tls submodule-tarantool
 
 submodule-wasi-tls:
     sh -c "{{git_submodule_update_wasi_tls}}"
 
-submodule-tarantool:
-    sh -c "{{git_submodule_update_tarantool}}"
-
-build-tarantool:
-    sh -c "{{build_tarantool_with_wasm}}"
-
 install-wkg:
-    sh -c "if ! command -v wkg > /dev/null; then cargo install wkg; fi"
+    sh -c "if ! command -v wkg > /dev/null; then cargo install wkg --locked; fi"
 
 patch-wkg-config:
     sh -c "{{add_registry_patch}}"
