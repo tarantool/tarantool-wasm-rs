@@ -8,22 +8,37 @@ runs:
   steps:
     - uses: actions-rust-lang/setup-rust-toolchain@v1
 
-    - name: Install just
-      run: cargo install just
-      shell: bash
+    - name: Cache WIT tools
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/wkg
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git
+        key: ${{ runner.os }}-wit-tools-v1
+
+    - name: Cache WIT packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/wasm-pkg
+        key: ${{ runner.os }}-wit-packages-${{ hashFiles('wkg.lock') }}
 
     - name: Install wkg
-      run: just install-wkg
+      run: |
+        if ! command -v wkg >/dev/null 2>&1; then
+          cargo install wkg --locked
+        fi
       shell: bash
 
     - name: Add Tarantool wit registry override
-      run: just patch-wkg-config
+      run: ./scripts/add_tarantool_registry.sh
       shell: bash
 
     - name: Init wasi-tls submodule
-      run: just submodule-wasi-tls
+      run: git submodule update --init --recursive --jobs 8 third-party/wasi-tls
       shell: bash
 
     - name: Fetch WIT dependencies
-      run: just wit-fetch
+      run: wkg wit fetch
       shell: bash

@@ -19,7 +19,6 @@ See [developer\_guide.md](docs/developer_guide.md) for details on architecture a
 ## Table of Contents
 
 * [Building the WASM Runtime Library](#building-the-wasm-runtime-library)
-* [Building the Patched Tarantool](#building-the-patched-tarantool-wasm-compatible-with-fiber-signal-stack-disabled)
 * [Working with tarawasm](#working-with-tarawasm)
 * [Manual WIT Interface Definition](#manual-wit-interface-definition)
 * [Using in Tarantool](#using-in-tarantool)
@@ -73,16 +72,6 @@ Then place the compiled `.so` file in a location accessible to Tarantool:
 
 ```sh
 sudo ln -s <path-to>/target/debug/libtarantool_wasm_rs.so /usr/local/lib/tarantool/wasm.so
-```
-
----
-
-## Building Tarantool (WASM-Compatible with Fiber Signal Stack Disabled)
-
-To enable WASM integration, build Tarantool with `TARANTOOL_WASM=ON`:
-
-```sh
-./scripts/build_tarantool_wasm.sh
 ```
 
 ---

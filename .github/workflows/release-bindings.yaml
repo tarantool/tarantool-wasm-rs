@@ -26,18 +26,31 @@ jobs:
           rustup default stable
 
       - name: Build (release)
-        run: just build-release
+        run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Prepare wasm module
         run: |
           mkdir -p .rocks/lib/tarantool
           cp target/x86_64-unknown-linux-gnu/release/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
 
-      - name: Setup Tarantool with WASM support
-        uses: ./.github/actions/tarantool-setup
+      - name: Setup Tarantool
+        uses: tarantool/setup-tarantool@v3
+        with:
+          tarantool-version: '3.6'
+
+      - name: Setup tt
+        run: |
+          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
+          sudo apt install -y tt
+          tt version
+
+      - run: echo $PWD/.rocks/bin >> $GITHUB_PATH
 
       - name: Install luatest
-        run: just install-luatest
+        run: |
+          if ! command -v luatest > /dev/null; then
+            tt rocks install luatest
+          fi
 
       - name: Run tests
-        run: just test
+        run: luatest -v -l luatest.log

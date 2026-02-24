@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{mem, ptr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use tokio::{
@@ -16,6 +16,34 @@ use crate::runtime::{
     tarantool_wasm::SyncWasmStates,
     tx::{tx_flush, tx_push, TxCtx},
 };
+
+struct SigAltStackRestoreGuard {
+    previous: Option<libc::stack_t>,
+}
+
+impl SigAltStackRestoreGuard {
+    fn capture() -> Self {
+        let mut previous = unsafe { mem::zeroed::<libc::stack_t>() };
+        let captured = unsafe { libc::sigaltstack(ptr::null(), &mut previous) } == 0;
+        if captured {
+            Self {
+                previous: Some(previous),
+            }
+        } else {
+            Self { previous: None }
+        }
+    }
+}
+
+impl Drop for SigAltStackRestoreGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous {
+            // Ignore failure intentionally: at this point we only try to keep
+            // Tarantool's original alt stack for graceful shutdown.
+            let _ = unsafe { libc::sigaltstack(&previous, ptr::null_mut()) };
+        }
+    }
+}
 
 pub(crate) enum WasmFiberStatus {
     Suspended,
@@ -95,6 +123,7 @@ impl WasmFiber {
         let _ = tx.send(self);
         let cb = move || {
             if let Ok(mut fiber) = rx.blocking_recv() {
+                let _sigstack_guard = SigAltStackRestoreGuard::capture();
                 let status = fiber.resume();
                 let _ = ret_tx.send(fiber);
                 let _ = status_tx.send(status);
