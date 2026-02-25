@@ -24,7 +24,7 @@ use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
     component::{
         types::{ComponentInstance, ComponentItem},
-        Component, HasData, Linker, ResourceTable, Val,
+        Component, ComponentExportIndex, HasData, Linker, ResourceTable, Val,
     },
     AsContext, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
 };
@@ -323,6 +323,44 @@ struct LoadedModule {
     component: Component,
     config: WasmConfig,
     fuel: bool,
+    export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+}
+
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+struct ExportCacheKey {
+    interface: Option<String>,
+    func: String,
+}
+
+#[derive(Clone, Debug)]
+struct CallJob {
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+}
+
+impl CallJob {
+    fn new(interface: Option<String>, func: String, args: Vec<RmpvValue>) -> Self {
+        Self {
+            interface,
+            func,
+            args,
+        }
+    }
+
+    fn cache_key(&self) -> ExportCacheKey {
+        ExportCacheKey {
+            interface: self.interface.clone(),
+            func: self.func.clone(),
+        }
+    }
+}
+
+impl From<(Option<String>, String, Vec<RmpvValue>)> for CallJob {
+    fn from(value: (Option<String>, String, Vec<RmpvValue>)) -> Self {
+        let (interface, func, args) = value;
+        Self::new(interface, func, args)
+    }
 }
 
 struct RuntimeState {
@@ -438,6 +476,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 component: module,
                 config,
                 fuel: use_fuel,
+                export_cache: Arc::new(RwLock::new(HashMap::new())),
             };
             let uid = format!(
                 "{}#{}",
@@ -484,6 +523,94 @@ where
     let _ = oldset.thread_set_mask();
 
     Ok(handle?)
+}
+
+fn resolve_call_export_index(
+    component: &Component,
+    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    job: &CallJob,
+) -> Result<ComponentExportIndex> {
+    let key = job.cache_key();
+
+    if let Some(index) = export_cache.read().unwrap().get(&key).copied() {
+        return Ok(index);
+    }
+
+    let resolved = if let Some(interface_name) = job.interface.as_deref() {
+        let interface_index = component
+            .get_export_index(None, interface_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(format!("interface export `{}` not found", interface_name))
+            })?;
+
+        component
+            .get_export_index(Some(&interface_index), &job.func)
+            .ok_or_else(|| {
+                anyhow::anyhow!(format!(
+                    "function `{}` not found in interface `{}`",
+                    job.func, interface_name
+                ))
+            })?
+    } else {
+        component.get_export_index(None, &job.func).ok_or_else(|| {
+            anyhow::anyhow!(format!("function `{}` not found at top level", job.func))
+        })?
+    };
+
+    let mut cache = export_cache.write().unwrap();
+    Ok(*cache.entry(key).or_insert(resolved))
+}
+
+fn values_to_rmpv(results_buf: &[Val]) -> Result<RmpvValue> {
+    match results_buf {
+        [] => Ok(RmpvValue::Nil),
+        [val] => val_to_rmpv(val),
+        many => {
+            let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
+            Ok(RmpvValue::Array(converted))
+        }
+    }
+}
+
+async fn execute_call_job(
+    store: &mut Store<SyncWasmStates>,
+    linker: &Linker<SyncWasmStates>,
+    component: &Component,
+    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    job: &CallJob,
+) -> Result<RmpvValue> {
+    let instance = linker.instantiate_async(&mut *store, component).await?;
+    let func_index = resolve_call_export_index(component, export_cache, job)?;
+
+    let export = instance
+        .get_func(&mut *store, func_index)
+        .ok_or_else(|| anyhow::anyhow!(format!("function export `{}` not found", job.func)))?;
+
+    let export_ty = export.ty(store.as_context());
+    let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
+
+    if job.args.len() != param_types.len() {
+        return Err(anyhow::anyhow!(
+            "argument count mismatch for `{}`: expected {}, got {}",
+            job.func,
+            param_types.len(),
+            job.args.len()
+        ));
+    }
+
+    let mut wasm_args = Vec::with_capacity(param_types.len());
+    for (ty, val) in param_types.iter().zip(job.args.iter()) {
+        wasm_args.push(to_component_val(ty, val)?);
+    }
+
+    let result_types = export_ty.results().collect::<Vec<_>>();
+    let mut results_buf = vec![Val::Bool(false); result_types.len()];
+
+    export
+        .call_async(&mut *store, &wasm_args, &mut results_buf)
+        .await?;
+
+    values_to_rmpv(&results_buf)
 }
 
 /// Run a loaded module in a background thread, returning a join handle.
@@ -560,6 +687,7 @@ pub fn tt_wasm_call_function(
     let component = loaded.component;
     let cfg = loaded.config;
     let fuel = loaded.fuel;
+    let export_cache = loaded.export_cache;
 
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let engine = if fuel {
@@ -590,67 +718,8 @@ pub fn tt_wasm_call_function(
             .unwrap();
 
         rt.block_on(async move {
-            let instance = linker.instantiate_async(&mut store, &component).await?;
-
-            let func_index = if let Some(interface_name) = interface {
-                let interface_index = component
-                    .get_export_index(None, &interface_name)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(format!("interface export `{}` not found", interface_name))
-                    })?;
-
-                component
-                    .get_export_index(Some(&interface_index), &func)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(format!(
-                            "function `{}` not found in interface `{}`",
-                            func, interface_name
-                        ))
-                    })?
-            } else {
-                component.get_export_index(None, &func).ok_or_else(|| {
-                    anyhow::anyhow!(format!("function `{}` not found at top level", func))
-                })?
-            };
-
-            let export = instance
-                .get_func(&mut store, func_index)
-                .ok_or_else(|| anyhow::anyhow!(format!("function export `{func}` not found")))?;
-
-            let export_ty = export.ty(store.as_context());
-            let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
-
-            if args.len() != param_types.len() {
-                return Err(anyhow::anyhow!(
-                    "argument count mismatch: expected {}, got {}",
-                    param_types.len(),
-                    args.len()
-                ));
-            }
-
-            let mut wasm_args = Vec::new();
-            for (ty, val) in param_types.iter().zip(args.iter()) {
-                let v = to_component_val(ty, val)?;
-                wasm_args.push(v);
-            }
-
-            let result_types = export_ty.results().collect::<Vec<_>>();
-            let mut results_buf = vec![Val::Bool(false); result_types.len()];
-
-            export
-                .call_async(&mut store, &wasm_args, &mut results_buf)
-                .await?;
-
-            let res_val = match results_buf.as_slice() {
-                [] => RmpvValue::Nil,
-                [val] => val_to_rmpv(val)?,
-                many => {
-                    let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-                    RmpvValue::Array(converted)
-                }
-            };
-
-            Ok(res_val)
+            let job = CallJob::new(interface, func, args);
+            execute_call_job(&mut store, &linker, &component, export_cache.as_ref(), &job).await
         })
     })?;
 
@@ -685,6 +754,8 @@ pub fn tt_wasm_call_functions(
     let component = loaded.component;
     let cfg = loaded.config;
     let fuel = loaded.fuel;
+    let export_cache = loaded.export_cache;
+    let jobs = calls.into_iter().map(CallJob::from).collect::<Vec<_>>();
 
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let engine = if fuel {
@@ -707,7 +778,7 @@ pub fn tt_wasm_call_functions(
         rt.block_on(async move {
             let mut results_all = Vec::new();
 
-            for (interface, func, args) in calls.into_iter() {
+            for job in jobs.into_iter() {
                 let wasi_view = SyncWasmStates::new(cfg.clone());
                 let mut store = Store::new(engine, wasi_view);
                 store.limiter(|state| &mut state.limits);
@@ -719,71 +790,10 @@ pub fn tt_wasm_call_functions(
                 store.set_epoch_deadline(1);
                 store.epoch_deadline_trap();
 
-                let instance = linker.instantiate_async(&mut store, &component).await?;
-
-                let func_index = if let Some(interface_name) = interface {
-                    let interface_index = component
-                        .get_export_index(None, &interface_name)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(format!(
-                                "interface export `{}` not found",
-                                interface_name
-                            ))
-                        })?;
-
-                    component
-                        .get_export_index(Some(&interface_index), &func)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(format!(
-                                "function `{}` not found in interface `{}`",
-                                func, interface_name
-                            ))
-                        })?
-                } else {
-                    component.get_export_index(None, &func).ok_or_else(|| {
-                        anyhow::anyhow!(format!("function `{}` not found at top level", func))
-                    })?
-                };
-
-                let export = instance.get_func(&mut store, func_index).ok_or_else(|| {
-                    anyhow::anyhow!(format!("function export `{func}` not found"))
-                })?;
-
-                let export_ty = export.ty(store.as_context());
-                let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
-
-                if args.len() != param_types.len() {
-                    return Err(anyhow::anyhow!(
-                        "argument count mismatch for `{}`: expected {}, got {}",
-                        func,
-                        param_types.len(),
-                        args.len()
-                    ));
-                }
-
-                let mut wasm_args = Vec::new();
-                for (ty, val) in param_types.iter().zip(args.iter()) {
-                    let v = to_component_val(ty, val)?;
-                    wasm_args.push(v);
-                }
-
-                let result_types = export_ty.results().collect::<Vec<_>>();
-                let mut results_buf = vec![Val::Bool(false); result_types.len()];
-
-                export
-                    .call_async(&mut store, &wasm_args, &mut results_buf)
-                    .await?;
-
-                let res_val = match results_buf.as_slice() {
-                    [] => RmpvValue::Nil,
-                    [val] => val_to_rmpv(val)?,
-                    many => {
-                        let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-                        RmpvValue::Array(converted)
-                    }
-                };
-
-                results_all.push(res_val);
+                results_all.push(
+                    execute_call_job(&mut store, &linker, &component, export_cache.as_ref(), &job)
+                        .await?,
+                );
             }
 
             Ok(results_all)
