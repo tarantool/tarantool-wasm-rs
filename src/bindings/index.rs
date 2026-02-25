@@ -1,6 +1,7 @@
+use crate::bindings::helpers::validate_array;
 use crate::bindings::tarantool::tarantool::index;
 use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, IteratorType};
-use crate::bindings::types::{convert_iterator_type, validate_msgpack_array};
+use crate::bindings::types::convert_iterator_type;
 use crate::bindings::IndexIteratorImpl;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
@@ -54,9 +55,7 @@ impl index::Host for SyncWasmStates {
     }
 
     async fn get(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&key)?;
 
         let ind = unsafe {
             TarantoolIndex::from_ids_unchecked(index.space_id as SpaceId, index.id as IndexId)
@@ -77,9 +76,7 @@ impl index::Host for SyncWasmStates {
     }
 
     async fn min(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&key)?;
 
         let ind = unsafe {
             TarantoolIndex::from_ids_unchecked(index.space_id as SpaceId, index.id as IndexId)
@@ -100,9 +97,7 @@ impl index::Host for SyncWasmStates {
     }
 
     async fn max(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&key)?;
 
         let ind = unsafe {
             TarantoolIndex::from_ids_unchecked(index.space_id as SpaceId, index.id as IndexId)
@@ -128,9 +123,7 @@ impl index::Host for SyncWasmStates {
         iter_type: IteratorType,
         key: Vec<u8>,
     ) -> Result<i64, BoxError> {
-        if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&key)?;
 
         let ind = unsafe {
             TarantoolIndex::from_ids_unchecked(index.space_id as SpaceId, index.id as IndexId)

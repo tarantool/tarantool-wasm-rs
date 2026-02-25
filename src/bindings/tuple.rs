@@ -1,9 +1,11 @@
 use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::helpers::{
+    illegal_params, state_lock_poisoned, unknown_error, validate_array,
+};
 use crate::bindings::tarantool::tarantool::box_tuple;
 use crate::bindings::tarantool::tarantool::types::{
     BoxError, BoxTuple, KeyDef, TupleField, TupleFormat,
 };
-use crate::bindings::types::validate_msgpack_array;
 use crate::bindings::TupleIteratorImpl;
 use crate::ffi;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
@@ -14,9 +16,7 @@ use tarantool::error::TarantoolErrorCode;
 
 impl box_tuple::Host for SyncWasmStates {
     async fn new(&mut self, data: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&data) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&data)?;
 
         Ok(unsafe {
             BoxTuple {
@@ -26,9 +26,7 @@ impl box_tuple::Host for SyncWasmStates {
     }
 
     async fn update(&mut self, t: BoxTuple, expr: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&expr) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&expr)?;
 
         let ptr = unsafe {
             ffi::tuple::box_tuple_update(
@@ -45,9 +43,7 @@ impl box_tuple::Host for SyncWasmStates {
     }
 
     async fn upsert(&mut self, t: BoxTuple, expr: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&expr) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&expr)?;
 
         let ptr = unsafe {
             ffi::tuple::box_tuple_upsert(
@@ -121,8 +117,8 @@ impl box_tuple::Host for SyncWasmStates {
         path: String,
         index_base: i32,
     ) -> Result<TupleField, BoxError> {
-        let c_path = std::ffi::CString::new(path.as_str())
-            .map_err(|_| BoxError::new(TarantoolErrorCode::IllegalParams as u32, "Invalid path"))?;
+        let c_path =
+            std::ffi::CString::new(path.as_str()).map_err(|_| illegal_params("Invalid path"))?;
 
         let ptr = unsafe {
             ffi::tuple::box_tuple_field_by_path(
@@ -203,13 +199,11 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
             .await?;
 
         let iter_ptr = send_ptr.0;
-        let mut guard = self.state.lock().map_err(|_| {
-            BoxError::new(TarantoolErrorCode::Unknown as u32, "state lock poisoned")
-        })?;
+        let mut guard = self.state.lock().map_err(|_| state_lock_poisoned())?;
         let resource = guard
             .table
             .push(TupleIteratorImpl { iter: iter_ptr })
-            .map_err(|e| BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string()))?;
+            .map_err(|e| unknown_error(e.to_string()))?;
 
         Ok(resource)
     }
@@ -245,13 +239,11 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         self_: Resource<box_tuple::TupleIterator>,
         pos: u32,
     ) -> Result<TupleField, BoxError> {
-        let mut guard = self.state.lock().map_err(|_| {
-            BoxError::new(TarantoolErrorCode::Unknown as u32, "state lock poisoned")
-        })?;
+        let mut guard = self.state.lock().map_err(|_| state_lock_poisoned())?;
         let iter = guard
             .table
             .get_mut(&self_)
-            .map_err(|e| BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string()))?;
+            .map_err(|e| unknown_error(e.to_string()))?;
 
         let res = unsafe { ffi::tuple::box_tuple_seek(iter.iter, pos) };
         Ok(TupleField { ptr: res as u64 })
@@ -261,13 +253,11 @@ impl box_tuple::HostTupleIterator for SyncWasmStates {
         &mut self,
         self_: Resource<box_tuple::TupleIterator>,
     ) -> Result<TupleField, BoxError> {
-        let mut guard = self.state.lock().map_err(|_| {
-            BoxError::new(TarantoolErrorCode::Unknown as u32, "state lock poisoned")
-        })?;
+        let mut guard = self.state.lock().map_err(|_| state_lock_poisoned())?;
         let iter = guard
             .table
             .get_mut(&self_)
-            .map_err(|e| BoxError::new(TarantoolErrorCode::Unknown as u32, e.to_string()))?;
+            .map_err(|e| unknown_error(e.to_string()))?;
 
         let res = unsafe { ffi::tuple::box_tuple_next(iter.iter) };
         Ok(TupleField { ptr: res as u64 })

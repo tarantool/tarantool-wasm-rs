@@ -29,6 +29,7 @@ pub struct TupleIteratorImpl {
 }
 
 pub mod error;
+pub mod helpers;
 pub mod index;
 pub mod key_def;
 pub mod metrics;
