@@ -3,6 +3,11 @@
 //! This module contains functions exposed to the Lua layer along with runtime
 //! helpers required to load, run and interact with WASM components.
 
+mod calls;
+mod exports;
+mod linker;
+mod threading;
+
 use std::{
     collections::{HashMap, HashSet},
     fs::OpenOptions,
@@ -11,40 +16,37 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc as std_mpsc, Arc, Mutex, RwLock,
     },
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
     time::Duration,
 };
 
 use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
-use nix::sys::signal::{SigSet, Signal};
 use rmpv::Value as RmpvValue;
 use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
 use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
     component::{
-        types::{ComponentInstance, ComponentItem},
-        Component, ComponentExportIndex, HasData, Linker, ResourceTable, Val,
+        types::ComponentItem, Component, ComponentExportIndex, HasData, Linker, ResourceTable,
     },
-    AsContext, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
+    Engine, Store, StoreLimits, StoreLimitsBuilder,
 };
 use wasmtime_wasi::cli::OutputFile;
 use wasmtime_wasi::p2::pipe::MemoryInputPipe;
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
-use wasmtime_wasi_tls::{LinkOptions, WasiTls, WasiTlsCtx, WasiTlsCtxBuilder};
+use wasmtime_wasi_tls::{WasiTlsCtx, WasiTlsCtxBuilder};
 
-use crate::bindings::{
-    docs::adder::zlib,
-    tarantool::tarantool::{
-        box_tuple, error, index, key_def, metrics, msgpack, say, sequence, session, ttbox,
-        tuple_format, txn, types,
-    },
-};
 use crate::runtime::{
-    convert::{pretty_type, to_component_val, val_to_rmpv},
     executor::{Executor, TxMode},
     wasm_fiber::{WasmFiber, WasmFiberStatus},
+};
+
+use self::{
+    calls::execute_call_job,
+    exports::{collect_exports, export_info_from_component_func},
+    linker::{build_runtime_linker, runtime_config},
+    threading::spawn_tt_thread,
 };
 
 pub(crate) struct WasmRunHandle {
@@ -372,70 +374,13 @@ struct RuntimeState {
     pub next_uid: AtomicU64,
 }
 
-fn get_configuration(with_fuel: bool) -> Config {
-    let mut config = Config::new();
-    /*
-     * Async support is required to implement rescheduling into the TX
-     * thread. In non-async mode WASM is heavily dependent on the
-     * thread-local storage. In async mode it changes to the task-local
-     * storage. This way we can run our module within a Tokio runtime
-     * task and reschedule that task instead.
-     */
-    config.async_support(true);
-    if with_fuel {
-        config.consume_fuel(true);
-    }
-
-    /*
-     * We use epoch-based interruptions to implement graceful shutdown.
-     * Epoch is a global tick counter managed by the engine. We can setup
-     * a limiting epoch for each module, after which it will halt. With
-     * that technique we can set the limit at 1 tick for all modules and
-     * then halt all modules at once by incrementing the epoch.
-     */
-    config.epoch_interruption(true);
-    config
-}
-
-fn build_linker(engine: &Engine) -> Linker<SyncWasmStates> {
-    let mut linker = Linker::<SyncWasmStates>::new(engine);
-    let _ = wasmtime_wasi::p2::add_to_linker_async(&mut linker);
-    let _ = wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker);
-
-    let mut opts = LinkOptions::default();
-    opts.tls(true);
-
-    let _ = wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
-        let state = h.state.get_mut().unwrap();
-        WasiTls::new(&state.tls, &mut state.table)
-    });
-
-    let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = txn::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = types::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = index::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = key_def::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ =
-        tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = metrics::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-
-    let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    linker
-}
-
 impl RuntimeState {
     pub fn new() -> Self {
-        let engine = Engine::new(&get_configuration(false)).unwrap();
-        let fuel_engine = Engine::new(&get_configuration(true)).unwrap();
+        let engine = Engine::new(&runtime_config(false)).unwrap();
+        let fuel_engine = Engine::new(&runtime_config(true)).unwrap();
 
-        let linker = build_linker(&engine);
-        let fuel_linker = build_linker(&fuel_engine);
+        let linker = build_runtime_linker(&engine);
+        let fuel_linker = build_runtime_linker(&fuel_engine);
 
         let modules = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
@@ -502,115 +447,6 @@ pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
     } else {
         Err(anyhow::anyhow!("module `{module_uid}` not found"))
     }
-}
-
-fn spawn_tt_thread<F, T>(name: String, f: F) -> Result<JoinHandle<T>>
-where
-    F: FnOnce() -> T,
-    F: Send + 'static,
-    T: Send + 'static,
-{
-    let mut newset = SigSet::all();
-    newset.remove(Signal::SIGILL);
-    newset.remove(Signal::SIGBUS);
-    newset.remove(Signal::SIGFPE);
-    newset.remove(Signal::SIGSEGV);
-
-    let oldset = SigSet::thread_get_mask()?;
-
-    newset.thread_block()?;
-    let handle = thread::Builder::new().name(name).spawn(f);
-    let _ = oldset.thread_set_mask();
-
-    Ok(handle?)
-}
-
-fn resolve_call_export_index(
-    component: &Component,
-    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
-    job: &CallJob,
-) -> Result<ComponentExportIndex> {
-    let key = job.cache_key();
-
-    if let Some(index) = export_cache.read().unwrap().get(&key).copied() {
-        return Ok(index);
-    }
-
-    let resolved = if let Some(interface_name) = job.interface.as_deref() {
-        let interface_index = component
-            .get_export_index(None, interface_name)
-            .ok_or_else(|| {
-                anyhow::anyhow!(format!("interface export `{}` not found", interface_name))
-            })?;
-
-        component
-            .get_export_index(Some(&interface_index), &job.func)
-            .ok_or_else(|| {
-                anyhow::anyhow!(format!(
-                    "function `{}` not found in interface `{}`",
-                    job.func, interface_name
-                ))
-            })?
-    } else {
-        component.get_export_index(None, &job.func).ok_or_else(|| {
-            anyhow::anyhow!(format!("function `{}` not found at top level", job.func))
-        })?
-    };
-
-    let mut cache = export_cache.write().unwrap();
-    Ok(*cache.entry(key).or_insert(resolved))
-}
-
-fn values_to_rmpv(results_buf: &[Val]) -> Result<RmpvValue> {
-    match results_buf {
-        [] => Ok(RmpvValue::Nil),
-        [val] => val_to_rmpv(val),
-        many => {
-            let converted = many.iter().map(val_to_rmpv).collect::<Result<Vec<_>>>()?;
-            Ok(RmpvValue::Array(converted))
-        }
-    }
-}
-
-async fn execute_call_job(
-    store: &mut Store<SyncWasmStates>,
-    linker: &Linker<SyncWasmStates>,
-    component: &Component,
-    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
-    job: &CallJob,
-) -> Result<RmpvValue> {
-    let instance = linker.instantiate_async(&mut *store, component).await?;
-    let func_index = resolve_call_export_index(component, export_cache, job)?;
-
-    let export = instance
-        .get_func(&mut *store, func_index)
-        .ok_or_else(|| anyhow::anyhow!(format!("function export `{}` not found", job.func)))?;
-
-    let export_ty = export.ty(store.as_context());
-    let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
-
-    if job.args.len() != param_types.len() {
-        return Err(anyhow::anyhow!(
-            "argument count mismatch for `{}`: expected {}, got {}",
-            job.func,
-            param_types.len(),
-            job.args.len()
-        ));
-    }
-
-    let mut wasm_args = Vec::with_capacity(param_types.len());
-    for (ty, val) in param_types.iter().zip(job.args.iter()) {
-        wasm_args.push(to_component_val(ty, val)?);
-    }
-
-    let result_types = export_ty.results().collect::<Vec<_>>();
-    let mut results_buf = vec![Val::Bool(false); result_types.len()];
-
-    export
-        .call_async(&mut *store, &wasm_args, &mut results_buf)
-        .await?;
-
-    values_to_rmpv(&results_buf)
 }
 
 /// Run a loaded module in a background thread, returning a join handle.
@@ -823,36 +659,6 @@ pub struct ExportInfo {
 type ExportNamespace = HashMap<String, ExportInfo>;
 type ExportMap = HashMap<String, ExportNamespace>;
 
-fn collect_exports(
-    engine: &wasmtime::Engine,
-    instance: &ComponentInstance,
-    namespace: &str,
-    out: &mut ExportMap,
-) {
-    for (name, item) in instance.exports(engine) {
-        match item {
-            ComponentItem::ComponentFunc(f) => {
-                let params = f
-                    .params()
-                    .map(|(n, t)| (n.to_string(), pretty_type(&t)))
-                    .collect();
-                let results = f.results().map(|t| pretty_type(&t)).collect();
-
-                out.entry(namespace.to_string())
-                    .or_default()
-                    .insert(name.to_string(), ExportInfo { params, results });
-            }
-
-            ComponentItem::ComponentInstance(subinst) => {
-                let nested_namespace = format!("{namespace}/{name}");
-                collect_exports(engine, &subinst, &nested_namespace, out);
-            }
-
-            _ => {}
-        }
-    }
-}
-
 /// Retrieve a map of exported functions grouped by namespace.
 pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
     let loaded = runtime_state
@@ -876,15 +682,9 @@ pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
     for (name, item) in ty.exports(engine) {
         match item {
             ComponentItem::ComponentFunc(f) => {
-                let params = f
-                    .params()
-                    .map(|(n, t)| (n.to_string(), pretty_type(&t)))
-                    .collect();
-                let results = f.results().map(|t| pretty_type(&t)).collect();
-
                 out.entry("".to_string())
                     .or_default()
-                    .insert(name.to_string(), ExportInfo { params, results });
+                    .insert(name.to_string(), export_info_from_component_func(f));
             }
 
             ComponentItem::ComponentInstance(inst) => {
