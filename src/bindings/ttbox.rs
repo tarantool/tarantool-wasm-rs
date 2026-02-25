@@ -1,6 +1,6 @@
+use crate::bindings::helpers::validate_array;
 use crate::bindings::tarantool::tarantool::ttbox;
 use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, Space};
-use crate::bindings::types::validate_msgpack_array;
 use crate::ffi;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
@@ -45,9 +45,7 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn insert(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&tup) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&tup)?;
 
         self.executor()
             .execute(move || {
@@ -70,12 +68,8 @@ impl ttbox::Host for SyncWasmStates {
         key: Vec<u8>,
         ops: Vec<u8>,
     ) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
-        if let Err(e) = validate_msgpack_array(&ops) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&key)?;
+        validate_array(&ops)?;
 
         self.executor()
             .execute(move || {
@@ -101,9 +95,7 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn replace(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&tup) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&tup)?;
 
         self.executor()
             .execute(move || {
@@ -121,12 +113,8 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn upsert(&mut self, index: Index, key: Vec<u8>, ops: Vec<u8>) -> Result<(), BoxError> {
-        if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
-        if let Err(e) = validate_msgpack_array(&ops) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&key)?;
+        validate_array(&ops)?;
 
         self.executor()
             .execute(move || {
@@ -146,9 +134,7 @@ impl ttbox::Host for SyncWasmStates {
     }
 
     async fn delete(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        if let Err(e) = validate_msgpack_array(&key) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_array(&key)?;
 
         self.executor()
             .execute(move || {

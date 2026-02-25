@@ -1,7 +1,7 @@
 use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::helpers::{illegal_params, validate_map};
 use crate::bindings::tarantool::tarantool::session;
 use crate::bindings::tarantool::tarantool::types::{BoxError, Session};
-use crate::bindings::types::validate_msgpack_map;
 use crate::ffi;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
@@ -21,9 +21,7 @@ impl session::Host for SyncWasmStates {
         header: Vec<u8>,
         body: Vec<u8>,
     ) -> Result<(), BoxError> {
-        if let Err(e) = validate_msgpack_map(&header) {
-            return Err(BoxError::new(TarantoolErrorCode::IllegalParams as u32, &e));
-        }
+        validate_map(&header)?;
 
         self.executor()
             .execute(move || {
@@ -51,16 +49,10 @@ impl session::Host for SyncWasmStates {
 
     async fn broadcast(&mut self, key: String, value: String) -> Result<(), BoxError> {
         if key.is_empty() {
-            return Err(BoxError::new(
-                TarantoolErrorCode::IllegalParams as u32,
-                "Key is empty",
-            ));
+            return Err(illegal_params("Key is empty"));
         }
         if value.is_empty() {
-            return Err(BoxError::new(
-                TarantoolErrorCode::IllegalParams as u32,
-                "Value is empty",
-            ));
+            return Err(illegal_params("Value is empty"));
         }
 
         self.executor()

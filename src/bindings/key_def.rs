@@ -1,4 +1,5 @@
 use crate::bindings::error::handle_tarantool_error;
+use crate::bindings::helpers::illegal_params;
 use crate::bindings::tarantool::tarantool::key_def;
 use crate::bindings::tarantool::tarantool::types::{
     BoxError, BoxTuple, Collation, FieldType, KeyDef, KeyPart, KeyPartFlags,
@@ -46,22 +47,14 @@ impl key_def::Host for SyncWasmStates {
 
         for part in parts.iter() {
             let field_type_str = part.field_type.as_str();
-            let field_type_cstr = CString::new(field_type_str).map_err(|_| {
-                BoxError::new(
-                    TarantoolErrorCode::IllegalParams as u32,
-                    "Invalid field type",
-                )
-            })?;
+            let field_type_cstr =
+                CString::new(field_type_str).map_err(|_| illegal_params("Invalid field type"))?;
             let field_type_ptr = field_type_cstr.as_ptr();
             c_field_types.push(field_type_cstr);
 
             let collation_ptr: *const libc::c_char = if let Some(ref collation) = part.collation {
-                let collation_cstr = CString::new(collation.as_str()).map_err(|_| {
-                    BoxError::new(
-                        TarantoolErrorCode::IllegalParams as u32,
-                        "Invalid field type",
-                    )
-                })?;
+                let collation_cstr = CString::new(collation.as_str())
+                    .map_err(|_| illegal_params("Invalid field type"))?;
                 let ptr = collation_cstr.as_ptr();
                 c_collations.push(collation_cstr);
                 ptr
@@ -70,9 +63,8 @@ impl key_def::Host for SyncWasmStates {
             };
 
             let path_ptr: *const libc::c_char = if let Some(ref path) = part.path {
-                let path_cstr = CString::new(path.as_str()).map_err(|_| {
-                    BoxError::new(TarantoolErrorCode::IllegalParams as u32, "Invalid path")
-                })?;
+                let path_cstr =
+                    CString::new(path.as_str()).map_err(|_| illegal_params("Invalid path"))?;
                 let ptr = path_cstr.as_ptr();
                 c_paths.push(path_cstr);
                 ptr
