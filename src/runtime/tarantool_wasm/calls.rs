@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::RwLock};
 use anyhow::{anyhow, Result};
 use rmpv::Value as RmpvValue;
 use wasmtime::{
-    component::{Component, ComponentExportIndex, Linker, Val},
+    component::{Component, ComponentExportIndex, Instance, Linker, Val},
     AsContext, Store,
 };
 
@@ -65,6 +65,16 @@ pub(super) async fn execute_call_job(
     job: &CallJob,
 ) -> Result<RmpvValue> {
     let instance = linker.instantiate_async(&mut *store, component).await?;
+    execute_call_job_on_instance(store, &instance, component, export_cache, job).await
+}
+
+pub(super) async fn execute_call_job_on_instance(
+    store: &mut Store<SyncWasmStates>,
+    instance: &Instance,
+    component: &Component,
+    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    job: &CallJob,
+) -> Result<RmpvValue> {
     let func_index = resolve_call_export_index(component, export_cache, job)?;
 
     let export = instance
@@ -95,5 +105,7 @@ pub(super) async fn execute_call_job(
         .call_async(&mut *store, &wasm_args, &mut results_buf)
         .await?;
 
-    values_to_rmpv(&results_buf)
+    let result = values_to_rmpv(&results_buf)?;
+    export.post_return_async(&mut *store).await?;
+    Ok(result)
 }

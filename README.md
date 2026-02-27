@@ -190,6 +190,26 @@ tarantool> wasm.batch(m, {{"add", 1, 2}, {"add", 3, 4}})
 - {3, 7}
 ...
 
+tarantool> s = wasm.open_session(m)
+---
+- "<module_uid>::session#0"
+...
+
+tarantool> wasm.session_call(s, "add", 10, 20)
+---
+- 30
+...
+
+tarantool> wasm.session_batch(s, {{"add", 1, 2}, {"add", 5, 6}})
+---
+- {3, 11}
+...
+
+tarantool> wasm.close_session(s)
+---
+- true
+...
+
 tarantool> wasm.exports(m)
 ---
 - { add = { params = {{"x", "s32"}, {"y", "s32"}}, result = {"s32"} } }
