@@ -8,8 +8,9 @@ use tarantool::coio::coio_call;
 
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
-    tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_drop_module, tt_wasm_export_names,
-    tt_wasm_load_module, tt_wasm_run_module, WasmRunHandle,
+    tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session, tt_wasm_drop_module,
+    tt_wasm_export_names, tt_wasm_load_module, tt_wasm_open_session, tt_wasm_run_module,
+    tt_wasm_session_call_function, tt_wasm_session_call_functions, WasmRunHandle,
 };
 
 use super::args::{
@@ -100,6 +101,25 @@ fn run(lua: &Lua, args: LuaMultiValue) -> LuaResult<WasmJoinHandle> {
         .map_err(LuaError::runtime)
 }
 
+/// Open a long-lived session for repeated calls to the same module instance.
+///
+/// The first argument is the module identifier. The optional second argument is
+/// an execution config table overriding the module defaults for this session.
+fn open_session(lua: &Lua, args: LuaMultiValue) -> LuaResult<String> {
+    let mut iter = args.into_iter();
+    let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
+
+    let cfg = match iter.next() {
+        Some(value) => {
+            let tbl: LuaTable = LuaTable::from_lua(value, lua)?;
+            Some(parse_config_table(Some(tbl))?)
+        }
+        None => None,
+    };
+
+    tt_wasm_open_session(module_uid, cfg).map_err(LuaError::runtime)
+}
+
 /// Wait for a background task represented by [`WasmJoinHandle`].
 fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
     let mut handle = handle;
@@ -179,6 +199,52 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     Ok(LuaValue::Table(results_tbl))
 }
 
+/// Call a function on an already opened long-lived WASM session.
+fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+    let mut iter = args.into_iter();
+
+    let session_handle = parse_required_string(iter.next(), "expected session_handle as string")?;
+    let (interface, func) = parse_function_selector(iter.next())?;
+    let rest_args: Vec<Value> = iter.collect();
+
+    let rmp_args = rest_args
+        .iter()
+        .map(to_rmpv)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let result_val = tt_wasm_session_call_function(session_handle, interface, func, rmp_args)
+        .map_err(mlua::Error::external)?;
+
+    let lua_val = from_rmpv(lua, &result_val)?;
+    Ok(lua_val)
+}
+
+/// Execute multiple function calls on an already opened long-lived WASM session.
+fn session_batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+    let mut iter = args.into_iter();
+
+    let session_handle = parse_required_string(iter.next(), "expected session_handle as string")?;
+    let calls_tbl = parse_calls_table(iter.next())?;
+    let calls = parse_batch_calls(calls_tbl)?;
+
+    let result_vals =
+        tt_wasm_session_call_functions(session_handle, calls).map_err(mlua::Error::external)?;
+
+    let results_tbl = lua.create_table()?;
+    for (i, val) in result_vals.into_iter().enumerate() {
+        let lua_val = from_rmpv(lua, &val)?;
+        results_tbl.set(i + 1, lua_val)?;
+    }
+
+    Ok(LuaValue::Table(results_tbl))
+}
+
+/// Close a long-lived WASM session.
+fn close_session(_: &Lua, session_handle: String) -> LuaResult<bool> {
+    tt_wasm_close_session(session_handle).map_err(LuaError::runtime)?;
+    Ok(true)
+}
+
 /// Return a Lua table describing all exported functions of a module.
 fn exports(lua: &Lua, module_uid: String) -> LuaResult<Value> {
     match tt_wasm_export_names(module_uid) {
@@ -237,10 +303,14 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;
     module.set("load", lua.create_function(load)?)?;
     module.set("run", lua.create_function(run)?)?;
+    module.set("open_session", lua.create_function(open_session)?)?;
     module.set("join", lua.create_function(join)?)?;
     module.set("cancel", lua.create_function(cancel)?)?;
     module.set("call", lua.create_function(call)?)?;
     module.set("batch", lua.create_function(batch)?)?;
+    module.set("session_call", lua.create_function(session_call)?)?;
+    module.set("session_batch", lua.create_function(session_batch)?)?;
+    module.set("close_session", lua.create_function(close_session)?)?;
     module.set("exports", lua.create_function(exports)?)?;
     module.set("drop", lua.create_function(drop)?)?;
     Ok(module)

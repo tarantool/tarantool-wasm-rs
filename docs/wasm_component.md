@@ -37,6 +37,22 @@ local results = wasm.batch(m, {
 
 All functions are executed within a single OS thread. The result is returned as a Lua array of values. Each export is executed in its own `Store` and component instance, but without spawning new OS threads.
 
+## Long-Lived Sessions
+
+For workloads that need state to persist between calls, use session-based APIs:
+
+```lua
+local s = wasm.open_session(module_uid)
+local value = wasm.session_call(s, "func", arg1, arg2)
+local values = wasm.session_batch(s, {
+    {"func1", ...},
+    {"func2", ...},
+})
+wasm.close_session(s)
+```
+
+A session keeps one component instance and one store alive across calls, allowing in-memory guest state and resources to be reused between invocations.
+
 ## Diagrams
 
 Below are three separate diagrams for `wasm.run`, `wasm.call`, and `wasm.batch`. Each represents the sequence of actions within its respective thread, with no overlap between the scenarios.

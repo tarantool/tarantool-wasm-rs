@@ -43,7 +43,7 @@ use crate::runtime::{
 };
 
 use self::{
-    calls::execute_call_job,
+    calls::{execute_call_job, execute_call_job_on_instance},
     exports::{collect_exports, export_info_from_component_func},
     linker::{build_runtime_linker, runtime_config},
     threading::spawn_tt_thread,
@@ -365,13 +365,27 @@ impl From<(Option<String>, String, Vec<RmpvValue>)> for CallJob {
     }
 }
 
+enum SessionCommand {
+    Call(CallJob, std_mpsc::Sender<Result<RmpvValue>>),
+    Batch(Vec<CallJob>, std_mpsc::Sender<Result<Vec<RmpvValue>>>),
+    Close(std_mpsc::Sender<Result<()>>),
+}
+
+struct WasmSession {
+    module_uid: String,
+    cmd_tx: std_mpsc::Sender<SessionCommand>,
+    join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
+}
+
 struct RuntimeState {
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
     pub fuel_engine: Engine,
     pub fuel_linker: Arc<Linker<SyncWasmStates>>,
     pub modules: RwLock<HashMap<String, LoadedModule>>,
+    pub sessions: RwLock<HashMap<String, Arc<WasmSession>>>,
     pub next_uid: AtomicU64,
+    pub next_session_uid: AtomicU64,
 }
 
 impl RuntimeState {
@@ -383,6 +397,7 @@ impl RuntimeState {
         let fuel_linker = build_runtime_linker(&fuel_engine);
 
         let modules = RwLock::new(HashMap::new());
+        let sessions = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
         let fuel_linker_ref = Arc::new(fuel_linker);
 
@@ -401,7 +416,9 @@ impl RuntimeState {
             fuel_engine,
             fuel_linker: fuel_linker_ref,
             modules,
+            sessions,
             next_uid: AtomicU64::new(0),
+            next_session_uid: AtomicU64::new(0),
         }
     }
 }
@@ -441,12 +458,312 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
 
 /// Drop a previously loaded module, freeing associated resources.
 pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
-    let mut modules = runtime_state.modules.write().unwrap();
-    if modules.remove(&module_uid).is_some() {
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!("module `{module_uid}` not found"))
+    {
+        let mut modules = runtime_state.modules.write().unwrap();
+        if modules.remove(&module_uid).is_none() {
+            return Err(anyhow::anyhow!("module `{module_uid}` not found"));
+        }
     }
+
+    let mut sessions_to_close = Vec::new();
+    {
+        let mut sessions = runtime_state.sessions.write().unwrap();
+        sessions.retain(|session_handle, session| {
+            if session.module_uid == module_uid {
+                sessions_to_close.push((session_handle.clone(), Arc::clone(session)));
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    for (session_handle, session) in sessions_to_close {
+        close_session_impl(&session_handle, session)?;
+    }
+
+    Ok(())
+}
+
+fn recv_result_via_coio<T: Send + 'static>(receiver: std_mpsc::Receiver<Result<T>>) -> Result<T> {
+    let mut result: Result<T> = Err(anyhow!("failed to receive worker response"));
+    coio_call(
+        &mut |rx: Box<std_mpsc::Receiver<Result<T>>>| {
+            result = rx
+                .recv()
+                .unwrap_or_else(|_| Err(anyhow!("worker stopped unexpectedly")));
+            0
+        },
+        receiver,
+    );
+    result
+}
+
+fn join_handle_via_coio<T: Send + 'static>(handle: JoinHandle<Result<T>>) -> Result<T> {
+    let mut result: Result<T> = Err(anyhow!("failed to join worker thread"));
+    coio_call(
+        &mut |h: Box<JoinHandle<Result<T>>>| {
+            result = h.join().unwrap_or_else(|_| Err(anyhow!("thread panicked")));
+            0
+        },
+        handle,
+    );
+    result
+}
+
+fn init_store(engine: &Engine, config: &WasmConfig, with_fuel: bool) -> Store<SyncWasmStates> {
+    let wasi_view = SyncWasmStates::new(config.clone());
+    let mut store = Store::new(engine, wasi_view);
+    store.limiter(|state| &mut state.limits);
+    if with_fuel {
+        let limit = config.max_instructions.unwrap_or(u64::MAX);
+        let _ = store.set_fuel(limit);
+    }
+    store.set_epoch_deadline(1);
+    store.epoch_deadline_trap();
+    store
+}
+
+fn reset_store_fuel(store: &mut Store<SyncWasmStates>, with_fuel: bool, config: &WasmConfig) {
+    if with_fuel {
+        let limit = config.max_instructions.unwrap_or(u64::MAX);
+        let _ = store.set_fuel(limit);
+    }
+}
+
+fn run_session_worker(
+    module_uid: String,
+    component: Component,
+    config: WasmConfig,
+    with_fuel: bool,
+    export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    ready_tx: std_mpsc::Sender<Result<()>>,
+    cmd_rx: std_mpsc::Receiver<SessionCommand>,
+) -> Result<()> {
+    let engine = if with_fuel {
+        &runtime_state.fuel_engine
+    } else {
+        &runtime_state.engine
+    };
+    let linker = if with_fuel {
+        runtime_state.fuel_linker.clone()
+    } else {
+        runtime_state.linker.clone()
+    };
+
+    let mut store = init_store(engine, &config, with_fuel);
+
+    let rt = Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .unwrap();
+
+    let instance = match rt.block_on(linker.instantiate_async(&mut store, &component)) {
+        Ok(instance) => instance,
+        Err(err) => {
+            let init_error =
+                anyhow!("failed to instantiate session for module `{module_uid}`: {err}");
+            let _ = ready_tx.send(Err(anyhow!("{init_error}")));
+            return Err(init_error);
+        }
+    };
+
+    let _ = ready_tx.send(Ok(()));
+
+    while let Ok(command) = cmd_rx.recv() {
+        match command {
+            SessionCommand::Call(job, result_tx) => {
+                reset_store_fuel(&mut store, with_fuel, &config);
+                let result = rt.block_on(async {
+                    execute_call_job_on_instance(
+                        &mut store,
+                        &instance,
+                        &component,
+                        export_cache.as_ref(),
+                        &job,
+                    )
+                    .await
+                });
+                let _ = result_tx.send(result);
+            }
+            SessionCommand::Batch(jobs, result_tx) => {
+                let mut results_all = Vec::with_capacity(jobs.len());
+                let mut batch_result = Ok(());
+                for job in jobs {
+                    reset_store_fuel(&mut store, with_fuel, &config);
+                    match rt.block_on(async {
+                        execute_call_job_on_instance(
+                            &mut store,
+                            &instance,
+                            &component,
+                            export_cache.as_ref(),
+                            &job,
+                        )
+                        .await
+                    }) {
+                        Ok(value) => results_all.push(value),
+                        Err(err) => {
+                            batch_result = Err(err);
+                            break;
+                        }
+                    }
+                }
+
+                let _ = result_tx.send(match batch_result {
+                    Ok(()) => Ok(results_all),
+                    Err(err) => Err(err),
+                });
+            }
+            SessionCommand::Close(done_tx) => {
+                let _ = done_tx.send(Ok(()));
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn close_session_impl(session_handle: &str, session: Arc<WasmSession>) -> Result<()> {
+    let (close_tx, close_rx) = std_mpsc::channel();
+    if session.cmd_tx.send(SessionCommand::Close(close_tx)).is_ok() {
+        recv_result_via_coio(close_rx)?;
+    }
+
+    if let Some(handle) = session.join_handle.lock().unwrap().take() {
+        join_handle_via_coio(handle)
+            .map_err(|err| anyhow!("session `{session_handle}` worker failed: {err}"))?;
+    }
+    Ok(())
+}
+
+/// Open a long-lived WASM session with a persistent component instance.
+pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> Result<String> {
+    let loaded = runtime_state
+        .modules
+        .read()
+        .unwrap()
+        .get(&module_uid)
+        .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
+        .clone();
+
+    let mut cfg = loaded.config;
+    if let Some(over) = config {
+        cfg = over;
+    }
+    if cfg.max_instructions.is_some() && !loaded.fuel {
+        return Err(anyhow::anyhow!(
+            "module `{}` was loaded without fuel support",
+            module_uid
+        ));
+    }
+
+    let component = loaded.component;
+    let fuel = loaded.fuel;
+    let export_cache = loaded.export_cache;
+
+    let (cmd_tx, cmd_rx) = std_mpsc::channel();
+    let (ready_tx, ready_rx) = std_mpsc::channel();
+
+    let module_uid_for_thread = module_uid.clone();
+    let worker = spawn_tt_thread("wasm-session".to_string(), move || {
+        run_session_worker(
+            module_uid_for_thread,
+            component,
+            cfg,
+            fuel,
+            export_cache,
+            ready_tx,
+            cmd_rx,
+        )
+    })?;
+
+    if let Err(err) = recv_result_via_coio(ready_rx) {
+        let _ = join_handle_via_coio(worker);
+        return Err(err);
+    }
+
+    let session_handle = format!(
+        "{}::session#{}",
+        module_uid,
+        runtime_state
+            .next_session_uid
+            .fetch_add(1, Ordering::Relaxed)
+    );
+
+    runtime_state.sessions.write().unwrap().insert(
+        session_handle.clone(),
+        Arc::new(WasmSession {
+            module_uid,
+            cmd_tx,
+            join_handle: Mutex::new(Some(worker)),
+        }),
+    );
+
+    Ok(session_handle)
+}
+
+/// Call a single export through an opened long-lived session.
+pub fn tt_wasm_session_call_function(
+    session_handle: String,
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+) -> Result<RmpvValue> {
+    let session = runtime_state
+        .sessions
+        .read()
+        .unwrap()
+        .get(&session_handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
+
+    let (result_tx, result_rx) = std_mpsc::channel();
+    session
+        .cmd_tx
+        .send(SessionCommand::Call(
+            CallJob::new(interface, func, args),
+            result_tx,
+        ))
+        .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
+
+    recv_result_via_coio(result_rx)
+}
+
+/// Call multiple exports through an opened long-lived session.
+pub fn tt_wasm_session_call_functions(
+    session_handle: String,
+    calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
+) -> Result<Vec<RmpvValue>> {
+    let session = runtime_state
+        .sessions
+        .read()
+        .unwrap()
+        .get(&session_handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
+
+    let jobs = calls.into_iter().map(CallJob::from).collect::<Vec<_>>();
+    let (result_tx, result_rx) = std_mpsc::channel();
+    session
+        .cmd_tx
+        .send(SessionCommand::Batch(jobs, result_tx))
+        .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
+
+    recv_result_via_coio(result_rx)
+}
+
+/// Close a long-lived session and release its worker thread and instance.
+pub fn tt_wasm_close_session(session_handle: String) -> Result<()> {
+    let session = runtime_state
+        .sessions
+        .write()
+        .unwrap()
+        .remove(&session_handle)
+        .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
+
+    close_session_impl(&session_handle, session)
 }
 
 /// Run a loaded module in a background thread, returning a join handle.

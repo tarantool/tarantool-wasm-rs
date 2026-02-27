@@ -1,0 +1,5 @@
+package docs:adder@0.1.0;
+
+world adder {
+  export t-func: func() -> u32;
+}
