@@ -12,6 +12,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::OpenOptions,
     net::IpAddr,
+    path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc as std_mpsc, Arc, Mutex, RwLock,
@@ -27,7 +28,8 @@ use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
 use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
     component::{
-        types::ComponentItem, Component, ComponentExportIndex, HasData, Linker, ResourceTable,
+        types::ComponentItem, Component, ComponentExportIndex, HasData, Instance, Linker,
+        ResourceTable,
     },
     Engine, Store, StoreLimits, StoreLimitsBuilder,
 };
@@ -38,6 +40,7 @@ use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 use wasmtime_wasi_tls::{WasiTlsCtx, WasiTlsCtxBuilder};
 
 use crate::runtime::{
+    convert::{msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes},
     executor::{Executor, TxMode},
     wasm_fiber::{WasmFiber, WasmFiberStatus},
 };
@@ -78,7 +81,7 @@ lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// Configuration options controlling how a module is executed.
 pub struct WasmConfig {
     /// Inherit environment variables from the Tarantool process.
@@ -119,6 +122,8 @@ pub struct WasmConfig {
     pub memory_limit: Option<usize>,
     /// Limit on the number of Wasmtime instructions (fuel) a module may consume.
     pub max_instructions: Option<u64>,
+    /// Enable shared interpreter mode for this module.
+    pub interpreter: bool,
 }
 
 impl Default for WasmConfig {
@@ -143,6 +148,7 @@ impl Default for WasmConfig {
             preopened_dirs: Vec::new(),
             memory_limit: None,
             max_instructions: None,
+            interpreter: false,
         }
     }
 }
@@ -326,6 +332,24 @@ struct LoadedModule {
     config: WasmConfig,
     fuel: bool,
     export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    mode: ModuleMode,
+}
+
+#[derive(Clone)]
+enum ModuleMode {
+    Regular,
+    Interpreter(Arc<SharedInterpreterEntry>),
+}
+
+struct SharedInterpreterEntry {
+    path_key: String,
+    component: Component,
+    config: WasmConfig,
+    fuel: bool,
+    export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    cmd_tx: std_mpsc::Sender<InterpreterCommand>,
+    join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
+    refcount: AtomicU64,
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -371,6 +395,16 @@ enum SessionCommand {
     Close(std_mpsc::Sender<Result<()>>),
 }
 
+enum InterpreterCommand {
+    Exec(String, std_mpsc::Sender<Result<()>>),
+    Call {
+        func: String,
+        args_msgpack: Vec<u8>,
+        result_tx: std_mpsc::Sender<Result<Vec<u8>>>,
+    },
+    Close(std_mpsc::Sender<Result<()>>),
+}
+
 struct WasmSession {
     module_uid: String,
     cmd_tx: std_mpsc::Sender<SessionCommand>,
@@ -383,6 +417,7 @@ struct RuntimeState {
     pub fuel_engine: Engine,
     pub fuel_linker: Arc<Linker<SyncWasmStates>>,
     pub modules: RwLock<HashMap<String, LoadedModule>>,
+    pub shared_interpreters: RwLock<HashMap<String, Arc<SharedInterpreterEntry>>>,
     pub sessions: RwLock<HashMap<String, Arc<WasmSession>>>,
     pub next_uid: AtomicU64,
     pub next_session_uid: AtomicU64,
@@ -397,6 +432,7 @@ impl RuntimeState {
         let fuel_linker = build_runtime_linker(&fuel_engine);
 
         let modules = RwLock::new(HashMap::new());
+        let shared_interpreters = RwLock::new(HashMap::new());
         let sessions = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
         let fuel_linker_ref = Arc::new(fuel_linker);
@@ -416,6 +452,7 @@ impl RuntimeState {
             fuel_engine,
             fuel_linker: fuel_linker_ref,
             modules,
+            shared_interpreters,
             sessions,
             next_uid: AtomicU64::new(0),
             next_session_uid: AtomicU64::new(0),
@@ -427,43 +464,120 @@ impl RuntimeState {
 /// returning a unique module identifier.
 pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
     let use_fuel = config.max_instructions.is_some();
-    let engine = if use_fuel {
-        &runtime_state.fuel_engine
-    } else {
-        &runtime_state.engine
-    };
-    match Component::from_file(engine, path.clone()) {
-        Ok(module) => {
-            let loaded = LoadedModule {
-                component: module,
-                config,
-                fuel: use_fuel,
-                export_cache: Arc::new(RwLock::new(HashMap::new())),
-            };
-            let uid = format!(
-                "{}#{}",
-                path,
-                runtime_state.next_uid.fetch_add(1, Ordering::Relaxed)
-            );
-            runtime_state
-                .modules
-                .write()
-                .unwrap()
-                .insert(uid.clone(), loaded);
-            Ok(uid)
+
+    let loaded = if config.interpreter {
+        let path_key = PathBuf::from(path.clone())
+            .canonicalize()
+            .map_err(|err| anyhow!("failed to canonicalize `{path}`: {err}"))?
+            .to_string_lossy()
+            .to_string();
+
+        let entry = {
+            let mut registry = runtime_state.shared_interpreters.write().unwrap();
+            if let Some(existing) = registry.get(&path_key) {
+                if existing.config != config {
+                    return Err(anyhow!(
+                        "interpreter `{path_key}` already loaded with a different config"
+                    ));
+                }
+                existing.refcount.fetch_add(1, Ordering::Relaxed);
+                Arc::clone(existing)
+            } else {
+                let engine = if use_fuel {
+                    &runtime_state.fuel_engine
+                } else {
+                    &runtime_state.engine
+                };
+
+                let component = Component::from_file(engine, path.clone())?;
+                let export_cache = Arc::new(RwLock::new(HashMap::new()));
+                let (cmd_tx, cmd_rx) = std_mpsc::channel();
+                let (ready_tx, ready_rx) = std_mpsc::channel();
+
+                let worker = spawn_tt_thread("wasm-interpreter".to_string(), {
+                    let path_key_for_thread = path_key.clone();
+                    let component_for_thread = component.clone();
+                    let config_for_thread = config.clone();
+                    let export_cache_for_thread = Arc::clone(&export_cache);
+                    move || {
+                        run_interpreter_worker(
+                            path_key_for_thread,
+                            component_for_thread,
+                            config_for_thread,
+                            use_fuel,
+                            export_cache_for_thread,
+                            ready_tx,
+                            cmd_rx,
+                        )
+                    }
+                })?;
+
+                if let Err(err) = recv_result_via_coio(ready_rx) {
+                    let _ = join_handle_via_coio(worker);
+                    return Err(err);
+                }
+
+                let created = Arc::new(SharedInterpreterEntry {
+                    path_key: path_key.clone(),
+                    component: component.clone(),
+                    config: config.clone(),
+                    fuel: use_fuel,
+                    export_cache: Arc::clone(&export_cache),
+                    cmd_tx,
+                    join_handle: Mutex::new(Some(worker)),
+                    refcount: AtomicU64::new(1),
+                });
+                registry.insert(path_key.clone(), Arc::clone(&created));
+                created
+            }
+        };
+
+        LoadedModule {
+            component: entry.component.clone(),
+            config: entry.config.clone(),
+            fuel: entry.fuel,
+            export_cache: Arc::clone(&entry.export_cache),
+            mode: ModuleMode::Interpreter(entry),
         }
-        Err(e) => Err(e),
-    }
+    } else {
+        let engine = if use_fuel {
+            &runtime_state.fuel_engine
+        } else {
+            &runtime_state.engine
+        };
+
+        let component = Component::from_file(engine, path.clone())?;
+        LoadedModule {
+            component,
+            config,
+            fuel: use_fuel,
+            export_cache: Arc::new(RwLock::new(HashMap::new())),
+            mode: ModuleMode::Regular,
+        }
+    };
+
+    let uid = format!(
+        "{}#{}",
+        path,
+        runtime_state.next_uid.fetch_add(1, Ordering::Relaxed)
+    );
+    runtime_state
+        .modules
+        .write()
+        .unwrap()
+        .insert(uid.clone(), loaded);
+    Ok(uid)
 }
 
 /// Drop a previously loaded module, freeing associated resources.
 pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
-    {
+    let mode = {
         let mut modules = runtime_state.modules.write().unwrap();
-        if modules.remove(&module_uid).is_none() {
-            return Err(anyhow::anyhow!("module `{module_uid}` not found"));
-        }
-    }
+        let loaded = modules
+            .remove(&module_uid)
+            .ok_or_else(|| anyhow::anyhow!("module `{module_uid}` not found"))?;
+        loaded.mode
+    };
 
     let mut sessions_to_close = Vec::new();
     {
@@ -480,6 +594,32 @@ pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
 
     for (session_handle, session) in sessions_to_close {
         close_session_impl(&session_handle, session)?;
+    }
+
+    if let ModuleMode::Interpreter(entry) = mode {
+        let previous = entry.refcount.fetch_sub(1, Ordering::Relaxed);
+        if previous == 0 {
+            entry.refcount.store(0, Ordering::Relaxed);
+            return Err(anyhow!(
+                "interpreter refcount underflow for path `{}`",
+                entry.path_key
+            ));
+        }
+
+        if previous == 1 {
+            let path_key = entry.path_key.clone();
+            {
+                let mut registry = runtime_state.shared_interpreters.write().unwrap();
+                if registry
+                    .get(&entry.path_key)
+                    .map(|current| Arc::ptr_eq(current, &entry))
+                    .unwrap_or(false)
+                {
+                    registry.remove(&entry.path_key);
+                }
+            }
+            close_interpreter_impl(&path_key, entry)?;
+        }
     }
 
     Ok(())
@@ -529,6 +669,294 @@ fn reset_store_fuel(store: &mut Store<SyncWasmStates>, with_fuel: bool, config: 
         let limit = config.max_instructions.unwrap_or(u64::MAX);
         let _ = store.set_fuel(limit);
     }
+}
+
+fn decode_result_tuple(value: &RmpvValue, op: &str) -> Result<Option<RmpvValue>> {
+    let values = match value.as_array() {
+        Some(values) => values,
+        None => return Ok(None),
+    };
+
+    if values.len() != 2 {
+        return Ok(None);
+    }
+
+    let is_ok = match values[0].as_bool() {
+        Some(is_ok) => is_ok,
+        None => return Ok(None),
+    };
+
+    if is_ok {
+        Ok(Some(values[1].clone()))
+    } else if let Some(err) = values[1].as_str() {
+        Err(anyhow!("interpreter `{op}` failed: {err}"))
+    } else {
+        Err(anyhow!(
+            "interpreter `{op}` failed with non-string error: {:?}",
+            values[1]
+        ))
+    }
+}
+
+fn decode_exec_response(value: RmpvValue) -> Result<()> {
+    if decode_result_tuple(&value, "exec")?.is_some() {
+        return Ok(());
+    }
+
+    match value {
+        RmpvValue::Nil => Ok(()),
+        RmpvValue::Boolean(true) => Ok(()),
+        other => Err(anyhow!(
+            "unexpected `exec` return type: expected unit or result<unit, string>, got {other:?}"
+        )),
+    }
+}
+
+fn decode_call_response(value: RmpvValue) -> Result<Vec<u8>> {
+    let payload = match decode_result_tuple(&value, "call")? {
+        Some(payload) => payload,
+        None => value,
+    };
+    rmpv_to_u8_vec(payload, "call")
+}
+
+fn rmpv_to_u8_vec(value: RmpvValue, op: &str) -> Result<Vec<u8>> {
+    let items = value
+        .as_array()
+        .ok_or_else(|| anyhow!("`{op}` success payload must be list<u8>"))?;
+
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let byte = item
+            .as_u64()
+            .ok_or_else(|| anyhow!("`{op}` success payload must contain only integers"))?;
+        if byte > u8::MAX as u64 {
+            return Err(anyhow!("`{op}` payload byte out of range: {byte}"));
+        }
+        out.push(byte as u8);
+    }
+    Ok(out)
+}
+
+struct InterpreterJobCtx<'a> {
+    store: &'a mut Store<SyncWasmStates>,
+    rt: &'a tokio::runtime::Runtime,
+    instance: &'a Instance,
+    component: &'a Component,
+    export_cache: &'a RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    with_fuel: bool,
+    config: &'a WasmConfig,
+}
+
+fn run_interpreter_exec_job(
+    ctx: InterpreterJobCtx<'_>,
+    code: String,
+) -> Result<()> {
+    reset_store_fuel(ctx.store, ctx.with_fuel, ctx.config);
+    ctx.rt.block_on(async {
+        let job = CallJob::new(None, "exec".to_string(), vec![RmpvValue::from(code)]);
+        execute_call_job_on_instance(
+            ctx.store,
+            ctx.instance,
+            ctx.component,
+            ctx.export_cache,
+            &job,
+        )
+        .await
+    })
+    .and_then(decode_exec_response)
+}
+
+fn run_interpreter_call_job(
+    ctx: InterpreterJobCtx<'_>,
+    func: String,
+    args_msgpack: Vec<u8>,
+) -> Result<Vec<u8>> {
+    let args_array = args_msgpack
+        .iter()
+        .map(|b| RmpvValue::from(*b as u64))
+        .collect::<Vec<_>>();
+
+    reset_store_fuel(ctx.store, ctx.with_fuel, ctx.config);
+    ctx.rt.block_on(async {
+        let job = CallJob::new(
+            None,
+            "call".to_string(),
+            vec![RmpvValue::from(func), RmpvValue::Array(args_array)],
+        );
+        execute_call_job_on_instance(
+            ctx.store,
+            ctx.instance,
+            ctx.component,
+            ctx.export_cache,
+            &job,
+        )
+        .await
+    })
+    .and_then(decode_call_response)
+}
+
+fn instantiate_interpreter_instance(
+    path_key: &str,
+    engine: &Engine,
+    linker: &Linker<SyncWasmStates>,
+    component: &Component,
+    config: &WasmConfig,
+    with_fuel: bool,
+    rt: &tokio::runtime::Runtime,
+) -> Result<(Store<SyncWasmStates>, Instance)> {
+    let mut store = init_store(engine, config, with_fuel);
+    let instance = rt
+        .block_on(linker.instantiate_async(&mut store, component))
+        .map_err(|err| anyhow!("failed to instantiate interpreter `{path_key}`: {err}"))?;
+    Ok((store, instance))
+}
+
+fn run_interpreter_worker(
+    path_key: String,
+    component: Component,
+    config: WasmConfig,
+    with_fuel: bool,
+    export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    ready_tx: std_mpsc::Sender<Result<()>>,
+    cmd_rx: std_mpsc::Receiver<InterpreterCommand>,
+) -> Result<()> {
+    let engine = if with_fuel {
+        &runtime_state.fuel_engine
+    } else {
+        &runtime_state.engine
+    };
+    let linker = if with_fuel {
+        runtime_state.fuel_linker.clone()
+    } else {
+        runtime_state.linker.clone()
+    };
+
+    let rt = Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .unwrap();
+
+    let (mut store, mut instance) = match instantiate_interpreter_instance(
+        &path_key,
+        engine,
+        linker.as_ref(),
+        &component,
+        &config,
+        with_fuel,
+        &rt,
+    ) {
+        Ok(v) => v,
+        Err(init_error) => {
+            let _ = ready_tx.send(Err(anyhow!("{init_error}")));
+            return Err(init_error);
+        }
+    };
+
+    let _ = ready_tx.send(Ok(()));
+
+    while let Ok(command) = cmd_rx.recv() {
+        match command {
+            InterpreterCommand::Exec(code, result_tx) => {
+                let result = run_interpreter_exec_job(
+                    InterpreterJobCtx {
+                        store: &mut store,
+                        rt: &rt,
+                        instance: &instance,
+                        component: &component,
+                        export_cache: export_cache.as_ref(),
+                        with_fuel,
+                        config: &config,
+                    },
+                    code,
+                );
+                match result {
+                    Ok(()) => {
+                        let _ = result_tx.send(Ok(()));
+                    }
+                    Err(err) => {
+                        match instantiate_interpreter_instance(
+                            &path_key,
+                            engine,
+                            linker.as_ref(),
+                            &component,
+                            &config,
+                            with_fuel,
+                            &rt,
+                        ) {
+                            Ok((new_store, new_instance)) => {
+                                store = new_store;
+                                instance = new_instance;
+                                let _ = result_tx.send(Err(err));
+                            }
+                            Err(recover_err) => {
+                                let combined = anyhow!(
+                                    "{err}; interpreter `{path_key}` entered unrecoverable state: {recover_err}"
+                                );
+                                let _ = result_tx.send(Err(combined));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            InterpreterCommand::Call {
+                func,
+                args_msgpack,
+                result_tx,
+            } => {
+                let result = run_interpreter_call_job(
+                    InterpreterJobCtx {
+                        store: &mut store,
+                        rt: &rt,
+                        instance: &instance,
+                        component: &component,
+                        export_cache: export_cache.as_ref(),
+                        with_fuel,
+                        config: &config,
+                    },
+                    func,
+                    args_msgpack,
+                );
+                match result {
+                    Ok(raw) => {
+                        let _ = result_tx.send(Ok(raw));
+                    }
+                    Err(err) => {
+                        match instantiate_interpreter_instance(
+                            &path_key,
+                            engine,
+                            linker.as_ref(),
+                            &component,
+                            &config,
+                            with_fuel,
+                            &rt,
+                        ) {
+                            Ok((new_store, new_instance)) => {
+                                store = new_store;
+                                instance = new_instance;
+                                let _ = result_tx.send(Err(err));
+                            }
+                            Err(recover_err) => {
+                                let combined = anyhow!(
+                                    "{err}; interpreter `{path_key}` entered unrecoverable state: {recover_err}"
+                                );
+                                let _ = result_tx.send(Err(combined));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            InterpreterCommand::Close(done_tx) => {
+                let _ = done_tx.send(Ok(()));
+                break;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn run_session_worker(
@@ -635,6 +1063,24 @@ fn close_session_impl(session_handle: &str, session: Arc<WasmSession>) -> Result
         join_handle_via_coio(handle)
             .map_err(|err| anyhow!("session `{session_handle}` worker failed: {err}"))?;
     }
+    Ok(())
+}
+
+fn close_interpreter_impl(path_key: &str, entry: Arc<SharedInterpreterEntry>) -> Result<()> {
+    let (close_tx, close_rx) = std_mpsc::channel();
+    if entry
+        .cmd_tx
+        .send(InterpreterCommand::Close(close_tx))
+        .is_ok()
+    {
+        recv_result_via_coio(close_rx)?;
+    }
+
+    if let Some(handle) = entry.join_handle.lock().unwrap().take() {
+        join_handle_via_coio(handle)
+            .map_err(|err| anyhow!("interpreter `{path_key}` worker failed: {err}"))?;
+    }
+
     Ok(())
 }
 
@@ -764,6 +1210,58 @@ pub fn tt_wasm_close_session(session_handle: String) -> Result<()> {
         .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
 
     close_session_impl(&session_handle, session)
+}
+
+fn interpreter_entry_for_module(module_uid: &str) -> Result<Arc<SharedInterpreterEntry>> {
+    let loaded = runtime_state
+        .modules
+        .read()
+        .unwrap()
+        .get(module_uid)
+        .cloned()
+        .ok_or_else(|| anyhow!("module `{module_uid}` not found"))?;
+
+    match loaded.mode {
+        ModuleMode::Interpreter(entry) => Ok(entry),
+        ModuleMode::Regular => Err(anyhow!(
+            "module `{module_uid}` is not loaded in interpreter mode"
+        )),
+    }
+}
+
+/// Execute source code in a shared interpreter instance.
+pub fn tt_wasm_interpreter_exec(module_uid: String, code: String) -> Result<()> {
+    let entry = interpreter_entry_for_module(&module_uid)?;
+    let (result_tx, result_rx) = std_mpsc::channel();
+    entry
+        .cmd_tx
+        .send(InterpreterCommand::Exec(code, result_tx))
+        .map_err(|_| anyhow!("interpreter for module `{module_uid}` is closed"))?;
+
+    recv_result_via_coio(result_rx)
+}
+
+/// Call a function in a shared interpreter instance.
+pub fn tt_wasm_interpreter_call(
+    module_uid: String,
+    func: String,
+    args: Vec<RmpvValue>,
+) -> Result<RmpvValue> {
+    let entry = interpreter_entry_for_module(&module_uid)?;
+    let args_msgpack = rmpv_to_msgpack_bytes(&RmpvValue::Array(args))?;
+    let (result_tx, result_rx) = std_mpsc::channel();
+
+    entry
+        .cmd_tx
+        .send(InterpreterCommand::Call {
+            func,
+            args_msgpack,
+            result_tx,
+        })
+        .map_err(|_| anyhow!("interpreter for module `{module_uid}` is closed"))?;
+
+    let raw = recv_result_via_coio(result_rx)?;
+    msgpack_bytes_to_rmpv(&raw)
 }
 
 /// Run a loaded module in a background thread, returning a join handle.
