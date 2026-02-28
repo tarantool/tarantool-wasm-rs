@@ -88,6 +88,9 @@ pub(super) fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig>
         if let Ok(max_instructions) = t.get::<u64>("max_instructions") {
             cfg.max_instructions = Some(max_instructions);
         }
+        if let Ok(Some(interpreter)) = t.get::<Option<bool>>("interpreter") {
+            cfg.interpreter = interpreter;
+        }
     }
     Ok(cfg)
 }

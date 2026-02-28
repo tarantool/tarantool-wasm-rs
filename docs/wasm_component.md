@@ -53,6 +53,37 @@ wasm.close_session(s)
 
 A session keeps one component instance and one store alive across calls, allowing in-memory guest state and resources to be reused between invocations.
 
+## Shared Interpreter Mode
+
+For interpreter components (large WASM binaries), enable shared mode at load:
+
+```lua
+local m = wasm.load(path, { interpreter = true })
+```
+
+In this mode the runtime keeps one warmed interpreter instance.
+
+### Example - Python interpreter
+
+Use dedicated APIs:
+
+```lua
+wasm.interpreter_exec(m, [[
+counter = 0
+def next():
+    global counter
+    counter += 1
+    return counter
+]])
+
+local v1 = wasm.interpreter_call(m, "next") -- 1
+local v2 = wasm.interpreter_call(m, "next") -- 2
+```
+
+Data passed to `interpreter_call` is encoded as MessagePack array and forwarded
+to the component `call(func, args_msgpack)` export. Returned MessagePack bytes
+are decoded back into Lua values.
+
 ## Diagrams
 
 Below are three separate diagrams for `wasm.run`, `wasm.call`, and `wasm.batch`. Each represents the sequence of actions within its respective thread, with no overlap between the scenarios.

@@ -3,6 +3,7 @@
 //! WebAssembly worlds.
 
 use anyhow::Result;
+use rmp_serde::{from_slice, to_vec};
 use rmpv::Value as RmpvValue;
 use std::collections::{HashMap, HashSet};
 use wasmtime::component::Type;
@@ -304,6 +305,16 @@ pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
         }
         other => return Err(anyhow::anyhow!("Unsupported Val: {other:?}")),
     })
+}
+
+/// Encode an [`rmpv::Value`] into raw MessagePack bytes.
+pub fn rmpv_to_msgpack_bytes(value: &RmpvValue) -> Result<Vec<u8>> {
+    to_vec(value).map_err(|err| anyhow::anyhow!("failed to encode MessagePack: {err}"))
+}
+
+/// Decode raw MessagePack bytes into an [`rmpv::Value`].
+pub fn msgpack_bytes_to_rmpv(bytes: &[u8]) -> Result<RmpvValue> {
+    from_slice(bytes).map_err(|err| anyhow::anyhow!("failed to decode MessagePack: {err}"))
 }
 
 /// Convert a [`mlua::Value`] into an [`rmpv::Value`].

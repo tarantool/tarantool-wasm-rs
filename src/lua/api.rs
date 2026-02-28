@@ -9,8 +9,9 @@ use tarantool::coio::coio_call;
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
     tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session, tt_wasm_drop_module,
-    tt_wasm_export_names, tt_wasm_load_module, tt_wasm_open_session, tt_wasm_run_module,
-    tt_wasm_session_call_function, tt_wasm_session_call_functions, WasmRunHandle,
+    tt_wasm_export_names, tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_load_module,
+    tt_wasm_open_session, tt_wasm_run_module, tt_wasm_session_call_function,
+    tt_wasm_session_call_functions, WasmRunHandle,
 };
 
 use super::args::{
@@ -199,6 +200,32 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     Ok(LuaValue::Table(results_tbl))
 }
 
+/// Execute source code in a module loaded with `{ interpreter = true }`.
+fn interpreter_exec(_: &Lua, args: LuaMultiValue) -> LuaResult<bool> {
+    let mut iter = args.into_iter();
+    let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
+    let code = parse_required_string(iter.next(), "expected code as string")?;
+
+    tt_wasm_interpreter_exec(module_uid, code).map_err(mlua::Error::external)?;
+    Ok(true)
+}
+
+/// Call a function in a module loaded with `{ interpreter = true }`.
+fn interpreter_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+    let mut iter = args.into_iter();
+    let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
+    let func = parse_required_string(iter.next(), "expected function name as string")?;
+    let rest_args: Vec<Value> = iter.collect();
+    let rmp_args = rest_args
+        .iter()
+        .map(to_rmpv)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let result_val =
+        tt_wasm_interpreter_call(module_uid, func, rmp_args).map_err(mlua::Error::external)?;
+    from_rmpv(lua, &result_val)
+}
+
 /// Call a function on an already opened long-lived WASM session.
 fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let mut iter = args.into_iter();
@@ -308,6 +335,8 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("cancel", lua.create_function(cancel)?)?;
     module.set("call", lua.create_function(call)?)?;
     module.set("batch", lua.create_function(batch)?)?;
+    module.set("interpreter_exec", lua.create_function(interpreter_exec)?)?;
+    module.set("interpreter_call", lua.create_function(interpreter_call)?)?;
     module.set("session_call", lua.create_function(session_call)?)?;
     module.set("session_batch", lua.create_function(session_batch)?)?;
     module.set("close_session", lua.create_function(close_session)?)?;
