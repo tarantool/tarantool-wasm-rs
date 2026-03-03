@@ -172,7 +172,7 @@ fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
 
     let rmp_args = rest_args
         .iter()
-        .map(to_rmpv)
+        .map(|v| to_rmpv(lua, v))
         .collect::<Result<Vec<_>, _>>()?;
 
     let result_val = tt_wasm_call_function(module_uid, interface, func, rmp_args)
@@ -187,7 +187,7 @@ fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let mut iter = args.into_iter();
     let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
     let calls_tbl = parse_calls_table(iter.next())?;
-    let calls = parse_batch_calls(calls_tbl)?;
+    let calls = parse_batch_calls(lua, calls_tbl)?;
 
     let result_vals = tt_wasm_call_functions(module_uid, calls).map_err(mlua::Error::external)?;
 
@@ -218,7 +218,7 @@ fn interpreter_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let rest_args: Vec<Value> = iter.collect();
     let rmp_args = rest_args
         .iter()
-        .map(to_rmpv)
+        .map(|v| to_rmpv(lua, v))
         .collect::<Result<Vec<_>, _>>()?;
 
     let result_val =
@@ -236,7 +236,7 @@ fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
 
     let rmp_args = rest_args
         .iter()
-        .map(to_rmpv)
+        .map(|v| to_rmpv(lua, v))
         .collect::<Result<Vec<_>, _>>()?;
 
     let result_val = tt_wasm_session_call_function(session_handle, interface, func, rmp_args)
@@ -252,7 +252,7 @@ fn session_batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
 
     let session_handle = parse_required_string(iter.next(), "expected session_handle as string")?;
     let calls_tbl = parse_calls_table(iter.next())?;
-    let calls = parse_batch_calls(calls_tbl)?;
+    let calls = parse_batch_calls(lua, calls_tbl)?;
 
     let result_vals =
         tt_wasm_session_call_functions(session_handle, calls).map_err(mlua::Error::external)?;

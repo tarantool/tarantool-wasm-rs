@@ -3,11 +3,14 @@
 //! WebAssembly worlds.
 
 use anyhow::Result;
-use rmp_serde::{from_slice, to_vec};
 use rmpv::Value as RmpvValue;
 use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
 use wasmtime::component::Type;
 use wasmtime::component::Val;
+
+const MSGPACK_EXT_TIMESTAMP: i8 = -1;
+const TARANTOOL_EXT_DATETIME: i8 = 4;
 
 /// Convert a [`rmpv::Value`] into a [`Val`] according to the expected [`Type`].
 pub fn to_component_val(ty: &Type, val: &RmpvValue) -> Result<Val> {
@@ -309,16 +312,117 @@ pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
 
 /// Encode an [`rmpv::Value`] into raw MessagePack bytes.
 pub fn rmpv_to_msgpack_bytes(value: &RmpvValue) -> Result<Vec<u8>> {
-    to_vec(value).map_err(|err| anyhow::anyhow!("failed to encode MessagePack: {err}"))
+    let mut buf = Vec::new();
+    rmpv::encode::write_value(&mut buf, value)
+        .map_err(|err| anyhow::anyhow!("failed to encode MessagePack: {err}"))?;
+    Ok(buf)
 }
 
 /// Decode raw MessagePack bytes into an [`rmpv::Value`].
 pub fn msgpack_bytes_to_rmpv(bytes: &[u8]) -> Result<RmpvValue> {
-    from_slice(bytes).map_err(|err| anyhow::anyhow!("failed to decode MessagePack: {err}"))
+    let mut cursor = Cursor::new(bytes);
+    rmpv::decode::read_value(&mut cursor)
+        .map_err(|err| anyhow::anyhow!("failed to decode MessagePack: {err}"))
+}
+
+fn timestamp_ext_to_tarantool_datetime_payload(bytes: &[u8]) -> Result<Vec<u8>> {
+    let (secs, nsec) = match bytes.len() {
+        // timestamp32: 32-bit unsigned seconds (big-endian)
+        4 => {
+            let mut sec = [0_u8; 4];
+            sec.copy_from_slice(bytes);
+            (u32::from_be_bytes(sec) as i64, 0_u32)
+        }
+        // timestamp64: 30-bit nanoseconds + 34-bit unsigned seconds (big-endian)
+        8 => {
+            let mut raw = [0_u8; 8];
+            raw.copy_from_slice(bytes);
+            let packed = u64::from_be_bytes(raw);
+            let nsec = (packed >> 34) as u32;
+            let secs = (packed & ((1_u64 << 34) - 1)) as i64;
+            (secs, nsec)
+        }
+        // timestamp96: 32-bit nanoseconds + 64-bit signed seconds (big-endian)
+        12 => {
+            let mut nsec_bytes = [0_u8; 4];
+            nsec_bytes.copy_from_slice(&bytes[0..4]);
+            let mut sec_bytes = [0_u8; 8];
+            sec_bytes.copy_from_slice(&bytes[4..12]);
+            (i64::from_be_bytes(sec_bytes), u32::from_be_bytes(nsec_bytes))
+        }
+        len => {
+            return Err(anyhow::anyhow!(
+                "unsupported MsgPack timestamp payload length: {len}"
+            ));
+        }
+    };
+
+    if nsec >= 1_000_000_000 {
+        return Err(anyhow::anyhow!(
+            "invalid MsgPack timestamp nanoseconds value: {nsec}"
+        ));
+    }
+
+    if nsec == 0 {
+        return Ok(secs.to_le_bytes().to_vec());
+    }
+
+    let mut payload = vec![0_u8; 16];
+    payload[0..8].copy_from_slice(&secs.to_le_bytes());
+    payload[8..12].copy_from_slice(&nsec.to_le_bytes());
+    payload[12..14].copy_from_slice(&0_i16.to_le_bytes()); // UTC offset in minutes.
+    payload[14..16].copy_from_slice(&0_i16.to_le_bytes()); // tzindex
+    Ok(payload)
+}
+
+fn normalize_msgpack_ext_for_tarantool(value: &mut RmpvValue) -> Result<()> {
+    match value {
+        RmpvValue::Array(items) => {
+            for item in items {
+                normalize_msgpack_ext_for_tarantool(item)?;
+            }
+        }
+        RmpvValue::Map(entries) => {
+            for (k, v) in entries {
+                normalize_msgpack_ext_for_tarantool(k)?;
+                normalize_msgpack_ext_for_tarantool(v)?;
+            }
+        }
+        RmpvValue::Ext(tag, data) if *tag == MSGPACK_EXT_TIMESTAMP => {
+            let converted = timestamp_ext_to_tarantool_datetime_payload(data)?;
+            *tag = TARANTOOL_EXT_DATETIME;
+            *data = converted;
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 /// Convert a [`mlua::Value`] into an [`rmpv::Value`].
-pub fn to_rmpv(val: &mlua::Value) -> Result<rmpv::Value, mlua::Error> {
+fn lua_msgpack_module(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
+    let require: mlua::Function = lua.globals().get("require")?;
+    require.call("msgpack")
+}
+
+fn lua_value_to_rmpv_via_msgpack(lua: &mlua::Lua, val: &mlua::Value) -> mlua::Result<rmpv::Value> {
+    let msgpack = lua_msgpack_module(lua)?;
+    let encode: mlua::Function = msgpack.get("encode")?;
+    let encoded: mlua::String = encode.call(val.clone())?;
+    let bytes = encoded.as_bytes();
+    msgpack_bytes_to_rmpv(bytes.as_ref()).map_err(mlua::Error::external)
+}
+
+fn rmpv_to_lua_via_msgpack(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value> {
+    let mut normalized = val.clone();
+    normalize_msgpack_ext_for_tarantool(&mut normalized).map_err(mlua::Error::external)?;
+    let encoded = rmpv_to_msgpack_bytes(&normalized).map_err(mlua::Error::external)?;
+    let msgpack = lua_msgpack_module(lua)?;
+    let decode: mlua::Function = msgpack.get("decode")?;
+    decode.call(lua.create_string(&encoded)?)
+}
+
+pub fn to_rmpv(lua: &mlua::Lua, val: &mlua::Value) -> Result<rmpv::Value, mlua::Error> {
     use mlua::Value::*;
     Ok(match val {
         Nil => rmpv::Value::Nil,
@@ -340,19 +444,19 @@ pub fn to_rmpv(val: &mlua::Value) -> Result<rmpv::Value, mlua::Error> {
                 let mut vec = Vec::new();
                 for pair in t.clone().sequence_values::<mlua::Value>() {
                     let v = pair?;
-                    vec.push(to_rmpv(&v)?);
+                    vec.push(to_rmpv(lua, &v)?);
                 }
                 rmpv::Value::Array(vec)
             } else {
                 let mut map = Vec::new();
                 for pair in t.clone().pairs::<mlua::Value, mlua::Value>() {
                     let (k, v) = pair?;
-                    map.push((to_rmpv(&k)?, to_rmpv(&v)?));
+                    map.push((to_rmpv(lua, &k)?, to_rmpv(lua, &v)?));
                 }
                 rmpv::Value::Map(map)
             }
         }
-        _ => return Err(mlua::Error::external("unsupported Lua type")),
+        other => lua_value_to_rmpv_via_msgpack(lua, other)?,
     })
 }
 
@@ -365,8 +469,10 @@ pub fn from_rmpv(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value
         Nil => LV::Nil,
         Boolean(b) => LV::Boolean(*b),
         Integer(i) => LV::Integer(i.as_i64().unwrap_or(0)),
+        F32(f) => LV::Number(*f as f64),
         F64(f) => LV::Number(*f),
         String(s) => LV::String(lua.create_string(s.as_str().unwrap_or(""))?),
+        Binary(bytes) => LV::String(lua.create_string(bytes)?),
         Array(arr) => {
             let seq = arr
                 .iter()
@@ -381,7 +487,7 @@ pub fn from_rmpv(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value
             }
             LV::Table(tbl)
         }
-        _ => return Err(mlua::Error::external("unsupported return type")),
+        Ext(_, _) => rmpv_to_lua_via_msgpack(lua, val)?,
     })
 }
 

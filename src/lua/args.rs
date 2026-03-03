@@ -40,7 +40,7 @@ pub(super) fn parse_calls_table(value: Option<Value>) -> LuaResult<LuaTable> {
     }
 }
 
-pub(super) fn parse_batch_calls(calls_tbl: LuaTable) -> LuaResult<Vec<BatchCall>> {
+pub(super) fn parse_batch_calls(lua: &Lua, calls_tbl: LuaTable) -> LuaResult<Vec<BatchCall>> {
     let mut calls = Vec::new();
     for pair in calls_tbl.sequence_values::<LuaValue>() {
         let val = pair?;
@@ -66,7 +66,7 @@ pub(super) fn parse_batch_calls(calls_tbl: LuaTable) -> LuaResult<Vec<BatchCall>
 
         let rmp_args = args_vals
             .iter()
-            .map(to_rmpv)
+            .map(|v| to_rmpv(lua, v))
             .collect::<Result<Vec<_>, _>>()?;
 
         calls.push((interface, func, rmp_args));
