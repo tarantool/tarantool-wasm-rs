@@ -348,7 +348,10 @@ fn timestamp_ext_to_tarantool_datetime_payload(bytes: &[u8]) -> Result<Vec<u8>> 
             nsec_bytes.copy_from_slice(&bytes[0..4]);
             let mut sec_bytes = [0_u8; 8];
             sec_bytes.copy_from_slice(&bytes[4..12]);
-            (i64::from_be_bytes(sec_bytes), u32::from_be_bytes(nsec_bytes))
+            (
+                i64::from_be_bytes(sec_bytes),
+                u32::from_be_bytes(nsec_bytes),
+            )
         }
         len => {
             return Err(anyhow::anyhow!(

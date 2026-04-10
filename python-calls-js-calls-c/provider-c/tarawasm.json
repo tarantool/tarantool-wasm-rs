@@ -1,0 +1,7 @@
+{
+  "world": "cprovider",
+  "lang": "c",
+  "wit_path": "wit",
+  "src_file": "component.c",
+  "wasm_file": "demo:cross-call@0.1.0.wasm"
+}

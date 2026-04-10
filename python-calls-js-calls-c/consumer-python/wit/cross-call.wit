@@ -1,0 +1,30 @@
+package demo:cross-call@0.1.0;
+
+interface math {
+  add: func(left: s32, right: s32) -> s32;
+  label: func(left: s32, right: s32) -> string;
+}
+
+world consumer {
+  import tarantool:tarantool/types@0.1.2;
+  import tarantool:tarantool/say@0.1.2;
+  import math;
+
+  export call-chain-add: func(left: s32, right: s32) -> s32;
+  export call-chain-label: func(left: s32, right: s32) -> string;
+}
+
+package tarantool:tarantool@0.1.2 {
+  interface types {
+    record log-context {
+      filename: string,
+      line: u32,
+    }
+  }
+
+  interface say {
+    use types.{log-context};
+
+    say-info: func(msg: string, ctx: option<log-context>);
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "world": "jsprovider",
+  "lang": "js",
+  "wit_path": "wit",
+  "src_file": "main.js",
+  "wasm_file": "demo:jsprovider@0.1.0.wasm"
+}

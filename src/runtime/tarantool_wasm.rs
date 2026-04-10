@@ -6,13 +6,16 @@
 mod calls;
 mod exports;
 mod linker;
+mod links;
 mod threading;
 
 use std::{
     collections::{HashMap, HashSet},
     fs::OpenOptions,
+    future::Future,
     net::IpAddr,
     path::PathBuf,
+    pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc as std_mpsc, Arc, Mutex, RwLock,
@@ -46,9 +49,10 @@ use crate::runtime::{
 };
 
 use self::{
-    calls::{execute_call_job, execute_call_job_on_instance},
+    calls::execute_call_job_on_instance,
     exports::{collect_exports, export_info_from_component_func},
     linker::{build_runtime_linker, runtime_config},
+    links::{command_run_job, instantiate_linked_module},
     threading::spawn_tt_thread,
 };
 
@@ -124,6 +128,8 @@ pub struct WasmConfig {
     pub max_instructions: Option<u64>,
     /// Enable shared interpreter mode for this module.
     pub interpreter: bool,
+    /// Map imported component interfaces/functions to already loaded provider modules.
+    pub links: HashMap<String, String>,
 }
 
 impl Default for WasmConfig {
@@ -149,6 +155,7 @@ impl Default for WasmConfig {
             memory_limit: None,
             max_instructions: None,
             interpreter: false,
+            links: HashMap::new(),
         }
     }
 }
@@ -463,6 +470,12 @@ impl RuntimeState {
 /// Load a WebAssembly component from disk and register it in the runtime,
 /// returning a unique module identifier.
 pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
+    if config.interpreter && !config.links.is_empty() {
+        return Err(anyhow!(
+            "component links are not supported together with interpreter mode"
+        ));
+    }
+
     let use_fuel = config.max_instructions.is_some();
 
     let loaded = if config.interpreter {
@@ -748,23 +761,21 @@ struct InterpreterJobCtx<'a> {
     config: &'a WasmConfig,
 }
 
-fn run_interpreter_exec_job(
-    ctx: InterpreterJobCtx<'_>,
-    code: String,
-) -> Result<()> {
+fn run_interpreter_exec_job(ctx: InterpreterJobCtx<'_>, code: String) -> Result<()> {
     reset_store_fuel(ctx.store, ctx.with_fuel, ctx.config);
-    ctx.rt.block_on(async {
-        let job = CallJob::new(None, "exec".to_string(), vec![RmpvValue::from(code)]);
-        execute_call_job_on_instance(
-            ctx.store,
-            ctx.instance,
-            ctx.component,
-            ctx.export_cache,
-            &job,
-        )
-        .await
-    })
-    .and_then(decode_exec_response)
+    ctx.rt
+        .block_on(async {
+            let job = CallJob::new(None, "exec".to_string(), vec![RmpvValue::from(code)]);
+            execute_call_job_on_instance(
+                ctx.store,
+                ctx.instance,
+                ctx.component,
+                ctx.export_cache,
+                &job,
+            )
+            .await
+        })
+        .and_then(decode_exec_response)
 }
 
 fn run_interpreter_call_job(
@@ -778,22 +789,23 @@ fn run_interpreter_call_job(
         .collect::<Vec<_>>();
 
     reset_store_fuel(ctx.store, ctx.with_fuel, ctx.config);
-    ctx.rt.block_on(async {
-        let job = CallJob::new(
-            None,
-            "call".to_string(),
-            vec![RmpvValue::from(func), RmpvValue::Array(args_array)],
-        );
-        execute_call_job_on_instance(
-            ctx.store,
-            ctx.instance,
-            ctx.component,
-            ctx.export_cache,
-            &job,
-        )
-        .await
-    })
-    .and_then(decode_call_response)
+    ctx.rt
+        .block_on(async {
+            let job = CallJob::new(
+                None,
+                "call".to_string(),
+                vec![RmpvValue::from(func), RmpvValue::Array(args_array)],
+            );
+            execute_call_job_on_instance(
+                ctx.store,
+                ctx.instance,
+                ctx.component,
+                ctx.export_cache,
+                &job,
+            )
+            .await
+        })
+        .and_then(decode_call_response)
 }
 
 fn instantiate_interpreter_instance(
@@ -810,6 +822,29 @@ fn instantiate_interpreter_instance(
         .block_on(linker.instantiate_async(&mut store, component))
         .map_err(|err| anyhow!("failed to instantiate interpreter `{path_key}`: {err}"))?;
     Ok((store, instance))
+}
+
+fn instantiate_loaded_instance<'a>(
+    store: &'a mut Store<SyncWasmStates>,
+    module_uid: &'a str,
+    loaded: &'a LoadedModule,
+) -> Pin<Box<dyn Future<Output = Result<Instance>> + Send + 'a>> {
+    if loaded.config.links.is_empty() {
+        let linker = if loaded.fuel {
+            runtime_state.fuel_linker.clone()
+        } else {
+            runtime_state.linker.clone()
+        };
+
+        Box::pin(async move {
+            linker
+                .instantiate_async(&mut *store, &loaded.component)
+                .await
+                .map_err(|err| anyhow!("failed to instantiate module `{module_uid}`: {err}"))
+        })
+    } else {
+        Box::pin(instantiate_linked_module(store, module_uid, loaded))
+    }
 }
 
 fn run_interpreter_worker(
@@ -961,25 +996,17 @@ fn run_interpreter_worker(
 
 fn run_session_worker(
     module_uid: String,
-    component: Component,
-    config: WasmConfig,
-    with_fuel: bool,
-    export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    loaded: LoadedModule,
     ready_tx: std_mpsc::Sender<Result<()>>,
     cmd_rx: std_mpsc::Receiver<SessionCommand>,
 ) -> Result<()> {
-    let engine = if with_fuel {
+    let engine = if loaded.fuel {
         &runtime_state.fuel_engine
     } else {
         &runtime_state.engine
     };
-    let linker = if with_fuel {
-        runtime_state.fuel_linker.clone()
-    } else {
-        runtime_state.linker.clone()
-    };
 
-    let mut store = init_store(engine, &config, with_fuel);
+    let mut store = init_store(engine, &loaded.config, loaded.fuel);
 
     let rt = Builder::new_current_thread()
         .enable_time()
@@ -987,7 +1014,11 @@ fn run_session_worker(
         .build()
         .unwrap();
 
-    let instance = match rt.block_on(linker.instantiate_async(&mut store, &component)) {
+    let instance = match rt.block_on(instantiate_loaded_instance(
+        &mut store,
+        &module_uid,
+        &loaded,
+    )) {
         Ok(instance) => instance,
         Err(err) => {
             let init_error =
@@ -1002,13 +1033,13 @@ fn run_session_worker(
     while let Ok(command) = cmd_rx.recv() {
         match command {
             SessionCommand::Call(job, result_tx) => {
-                reset_store_fuel(&mut store, with_fuel, &config);
+                reset_store_fuel(&mut store, loaded.fuel, &loaded.config);
                 let result = rt.block_on(async {
                     execute_call_job_on_instance(
                         &mut store,
                         &instance,
-                        &component,
-                        export_cache.as_ref(),
+                        &loaded.component,
+                        loaded.export_cache.as_ref(),
                         &job,
                     )
                     .await
@@ -1019,13 +1050,13 @@ fn run_session_worker(
                 let mut results_all = Vec::with_capacity(jobs.len());
                 let mut batch_result = Ok(());
                 for job in jobs {
-                    reset_store_fuel(&mut store, with_fuel, &config);
+                    reset_store_fuel(&mut store, loaded.fuel, &loaded.config);
                     match rt.block_on(async {
                         execute_call_job_on_instance(
                             &mut store,
                             &instance,
-                            &component,
-                            export_cache.as_ref(),
+                            &loaded.component,
+                            loaded.export_cache.as_ref(),
                             &job,
                         )
                         .await
@@ -1086,7 +1117,7 @@ fn close_interpreter_impl(path_key: &str, entry: Arc<SharedInterpreterEntry>) ->
 
 /// Open a long-lived WASM session with a persistent component instance.
 pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> Result<String> {
-    let loaded = runtime_state
+    let mut loaded = runtime_state
         .modules
         .read()
         .unwrap()
@@ -1094,7 +1125,7 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
         .clone();
 
-    let mut cfg = loaded.config;
+    let mut cfg = loaded.config.clone();
     if let Some(over) = config {
         cfg = over;
     }
@@ -1105,24 +1136,14 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
         ));
     }
 
-    let component = loaded.component;
-    let fuel = loaded.fuel;
-    let export_cache = loaded.export_cache;
+    loaded.config = cfg;
 
     let (cmd_tx, cmd_rx) = std_mpsc::channel();
     let (ready_tx, ready_rx) = std_mpsc::channel();
 
     let module_uid_for_thread = module_uid.clone();
     let worker = spawn_tt_thread("wasm-session".to_string(), move || {
-        run_session_worker(
-            module_uid_for_thread,
-            component,
-            cfg,
-            fuel,
-            export_cache,
-            ready_tx,
-            cmd_rx,
-        )
+        run_session_worker(module_uid_for_thread, loaded, ready_tx, cmd_rx)
     })?;
 
     if let Err(err) = recv_result_via_coio(ready_rx) {
@@ -1266,15 +1287,14 @@ pub fn tt_wasm_interpreter_call(
 
 /// Run a loaded module in a background thread, returning a join handle.
 pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Result<WasmRunHandle> {
-    let loaded = runtime_state
+    let mut loaded = runtime_state
         .modules
         .read()
         .unwrap()
         .get(&module_uid)
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
         .clone();
-    let component = loaded.component;
-    let mut cfg = loaded.config;
+    let mut cfg = loaded.config.clone();
     if let Some(over) = config {
         cfg = over;
     }
@@ -1284,24 +1304,19 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
             module_uid
         ));
     }
-    let fuel = loaded.fuel;
+    loaded.config = cfg.clone();
     let (canceler_tx, canceler_rx) = std_mpsc::channel();
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let engine = if fuel {
+        let engine = if loaded.fuel {
             &runtime_state.fuel_engine
         } else {
             &runtime_state.engine
-        };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
         };
 
         let wasi_view = SyncWasmStates::new(cfg.clone());
         let mut store = Store::new(engine, wasi_view);
         store.limiter(|state| &mut state.limits);
-        if fuel {
+        if loaded.fuel {
             let limit = cfg.max_instructions.unwrap_or(u64::MAX);
             let _ = store.set_fuel(limit);
         }
@@ -1309,7 +1324,25 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
         store.set_epoch_deadline(1);
         store.epoch_deadline_trap();
 
-        let fiber = WasmFiber::new(store, linker, component);
+        let module_uid_for_run = module_uid.clone();
+        let fiber = WasmFiber::new(store, move |mut store| {
+            let loaded = loaded.clone();
+            let module_uid = module_uid_for_run.clone();
+            async move {
+                let instance =
+                    instantiate_loaded_instance(&mut store, &module_uid, &loaded).await?;
+                let run_job = command_run_job(&loaded.component)?;
+                let _ = execute_call_job_on_instance(
+                    &mut store,
+                    &instance,
+                    &loaded.component,
+                    loaded.export_cache.as_ref(),
+                    &run_job,
+                )
+                .await?;
+                Ok(())
+            }
+        });
         let _ = canceler_tx.send(fiber.canceler());
         let _ = fiber.block_on();
         Ok::<(), wasmtime::Error>(())
@@ -1335,21 +1368,18 @@ pub fn tt_wasm_call_function(
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
         .clone();
 
-    let component = loaded.component;
-    let cfg = loaded.config;
+    let loaded_for_call = loaded.clone();
+    let component = loaded.component.clone();
+    let cfg = loaded.config.clone();
     let fuel = loaded.fuel;
-    let export_cache = loaded.export_cache;
+    let export_cache = loaded.export_cache.clone();
+    let module_uid_for_call = module_uid.clone();
 
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let engine = if fuel {
             &runtime_state.fuel_engine
         } else {
             &runtime_state.engine
-        };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
         };
         let wasi_view = SyncWasmStates::new(cfg.clone());
         let mut store = Store::new(engine, wasi_view);
@@ -1370,7 +1400,17 @@ pub fn tt_wasm_call_function(
 
         rt.block_on(async move {
             let job = CallJob::new(interface, func, args);
-            execute_call_job(&mut store, &linker, &component, export_cache.as_ref(), &job).await
+            let instance =
+                instantiate_loaded_instance(&mut store, &module_uid_for_call, &loaded_for_call)
+                    .await?;
+            execute_call_job_on_instance(
+                &mut store,
+                &instance,
+                &component,
+                export_cache.as_ref(),
+                &job,
+            )
+            .await
         })
     })?;
 
@@ -1402,22 +1442,19 @@ pub fn tt_wasm_call_functions(
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
         .clone();
 
-    let component = loaded.component;
-    let cfg = loaded.config;
+    let loaded_for_batch = loaded.clone();
+    let component = loaded.component.clone();
+    let cfg = loaded.config.clone();
     let fuel = loaded.fuel;
-    let export_cache = loaded.export_cache;
+    let export_cache = loaded.export_cache.clone();
     let jobs = calls.into_iter().map(CallJob::from).collect::<Vec<_>>();
+    let module_uid_for_batch = module_uid.clone();
 
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let engine = if fuel {
             &runtime_state.fuel_engine
         } else {
             &runtime_state.engine
-        };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
         };
 
         let rt = Builder::new_current_thread()
@@ -1441,9 +1478,22 @@ pub fn tt_wasm_call_functions(
                 store.set_epoch_deadline(1);
                 store.epoch_deadline_trap();
 
+                let instance = instantiate_loaded_instance(
+                    &mut store,
+                    &module_uid_for_batch,
+                    &loaded_for_batch,
+                )
+                .await?;
+
                 results_all.push(
-                    execute_call_job(&mut store, &linker, &component, export_cache.as_ref(), &job)
-                        .await?,
+                    execute_call_job_on_instance(
+                        &mut store,
+                        &instance,
+                        &component,
+                        export_cache.as_ref(),
+                        &job,
+                    )
+                    .await?,
                 );
             }
 

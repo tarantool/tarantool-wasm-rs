@@ -1,0 +1,13 @@
+package demo:cross-call@0.1.0;
+
+interface coremath {
+  add-base: func(left: s32, right: s32) -> s32;
+  label-base: func(left: s32, right: s32) -> string;
+}
+
+world cprovider {
+  import tarantool:tarantool/types@0.1.3;
+  import tarantool:tarantool/say@0.1.3;
+
+  export coremath;
+}

@@ -91,6 +91,12 @@ pub(super) fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig>
         if let Ok(Some(interpreter)) = t.get::<Option<bool>>("interpreter") {
             cfg.interpreter = interpreter;
         }
+        if let Ok(links_tbl) = t.get::<LuaTable>("links") {
+            for pair in links_tbl.pairs::<String, String>() {
+                let (import_name, module_uid) = pair?;
+                cfg.links.insert(import_name, module_uid);
+            }
+        }
     }
     Ok(cfg)
 }

@@ -1,0 +1,7 @@
+{
+  "world": "consumer",
+  "lang": "python",
+  "wit_path": "wit",
+  "src_file": "main.py",
+  "wasm_file": "demo:consumer@0.1.0.wasm"
+}

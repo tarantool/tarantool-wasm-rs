@@ -1,4 +1,4 @@
-use std::{mem, ptr, sync::Arc};
+use std::{future::Future, mem, ptr};
 
 use anyhow::{anyhow, Result};
 use tokio::{
@@ -6,11 +6,7 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
 };
-use wasmtime::{
-    component::{Component, Linker},
-    Store,
-};
-use wasmtime_wasi::p2::bindings::Command;
+use wasmtime::Store;
 
 use crate::runtime::{
     tarantool_wasm::SyncWasmStates,
@@ -59,11 +55,11 @@ pub(crate) struct WasmFiber {
 }
 
 impl WasmFiber {
-    pub fn new(
-        mut store: Store<SyncWasmStates>,
-        linker: Arc<Linker<SyncWasmStates>>,
-        component: Component,
-    ) -> Self {
+    pub fn new<F, Fut>(store: Store<SyncWasmStates>, runner: F) -> Self
+    where
+        F: FnOnce(Store<SyncWasmStates>) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<()>> + Send + 'static,
+    {
         // Timers are needed for clocks to work properly in WASI.
         let rt = Builder::new_current_thread()
             .enable_time()
@@ -76,8 +72,7 @@ impl WasmFiber {
         store.data().state.lock().unwrap().yielder = Some(sender);
 
         let handle = rt.spawn(async move {
-            let command = Command::instantiate_async(&mut store, &component, &linker).await?;
-            let _ = command.wasi_cli_run().call_run(&mut store).await?;
+            runner(store).await?;
             finalizer
                 .send(WasmFiberStatus::Finished)
                 .await
