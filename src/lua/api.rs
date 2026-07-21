@@ -8,9 +8,9 @@ use tarantool::coio::coio_call;
 
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
-    tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session, tt_wasm_drop_module,
-    tt_wasm_export_names, tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_load_module,
-    tt_wasm_open_session, tt_wasm_run_module, tt_wasm_session_call_function,
+    debug_assert_tx_thread, tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session,
+    tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_interpreter_call, tt_wasm_interpreter_exec,
+    tt_wasm_load_module, tt_wasm_open_session, tt_wasm_run_module, tt_wasm_session_call_function,
     tt_wasm_session_call_functions, WasmRunHandle,
 };
 
@@ -123,6 +123,7 @@ fn open_session(lua: &Lua, args: LuaMultiValue) -> LuaResult<String> {
 
 /// Wait for a background task represented by [`WasmJoinHandle`].
 fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
+    debug_assert_tx_thread();
     let mut handle = handle;
     let mut result: Result<()> = Ok(());
     let join_handle = handle.take_join_handle().map_err(LuaError::runtime)?;
@@ -141,6 +142,7 @@ fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
 
 /// Cancel execution of a background task represented by [`WasmJoinHandle`].
 fn cancel(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
+    debug_assert_tx_thread();
     let mut handle = handle;
     handle.cancel().map_err(LuaError::runtime)?;
     let mut result: Result<()> = Ok(());

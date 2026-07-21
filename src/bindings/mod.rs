@@ -20,7 +20,7 @@ bindgen!({
 /// Wrapper implementing the `iterator` interface for Tarantool's index
 /// iterators.
 pub struct IndexIteratorImpl {
-    inner: ::tarantool::index::IndexIterator,
+    inner: Option<::tarantool::index::IndexIterator>,
 }
 
 /// Wrapper around a raw pointer implementing the `tuple-iterator` interface.

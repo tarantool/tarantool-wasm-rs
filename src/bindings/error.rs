@@ -1,3 +1,4 @@
+use crate::bindings::helpers::debug_assert_tx_thread;
 use crate::bindings::tarantool::tarantool::error;
 use crate::bindings::tarantool::tarantool::types::{BoxError, ErrorCode};
 use crate::runtime::tarantool_wasm::SyncWasmStates;
@@ -6,6 +7,7 @@ use std::ffi::CString;
 use tarantool::error::{self as tnt_error, TarantoolErrorCode};
 
 pub fn handle_tarantool_error() -> BoxError {
+    debug_assert_tx_thread();
     let err = tarantool::error::BoxError::last();
 
     let mut boxed = BoxError::new(err.error_code(), err.message());
@@ -83,46 +85,55 @@ impl error::Host for SyncWasmStates {
     }
 
     async fn set(&mut self, err: BoxError) {
-        let BoxError {
-            code,
-            message,
-            file,
-            line,
-            ..
-        } = err;
-
-        let message_cstr =
-            CString::new(message).expect("Failed to convert error message to CString");
-
-        let file_line = match (file.as_deref(), line) {
-            (Some(file), Some(line)) => Some((file, line)),
-            _ => None,
-        };
-
-        tarantool::error::set_last_error(file_line, code.into(), &message_cstr);
+        self.executor()
+            .execute(move || {
+                debug_assert_tx_thread();
+                let BoxError {
+                    code,
+                    message,
+                    file,
+                    line,
+                    ..
+                } = err;
+                let message_cstr =
+                    CString::new(message).expect("Failed to convert error message to CString");
+                let file_line = match (file.as_deref(), line) {
+                    (Some(file), Some(line)) => Some((file, line)),
+                    _ => None,
+                };
+                tarantool::error::set_last_error(file_line, code.into(), &message_cstr);
+            })
+            .await;
     }
 
     async fn last(&mut self) -> Option<BoxError> {
-        match tarantool::error::BoxError::maybe_last() {
-            Err(err) => {
-                let mut boxed = BoxError::new(err.error_code(), err.message());
-
-                if let Some(line) = err.line() {
-                    boxed = boxed.with_line(line);
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                match tarantool::error::BoxError::maybe_last() {
+                    Err(err) => {
+                        let mut boxed = BoxError::new(err.error_code(), err.message());
+                        if let Some(line) = err.line() {
+                            boxed = boxed.with_line(line);
+                        }
+                        if let Some(file) = err.file() {
+                            boxed = boxed.with_file(file);
+                        }
+                        Some(boxed)
+                    }
+                    Ok(_) => None,
                 }
-
-                if let Some(file) = err.file() {
-                    boxed = boxed.with_file(file);
-                }
-
-                Some(boxed)
-            }
-            Ok(_) => None,
-        }
+            })
+            .await
     }
 
     async fn clear(&mut self) {
-        tarantool::error::clear_error();
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                tarantool::error::clear_error();
+            })
+            .await;
     }
 
     async fn to_string(&mut self, err: BoxError) -> String {

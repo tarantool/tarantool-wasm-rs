@@ -5,7 +5,11 @@ use crate::runtime::tarantool_wasm::SyncWasmStates;
 impl metrics::Host for SyncWasmStates {
     async fn uptime(&mut self) -> f64 {
         self.executor()
-            .execute(move || unsafe { tarantool_uptime() as f64 })
+            .execute(move || {
+                debug_assert_tx_thread();
+                unsafe { tarantool_uptime() as f64 }
+            })
             .await
     }
 }
+use crate::bindings::helpers::debug_assert_tx_thread;
