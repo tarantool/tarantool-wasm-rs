@@ -8,15 +8,21 @@ local utils = require('utils')
 local g = t.group("component_limits")
 local path = fio.pathjoin(utils.get_test_dir(), "lualib", "wasm_component_test", "component_limits_test", "adder.wasm")
 
-g.test_fuel_no_limit = function()
-    local m = wasm.load(path)
-    local ok, _ = pcall(wasm.call, m, "foo")
+g.before_all(function(cg)
+    cg.unlimited_module = wasm.load(path)
+end)
+
+g.after_all(function(cg)
+    wasm.drop(cg.unlimited_module)
+end)
+
+g.test_fuel_no_limit = function(cg)
+    local ok, _ = pcall(wasm.call, cg.unlimited_module, "foo")
     t.assert(ok)
 end
 
-g.test_mem_size_no_limit = function()
-    local m = wasm.load(path)
-    local ok, _ = pcall(wasm.call, m, "bar")
+g.test_mem_size_no_limit = function(cg)
+    local ok, _ = pcall(wasm.call, cg.unlimited_module, "bar")
     t.assert(ok)
 end
 
@@ -25,6 +31,7 @@ g.test_fuel_limit = function()
     local ok, err = pcall(wasm.call, m, "foo")
     t.assert_not(ok)
     t.assert_str_contains(tostring(err), "error while executing at wasm backtrace")
+    t.assert(wasm.drop(m))
 end
 
 g.test_mem_size_limit = function()
@@ -32,4 +39,5 @@ g.test_mem_size_limit = function()
     local ok, err = pcall(wasm.call, m, "bar")
     t.assert_not(ok)
     t.assert_str_contains(tostring(err), "error while executing at wasm backtrace")
+    t.assert(wasm.drop(m))
 end

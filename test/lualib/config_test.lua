@@ -20,111 +20,89 @@ local function read_file(path)
     return data
 end
 
-g.before_each(function(cg)
-    cg.tmpdir = fio.tempdir()
-end)
-
 local wasm_path = fio.pathjoin(utils.get_test_dir(), "lualib", "wasm_component_test", "config_test", "adder.wasm")
 
-g.test_stdout = function(cg)
-    local out = fio.pathjoin(cg.tmpdir, "out.txt")
+g.before_all(function(cg)
+    cg.tmpdir = fio.tempdir()
+    cg.in_path = fio.pathjoin(cg.tmpdir, "in.txt")
+    cg.out_path = fio.pathjoin(cg.tmpdir, "out.txt")
+    cg.err_path = fio.pathjoin(cg.tmpdir, "err.txt")
+    cg.ro_dir = fio.pathjoin(cg.tmpdir, "ro")
+    cg.rw_dir = fio.pathjoin(cg.tmpdir, "rw")
 
-    local m = wasm.load(wasm_path, {
-        stdout = out
+    fio.mkdir(cg.ro_dir)
+    fio.mkdir(cg.rw_dir)
+    write_file(cg.in_path, "42\n")
+    write_file(fio.pathjoin(cg.ro_dir, "f1.txt"), "ro content")
+
+    cg.module = wasm.load(wasm_path, {
+        stdin = cg.in_path,
+        stdout = cg.out_path,
+        stderr = cg.err_path,
+        env = {
+            TEST_VAR = "ABC",
+        },
+        args = {1, "abc"},
+        preopened_dirs = {
+            {cg.ro_dir, "./ro", perms = "ro"},
+            {cg.rw_dir, "./rw", perms = "rw"},
+        },
     })
+end)
 
-    wasm.call(m, "t-stdout", "hello from wasm")
-    local data = read_file(out)
+g.after_all(function(cg)
+    wasm.drop(cg.module)
+end)
+
+g.test_stdout = function(cg)
+    wasm.call(cg.module, "t-stdout", "hello from wasm")
+    local data = read_file(cg.out_path)
     t.assert_str_contains(data, "hello from wasm")
 end
 
 g.test_stdin = function(cg)
-    local in_path = fio.pathjoin(cg.tmpdir, "in.txt")
-    local out_path = fio.pathjoin(cg.tmpdir, "out.txt")
-
-    write_file(in_path, "42\n")
-
-    local m = wasm.load(wasm_path, {
-        stdin = in_path,
-        stdout = out_path
-    })
-
-    wasm.call(m, "t-stdin")
-    local out = read_file(out_path)
+    wasm.call(cg.module, "t-stdin")
+    local out = read_file(cg.out_path)
     t.assert_str_contains(out, "42")
 end
 
 g.test_stderr = function(cg)
-    local err_path = fio.pathjoin(cg.tmpdir, "err.txt")
-
-    local m = wasm.load(wasm_path, {
-        stderr = err_path
-    })
-
-    wasm.call(m, "t-stderr")
-    local err = read_file(err_path)
+    wasm.call(cg.module, "t-stderr")
+    local err = read_file(cg.err_path)
     t.assert_str_contains(err, "error!")
 end
 
 g.test_env = function(cg)
-    local m = wasm.load(wasm_path, {
-        env = {
-            TEST_VAR = "ABC",
-        }
-    })
-
-    local res = wasm.call(m, "t-env")
+    local res = wasm.call(cg.module, "t-env")
     t.assert_equals(res, "ABC")
 end
 
 g.test_preopen = function(cg)
-    local ro_dir = fio.pathjoin(cg.tmpdir, "ro")
-    local rw_dir = fio.pathjoin(cg.tmpdir, "rw")
-    fio.mkdir(ro_dir)
-    fio.mkdir(rw_dir)
+    wasm.call(cg.module, "t-preopen")
 
-    write_file(fio.pathjoin(ro_dir, "f1.txt"), "ro content")
-
-    local m = wasm.load(wasm_path, {
-        stdout = fio.pathjoin(cg.tmpdir, "out.txt"),
-        preopened_dirs = {
-            {ro_dir, "./ro", perms = "ro"},
-            {rw_dir, "./rw", perms = "rw"},
-        }
-    })
-
-    wasm.call(m, "t-preopen")
-
-    local out = read_file(fio.pathjoin(cg.tmpdir, "out.txt"))
+    local out = read_file(cg.out_path)
     t.assert_str_contains(out, "./ro/f1.txt RO: ro content")
     t.assert_str_contains(out, "RO FAIL-2")
 
-    local written = read_file(fio.pathjoin(rw_dir, "f2.txt"))
+    local written = read_file(fio.pathjoin(cg.rw_dir, "f2.txt"))
     t.assert_str_contains(written, "./rw/f2.txt OK")
 end
 
 g.test_args = function(cg)
-    local out_path = fio.pathjoin(cg.tmpdir, "out.txt")
-
-    local m = wasm.load(wasm_path, {
-        stdout = out_path,
-        args = {1, "abc"},
-    })
-
-    wasm.call(m, "t-args")
-    local out = read_file(out_path)
+    wasm.call(cg.module, "t-args")
+    local out = read_file(cg.out_path)
     t.assert_str_contains(out, "['1', 'abc']")
 end
 
-g.test_default_values = function(cg)
+g.test_default_values = function()
     local m = wasm.load(wasm_path, {})
     local res = wasm.call(m, "t-inherit-env")
     t.assert_not_equals(res, "HOME IS NONE")
 
-    res = wasm.drop(m)
-    t.assert(res)
+    t.assert(wasm.drop(m))
 
     m = wasm.load(wasm_path, { inherit_env = false })
-    local res = wasm.call(m, "t-inherit-env")
+    res = wasm.call(m, "t-inherit-env")
     t.assert_equals(res, "HOME IS NONE")
+    t.assert(wasm.drop(m))
 end
