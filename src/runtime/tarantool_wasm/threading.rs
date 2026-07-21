@@ -2,6 +2,7 @@ use std::thread::{self, JoinHandle};
 
 use anyhow::Result;
 use nix::sys::signal::{SigSet, Signal};
+use crate::runtime::lifecycle::WorkerGuard;
 
 pub(super) fn spawn_tt_thread<F, T>(name: String, f: F) -> Result<JoinHandle<T>>
 where
@@ -9,6 +10,7 @@ where
     F: Send + 'static,
     T: Send + 'static,
 {
+    let worker_guard = WorkerGuard::acquire()?;
     let mut newset = SigSet::all();
     newset.remove(Signal::SIGILL);
     newset.remove(Signal::SIGBUS);
@@ -18,7 +20,10 @@ where
     let oldset = SigSet::thread_get_mask()?;
 
     newset.thread_block()?;
-    let handle = thread::Builder::new().name(name).spawn(f);
+    let handle = thread::Builder::new().name(name).spawn(move || {
+        let _worker_guard = worker_guard;
+        f()
+    });
     let _ = oldset.thread_set_mask();
 
     Ok(handle?)

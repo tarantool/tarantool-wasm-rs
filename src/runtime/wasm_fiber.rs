@@ -14,7 +14,7 @@ use wasmtime_wasi::p2::bindings::Command;
 
 use crate::runtime::{
     tarantool_wasm::SyncWasmStates,
-    tx::{tx_flush, tx_push, TxCtx},
+    tx::{tx_push, TxCtx},
 };
 
 struct SigAltStackRestoreGuard {
@@ -130,8 +130,7 @@ impl WasmFiber {
             }
         };
 
-        tx_push(Box::new(TxCtx { cb: Box::new(cb) }));
-        tx_flush();
+        tx_push(Box::new(TxCtx { cb: Box::new(cb) }))?;
 
         let fiber = ret_rx
             .blocking_recv()

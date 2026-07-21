@@ -45,6 +45,8 @@ use wasmtime_wasi_tls::{WasiTlsCtx, WasiTlsCtxBuilder, WasiTlsCtxView, WasiTlsVi
 use crate::runtime::{
     convert::{msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes},
     executor::{Executor, TxMode},
+    lifecycle::{self, RuntimeLifecycle},
+    tx::{begin_shutdown, drain_stopping_queue},
     wasm_fiber::{WasmFiber, WasmFiberStatus},
 };
 use crate::ffi;
@@ -57,25 +59,29 @@ use self::{
 };
 
 pub(crate) struct WasmRunHandle {
-    join_handle: Option<JoinHandle<Result<()>>>,
-    cancel_tx: mpsc::Sender<WasmFiberStatus>,
+    run_id: u64,
+    entry: Arc<WasmRunEntry>,
 }
 
 impl WasmRunHandle {
-    fn new(join_handle: JoinHandle<Result<()>>, cancel_tx: mpsc::Sender<WasmFiberStatus>) -> Self {
-        WasmRunHandle {
-            join_handle: Some(join_handle),
-            cancel_tx,
-        }
+    fn new(run_id: u64, entry: Arc<WasmRunEntry>) -> Self {
+        Self { run_id, entry }
     }
 
     pub(crate) fn cancel(&self) -> Result<()> {
-        let _ = self.cancel_tx.blocking_send(WasmFiberStatus::Canceled);
+        let _ = self
+            .entry
+            .cancel_tx
+            .blocking_send(WasmFiberStatus::Canceled);
         Ok(())
     }
 
     pub(crate) fn take_join_handle(&mut self) -> Result<JoinHandle<Result<()>>> {
-        self.join_handle
+        runtime_state.runs.write().unwrap().remove(&self.run_id);
+        self.entry
+            .join_handle
+            .lock()
+            .unwrap()
             .take()
             .ok_or_else(|| anyhow!("join handle already taken"))
     }
@@ -502,6 +508,11 @@ struct WasmSession {
     join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
 }
 
+struct WasmRunEntry {
+    cancel_tx: mpsc::Sender<WasmFiberStatus>,
+    join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
+}
+
 struct RuntimeState {
     tx_thread_id: ThreadId,
     pub engine: Engine,
@@ -512,8 +523,10 @@ struct RuntimeState {
     pub modules: RwLock<HashMap<String, LoadedModule>>,
     pub shared_interpreters: RwLock<HashMap<String, Arc<SharedInterpreterEntry>>>,
     pub sessions: RwLock<HashMap<String, Arc<WasmSession>>>,
+    pub runs: RwLock<HashMap<u64, Arc<WasmRunEntry>>>,
     pub next_uid: AtomicU64,
     pub next_session_uid: AtomicU64,
+    pub next_run_uid: AtomicU64,
 }
 
 impl RuntimeState {
@@ -528,17 +541,14 @@ impl RuntimeState {
         let modules = RwLock::new(HashMap::new());
         let shared_interpreters = RwLock::new(HashMap::new());
         let sessions = RwLock::new(HashMap::new());
+        let runs = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
         let fuel_linker_ref = Arc::new(fuel_linker);
 
-        let engine_ref = engine.clone();
-        let fuel_engine_ref = fuel_engine.clone();
-
-        let _ = on_shutdown(move || {
-            debug_assert_tx_thread();
-            engine_ref.increment_epoch();
-            fuel_engine_ref.increment_epoch();
-            fiber::sleep(Duration::new(1, 0));
+        let _ = on_shutdown(|| {
+            if let Err(err) = shutdown_runtime() {
+                eprintln!("failed to stop WASM runtime cleanly: {err}");
+            }
         });
 
         RuntimeState {
@@ -551,9 +561,109 @@ impl RuntimeState {
             modules,
             shared_interpreters,
             sessions,
+            runs,
             next_uid: AtomicU64::new(0),
             next_session_uid: AtomicU64::new(0),
+            next_run_uid: AtomicU64::new(0),
         }
+    }
+}
+
+fn shutdown_runtime() -> Result<()> {
+    debug_assert_tx_thread();
+    if !begin_shutdown() {
+        return Ok(());
+    }
+
+    runtime_state.engine.increment_epoch();
+    runtime_state.fuel_engine.increment_epoch();
+    let sessions = loop {
+        if let Ok(mut sessions) = runtime_state.sessions.try_write() {
+            break sessions.drain().collect::<Vec<_>>();
+        }
+        drain_stopping_queue();
+        fiber::sleep(Duration::from_millis(1));
+    };
+    let interpreters = loop {
+        if let Ok(mut interpreters) = runtime_state.shared_interpreters.try_write() {
+            break interpreters.drain().collect::<Vec<_>>();
+        }
+        drain_stopping_queue();
+        fiber::sleep(Duration::from_millis(1));
+    };
+    let runs = loop {
+        if let Ok(mut runs) = runtime_state.runs.try_write() {
+            break runs.drain().collect::<Vec<_>>();
+        }
+        drain_stopping_queue();
+        fiber::sleep(Duration::from_millis(1));
+    };
+
+    for (_, session) in &sessions {
+        let (done_tx, _done_rx) = std_mpsc::channel();
+        let _ = session.cmd_tx.send(SessionCommand::Close(done_tx));
+    }
+    for (_, interpreter) in &interpreters {
+        let (done_tx, _done_rx) = std_mpsc::channel();
+        let _ = interpreter
+            .cmd_tx
+            .send(InterpreterCommand::Close(done_tx));
+    }
+    for (_, run) in &runs {
+        let _ = run.cancel_tx.try_send(WasmFiberStatus::Canceled);
+    }
+
+    while lifecycle::active_workers() != 0 {
+        drain_stopping_queue();
+        fiber::sleep(Duration::from_millis(1));
+    }
+    drain_stopping_queue();
+
+    let mut errors = Vec::new();
+    for (name, session) in sessions {
+        join_worker_at_shutdown(
+            &format!("session `{name}`"),
+            &session.join_handle,
+            &mut errors,
+        );
+    }
+    for (name, interpreter) in interpreters {
+        join_worker_at_shutdown(
+            &format!("interpreter `{name}`"),
+            &interpreter.join_handle,
+            &mut errors,
+        );
+    }
+    for (id, run) in runs {
+        join_worker_at_shutdown(
+            &format!("background run #{id}"),
+            &run.join_handle,
+            &mut errors,
+        );
+    }
+
+    runtime_state.modules.write().unwrap().clear();
+    runtime_state.components.write().unwrap().entries.clear();
+    lifecycle::finish_stopping();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(errors.join("; ")))
+    }
+}
+
+fn join_worker_at_shutdown(
+    name: &str,
+    handle: &Mutex<Option<JoinHandle<Result<()>>>>,
+    errors: &mut Vec<String>,
+) {
+    let Some(handle) = handle.lock().unwrap().take() else {
+        return;
+    };
+    match handle.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => errors.push(format!("{name} failed: {err}")),
+        Err(_) => errors.push(format!("{name} panicked")),
     }
 }
 
@@ -602,6 +712,7 @@ fn load_component(path: &Path, use_fuel: bool) -> Result<Component> {
 /// Load a WebAssembly component from disk and register it in the runtime,
 /// returning a unique module identifier.
 pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
+    lifecycle::ensure_running()?;
     let use_fuel = config.max_instructions.is_some();
     let canonical_path = PathBuf::from(&path)
         .canonicalize()
@@ -648,6 +759,12 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                     let _ = join_handle_via_coio(worker);
                     return Err(err);
                 }
+                if let Err(err) = lifecycle::ensure_running() {
+                    let (done_tx, _done_rx) = std_mpsc::channel();
+                    let _ = cmd_tx.send(InterpreterCommand::Close(done_tx));
+                    let _ = join_handle_via_coio(worker);
+                    return Err(err);
+                }
 
                 let created = Arc::new(SharedInterpreterEntry {
                     path_key: path_key.clone(),
@@ -682,6 +799,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
         }
     };
 
+    lifecycle::ensure_running()?;
     let uid = format!(
         "{}#{}",
         path,
@@ -697,6 +815,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
 
 /// Drop a previously loaded module, freeing associated resources.
 pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
+    lifecycle::ensure_running()?;
     let mode = {
         let mut modules = runtime_state.modules.write().unwrap();
         let loaded = modules
@@ -984,7 +1103,18 @@ fn run_interpreter_worker(
 
     let _ = ready_tx.send(Ok(()));
 
-    while let Ok(command) = cmd_rx.recv() {
+    loop {
+        let command = match cmd_rx.recv_timeout(Duration::from_millis(10)) {
+            Ok(command) => command,
+            Err(std_mpsc::RecvTimeoutError::Timeout)
+                if lifecycle::state() == RuntimeLifecycle::Running =>
+            {
+                continue;
+            }
+            Err(std_mpsc::RecvTimeoutError::Timeout | std_mpsc::RecvTimeoutError::Disconnected) => {
+                break;
+            }
+        };
         match command {
             InterpreterCommand::Exec(code, result_tx) => {
                 let result = run_interpreter_exec_job(
@@ -1127,7 +1257,18 @@ fn run_session_worker(
 
     let _ = ready_tx.send(Ok(()));
 
-    while let Ok(command) = cmd_rx.recv() {
+    loop {
+        let command = match cmd_rx.recv_timeout(Duration::from_millis(10)) {
+            Ok(command) => command,
+            Err(std_mpsc::RecvTimeoutError::Timeout)
+                if lifecycle::state() == RuntimeLifecycle::Running =>
+            {
+                continue;
+            }
+            Err(std_mpsc::RecvTimeoutError::Timeout | std_mpsc::RecvTimeoutError::Disconnected) => {
+                break;
+            }
+        };
         match command {
             SessionCommand::Call(job, result_tx) => {
                 reset_store_fuel(&mut store, with_fuel, &config);
@@ -1214,6 +1355,7 @@ fn close_interpreter_impl(path_key: &str, entry: Arc<SharedInterpreterEntry>) ->
 
 /// Open a long-lived WASM session with a persistent component instance.
 pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> Result<String> {
+    lifecycle::ensure_running()?;
     let loaded = runtime_state
         .modules
         .read()
@@ -1257,6 +1399,12 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
         let _ = join_handle_via_coio(worker);
         return Err(err);
     }
+    if let Err(err) = lifecycle::ensure_running() {
+        let (done_tx, _done_rx) = std_mpsc::channel();
+        let _ = cmd_tx.send(SessionCommand::Close(done_tx));
+        let _ = join_handle_via_coio(worker);
+        return Err(err);
+    }
 
     let session_handle = format!(
         "{}::session#{}",
@@ -1285,6 +1433,7 @@ pub fn tt_wasm_session_call_function(
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
+    lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let session = runtime_state
         .sessions
@@ -1311,6 +1460,7 @@ pub fn tt_wasm_session_call_functions(
     session_handle: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
 ) -> Result<Vec<RmpvValue>> {
+    lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let session = runtime_state
         .sessions
@@ -1335,6 +1485,7 @@ pub fn tt_wasm_session_call_functions(
 
 /// Close a long-lived session and release its worker thread and instance.
 pub fn tt_wasm_close_session(session_handle: String) -> Result<()> {
+    lifecycle::ensure_running()?;
     let session = runtime_state
         .sessions
         .write()
@@ -1364,6 +1515,7 @@ fn interpreter_entry_for_module(module_uid: &str) -> Result<Arc<SharedInterprete
 
 /// Execute source code in a shared interpreter instance.
 pub fn tt_wasm_interpreter_exec(module_uid: String, code: String) -> Result<()> {
+    lifecycle::ensure_running()?;
     let entry = interpreter_entry_for_module(&module_uid)?;
     let (result_tx, result_rx) = std_mpsc::channel();
     entry
@@ -1380,6 +1532,7 @@ pub fn tt_wasm_interpreter_call(
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
+    lifecycle::ensure_running()?;
     let entry = interpreter_entry_for_module(&module_uid)?;
     let args_msgpack = rmpv_to_msgpack_bytes(&RmpvValue::Array(args))?;
     let (result_tx, result_rx) = std_mpsc::channel();
@@ -1399,6 +1552,7 @@ pub fn tt_wasm_interpreter_call(
 
 /// Run a loaded module in a background thread, returning a join handle.
 pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Result<WasmRunHandle> {
+    lifecycle::ensure_running()?;
     let loaded = runtime_state
         .modules
         .read()
@@ -1450,7 +1604,22 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
     let cancel_tx = canceler_rx
         .recv()
         .map_err(|_| anyhow!("failed to receive fiber cancel handle"))?;
-    Ok(WasmRunHandle::new(handle, cancel_tx))
+    if let Err(err) = lifecycle::ensure_running() {
+        let _ = cancel_tx.blocking_send(WasmFiberStatus::Canceled);
+        let _ = join_handle_via_coio(handle);
+        return Err(err);
+    }
+    let run_id = runtime_state.next_run_uid.fetch_add(1, Ordering::Relaxed);
+    let entry = Arc::new(WasmRunEntry {
+        cancel_tx,
+        join_handle: Mutex::new(Some(handle)),
+    });
+    runtime_state
+        .runs
+        .write()
+        .unwrap()
+        .insert(run_id, Arc::clone(&entry));
+    Ok(WasmRunHandle::new(run_id, entry))
 }
 
 /// Call a single exported function of a module.
@@ -1460,6 +1629,7 @@ pub fn tt_wasm_call_function(
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
+    lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let loaded = runtime_state
         .modules
@@ -1530,6 +1700,7 @@ pub fn tt_wasm_call_functions(
     module_uid: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
 ) -> Result<Vec<RmpvValue>> {
+    lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let loaded = runtime_state
         .modules
@@ -1617,6 +1788,7 @@ type ExportMap = HashMap<String, ExportNamespace>;
 
 /// Retrieve a map of exported functions grouped by namespace.
 pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
+    lifecycle::ensure_running()?;
     let loaded = runtime_state
         .modules
         .read()

@@ -1,7 +1,7 @@
 //! Execution helpers bridging the async Wasmtime runtime with Tarantool's
 //! cooperative multitasking environment.
 
-use crate::runtime::tx::{tx_flush, tx_push, TxCtx};
+use crate::runtime::tx::{tx_push, TxCtx};
 use tokio::sync::oneshot;
 use wasmtime_wasi::async_trait;
 
@@ -60,11 +60,14 @@ impl ExecutorImpl for TxPushExecutor {
 
         tx_push(Box::new(TxCtx {
             cb: Box::new(closure),
-        }));
-        tx_flush();
+        }))
+        .expect("TX submission rejected while a WASM worker is active");
 
+        // Every active worker owns a lifecycle guard. During Stopping its
+        // TxCtx is moved to the shutdown queue and executed on TX before the
+        // guard can be released, so shutdown cannot drop the sender.
         rx.await
-            .unwrap_or_else(|_| panic!("TX thread failed to respond"))
+            .expect("TX callback dropped despite an active worker lifecycle guard")
     }
 }
 
