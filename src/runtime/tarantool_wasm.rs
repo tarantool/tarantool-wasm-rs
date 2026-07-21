@@ -36,8 +36,11 @@ use wasmtime::{
 use wasmtime_wasi::cli::OutputFile;
 use wasmtime_wasi::p2::pipe::MemoryInputPipe;
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
-use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
-use wasmtime_wasi_tls::{WasiTlsCtx, WasiTlsCtxBuilder};
+use wasmtime_wasi_http::{
+    p2::{WasiHttpCtxView, WasiHttpView},
+    WasiHttpCtx,
+};
+use wasmtime_wasi_tls::{WasiTlsCtx, WasiTlsCtxBuilder, WasiTlsCtxView, WasiTlsView};
 
 use crate::runtime::{
     convert::{msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes},
@@ -313,12 +316,23 @@ impl WasiView for SyncWasmStates {
 }
 
 impl WasiHttpView for SyncWasmStates {
-    fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.state.get_mut().unwrap().http
+    fn http(&mut self) -> WasiHttpCtxView<'_> {
+        let state = self.state.get_mut().unwrap();
+        WasiHttpCtxView {
+            ctx: &mut state.http,
+            table: &mut state.table,
+            hooks: Default::default(),
+        }
     }
+}
 
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.state.get_mut().unwrap().table
+impl WasiTlsView for SyncWasmStates {
+    fn tls(&mut self) -> WasiTlsCtxView<'_> {
+        let state = self.state.get_mut().unwrap();
+        WasiTlsCtxView {
+            ctx: &mut state.tls,
+            table: &mut state.table,
+        }
     }
 }
 
@@ -1312,7 +1326,7 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
         let fiber = WasmFiber::new(store, linker, component);
         let _ = canceler_tx.send(fiber.canceler());
         let _ = fiber.block_on();
-        Ok::<(), wasmtime::Error>(())
+        Ok::<(), anyhow::Error>(())
     })?;
     let cancel_tx = canceler_rx
         .recv()
@@ -1495,7 +1509,7 @@ pub fn tt_wasm_export_names(module_uid: String) -> Result<ExportMap> {
     let mut out: ExportMap = HashMap::new();
 
     for (name, item) in ty.exports(engine) {
-        match item {
+        match item.ty {
             ComponentItem::ComponentFunc(f) => {
                 out.entry("".to_string())
                     .or_default()

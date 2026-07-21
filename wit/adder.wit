@@ -3,19 +3,19 @@ package docs:adder@0.1.3;
 world adder {
   import zlib;
 
-  import tarantool:tarantool/types@0.1.3;
-  import tarantool:tarantool/metrics@0.1.3;
-  import tarantool:tarantool/msgpack@0.1.3;
-  import tarantool:tarantool/ttbox@0.1.3;
-  import tarantool:tarantool/say@0.1.3;
-  import tarantool:tarantool/error@0.1.3;
-  import tarantool:tarantool/session@0.1.3;
-  import tarantool:tarantool/txn@0.1.3;
-  import tarantool:tarantool/index@0.1.3;
-  import tarantool:tarantool/sequence@0.1.3;
-  import tarantool:tarantool/key-def@0.1.3;
-  import tarantool:tarantool/tuple-format@0.1.3;
-  import tarantool:tarantool/box-tuple@0.1.3;
+  import tarantool:tarantool/types@0.1.4;
+  import tarantool:tarantool/metrics@0.1.4;
+  import tarantool:tarantool/msgpack@0.1.4;
+  import tarantool:tarantool/ttbox@0.1.4;
+  import tarantool:tarantool/say@0.1.4;
+  import tarantool:tarantool/error@0.1.4;
+  import tarantool:tarantool/session@0.1.4;
+  import tarantool:tarantool/txn@0.1.4;
+  import tarantool:tarantool/index@0.1.4;
+  import tarantool:tarantool/sequence@0.1.4;
+  import tarantool:tarantool/key-def@0.1.4;
+  import tarantool:tarantool/tuple-format@0.1.4;
+  import tarantool:tarantool/box-tuple@0.1.4;
 
   import wasi:cli/environment@0.2.3;
   import wasi:cli/exit@0.2.3;

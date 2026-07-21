@@ -20,7 +20,7 @@ pub(super) fn collect_exports(
     out: &mut ExportMap,
 ) {
     for (name, item) in instance.exports(engine) {
-        match item {
+        match item.ty {
             ComponentItem::ComponentFunc(func) => {
                 out.entry(namespace.to_string())
                     .or_default()

@@ -1,7 +1,7 @@
 cargo_build_debug := "cargo build"
 cargo_build_release := "cargo build --release --target x86_64-unknown-linux-gnu"
 
-wkg_fetch := "wkg wit fetch"
+wkg_fetch := "wkg wit fetch --type wasm"
 wkg_build := "wkg wit build"
 add_registry_patch := "./scripts/add_tarantool_registry.sh"
 

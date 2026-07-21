@@ -105,7 +105,5 @@ pub(super) async fn execute_call_job_on_instance(
         .call_async(&mut *store, &wasm_args, &mut results_buf)
         .await?;
 
-    let result = values_to_rmpv(&results_buf)?;
-    export.post_return_async(&mut *store).await?;
-    Ok(result)
+    values_to_rmpv(&results_buf)
 }

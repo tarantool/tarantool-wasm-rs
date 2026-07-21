@@ -1,5 +1,5 @@
 use wasmtime::{component::Linker, Config, Engine};
-use wasmtime_wasi_tls::{LinkOptions, WasiTls};
+use wasmtime_wasi_tls::p2::LinkOptions;
 
 use crate::bindings::{
     docs::adder::zlib,
@@ -13,14 +13,6 @@ use super::SyncWasmStates;
 
 pub(super) fn runtime_config(with_fuel: bool) -> Config {
     let mut config = Config::new();
-    /*
-     * Async support is required to implement rescheduling into the TX
-     * thread. In non-async mode WASM is heavily dependent on the
-     * thread-local storage. In async mode it changes to the task-local
-     * storage. This way we can run our module within a Tokio runtime
-     * task and reschedule that task instead.
-     */
-    config.async_support(true);
     if with_fuel {
         config.consume_fuel(true);
     }
@@ -39,15 +31,12 @@ pub(super) fn runtime_config(with_fuel: bool) -> Config {
 pub(super) fn build_runtime_linker(engine: &Engine) -> Linker<SyncWasmStates> {
     let mut linker = Linker::<SyncWasmStates>::new(engine);
     let _ = wasmtime_wasi::p2::add_to_linker_async(&mut linker);
-    let _ = wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker);
+    let _ = wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker);
 
     let mut opts = LinkOptions::default();
     opts.tls(true);
 
-    let _ = wasmtime_wasi_tls::add_to_linker(&mut linker, &mut opts, |h: &mut SyncWasmStates| {
-        let state = h.state.get_mut().unwrap();
-        WasiTls::new(&state.tls, &mut state.table)
-    });
+    let _ = wasmtime_wasi_tls::p2::add_to_linker(&mut linker, &opts);
 
     let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
