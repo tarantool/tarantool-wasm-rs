@@ -9,10 +9,10 @@ mod linker;
 mod threading;
 
 use std::{
-    collections::{HashMap, HashSet},
-    fs::OpenOptions,
+    collections::{HashMap, HashSet, VecDeque},
+    fs::{self, OpenOptions},
     net::IpAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc as std_mpsc, Arc, Mutex, RwLock,
@@ -350,6 +350,40 @@ struct LoadedModule {
 }
 
 #[derive(Clone)]
+struct CachedComponent {
+    source: Arc<[u8]>,
+    component: Component,
+}
+
+const COMPONENT_CACHE_CAPACITY: usize = 32;
+
+#[derive(Default)]
+struct ComponentCache {
+    entries: HashMap<(PathBuf, bool), CachedComponent>,
+    insertion_order: VecDeque<(PathBuf, bool)>,
+}
+
+impl ComponentCache {
+    fn insert(&mut self, key: (PathBuf, bool), component: CachedComponent) {
+        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+            self.entries.entry(key.clone())
+        {
+            entry.insert(component);
+            return;
+        }
+
+        if self.entries.len() == COMPONENT_CACHE_CAPACITY {
+            if let Some(oldest) = self.insertion_order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+
+        self.insertion_order.push_back(key.clone());
+        self.entries.insert(key, component);
+    }
+}
+
+#[derive(Clone)]
 enum ModuleMode {
     Regular,
     Interpreter(Arc<SharedInterpreterEntry>),
@@ -430,6 +464,7 @@ struct RuntimeState {
     pub linker: Arc<Linker<SyncWasmStates>>,
     pub fuel_engine: Engine,
     pub fuel_linker: Arc<Linker<SyncWasmStates>>,
+    pub components: RwLock<ComponentCache>,
     pub modules: RwLock<HashMap<String, LoadedModule>>,
     pub shared_interpreters: RwLock<HashMap<String, Arc<SharedInterpreterEntry>>>,
     pub sessions: RwLock<HashMap<String, Arc<WasmSession>>>,
@@ -445,6 +480,7 @@ impl RuntimeState {
         let linker = build_runtime_linker(&engine);
         let fuel_linker = build_runtime_linker(&fuel_engine);
 
+        let components = RwLock::new(ComponentCache::default());
         let modules = RwLock::new(HashMap::new());
         let shared_interpreters = RwLock::new(HashMap::new());
         let sessions = RwLock::new(HashMap::new());
@@ -465,6 +501,7 @@ impl RuntimeState {
             linker: linker_ref,
             fuel_engine,
             fuel_linker: fuel_linker_ref,
+            components,
             modules,
             shared_interpreters,
             sessions,
@@ -474,17 +511,58 @@ impl RuntimeState {
     }
 }
 
+fn load_component(path: &Path, use_fuel: bool) -> Result<Component> {
+    let source: Arc<[u8]> = fs::read(path)
+        .map_err(|err| anyhow!("failed to read component `{}`: {err}", path.display()))?
+        .into();
+    let cache_key = (path.to_path_buf(), use_fuel);
+
+    if let Some(cached) = runtime_state
+        .components
+        .read()
+        .unwrap()
+        .entries
+        .get(&cache_key)
+    {
+        if cached.source == source {
+            return Ok(cached.component.clone());
+        }
+    }
+
+    let engine = if use_fuel {
+        &runtime_state.fuel_engine
+    } else {
+        &runtime_state.engine
+    };
+    let component = Component::from_binary(engine, &source)?;
+
+    let mut components = runtime_state.components.write().unwrap();
+    if let Some(cached) = components.entries.get(&cache_key) {
+        if cached.source == source {
+            return Ok(cached.component.clone());
+        }
+    }
+    components.insert(
+        cache_key,
+        CachedComponent {
+            source,
+            component: component.clone(),
+        },
+    );
+
+    Ok(component)
+}
+
 /// Load a WebAssembly component from disk and register it in the runtime,
 /// returning a unique module identifier.
 pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
     let use_fuel = config.max_instructions.is_some();
+    let canonical_path = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|err| anyhow!("failed to canonicalize `{path}`: {err}"))?;
 
     let loaded = if config.interpreter {
-        let path_key = PathBuf::from(path.clone())
-            .canonicalize()
-            .map_err(|err| anyhow!("failed to canonicalize `{path}`: {err}"))?
-            .to_string_lossy()
-            .to_string();
+        let path_key = canonical_path.to_string_lossy().to_string();
 
         let entry = {
             let mut registry = runtime_state.shared_interpreters.write().unwrap();
@@ -497,13 +575,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 existing.refcount.fetch_add(1, Ordering::Relaxed);
                 Arc::clone(existing)
             } else {
-                let engine = if use_fuel {
-                    &runtime_state.fuel_engine
-                } else {
-                    &runtime_state.engine
-                };
-
-                let component = Component::from_file(engine, path.clone())?;
+                let component = load_component(&canonical_path, use_fuel)?;
                 let export_cache = Arc::new(RwLock::new(HashMap::new()));
                 let (cmd_tx, cmd_rx) = std_mpsc::channel();
                 let (ready_tx, ready_rx) = std_mpsc::channel();
@@ -554,13 +626,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
             mode: ModuleMode::Interpreter(entry),
         }
     } else {
-        let engine = if use_fuel {
-            &runtime_state.fuel_engine
-        } else {
-            &runtime_state.engine
-        };
-
-        let component = Component::from_file(engine, path.clone())?;
+        let component = load_component(&canonical_path, use_fuel)?;
         LoadedModule {
             component,
             config,
