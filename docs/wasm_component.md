@@ -4,16 +4,26 @@ This document describes how the `run` function works (which calls `wasi:cli.run`
 
 ## Running a Module with `run`
 
-1. A Lua script calls `wasm.run(module_uid)` from the `wasm` module (see `src/lib.rs`).
+1. A Lua script calls `wasm.run(module_uid)` from the `wasm` module (see `src/lua/api.rs`).
 2. The `run` function invokes `tt_wasm_run_module`, which creates a separate OS thread and launches a `WasmFiber` within it.
 3. `WasmFiber` sets up a `tokio` runtime and asynchronously instantiates the component using `wasmtime_wasi::p2::bindings::Command`.
 4. Once initialized, it calls `wasi_cli_run().call_run` on the instance, which triggers execution of the WASM module logic.
 5. While the module is running, any tasks that require interaction with Tarantool are forwarded to the TX thread using `tx_push`/`tx_flush`.
 
+`wasm.run` returns a join handle as soon as the worker has published its
+cancellation channel; it does not wait for component execution to finish.
+`wasm.join(handle)` consumes the handle and waits for the worker with
+`coio_call`, allowing the Tarantool fiber to yield while the OS thread is
+joined.
+
 If Lua calls `wasm.cancel(handle)`, the runtime sends a `Canceled` status back to the worker. The `WasmFiber`
 aborts the asynchronous task running inside the Tokio runtime and the OS thread exits once cleanup is
 complete. The Lua helper waits for the join handle to finish so callers can rely on the worker thread being
 terminated before continuing.
+
+At Tarantool shutdown the runtime rejects new work, interrupts running stores,
+closes sessions and shared interpreters, cancels background runs, services any
+remaining TX callbacks, and joins all worker threads before shutdown proceeds.
 
 ## Calling Exported Functions
 
@@ -23,6 +33,12 @@ To invoke an exported function, use `wasm.call(module_uid, func, ...)`:
 2. Within that thread, the component is instantiated, the export is located by name, and `call_async` is executed.
 3. Arguments and results are converted to/from MsgPack.
 4. The result is returned to the Lua caller via `coio_call`.
+
+Loaded components are compiled once and cached by canonical path, source
+bytes, and fuel mode. Repeated loads of an unchanged file reuse the compiled
+`Component`; they do not share a `Store`, instance, or guest state unless the
+session or shared-interpreter APIs are used. The cache holds at most 32
+compiled components and evicts the oldest entry when full.
 
 ### Executing Multiple Functions Sequentially
 
@@ -52,6 +68,7 @@ wasm.close_session(s)
 ```
 
 A session keeps one component instance and one store alive across calls, allowing in-memory guest state and resources to be reused between invocations.
+Calling `wasm.drop(module_uid)` closes all sessions belonging to that module.
 
 ## Shared Interpreter Mode
 
@@ -61,7 +78,10 @@ For interpreter components (large WASM binaries), enable shared mode at load:
 local m = wasm.load(path, { interpreter = true })
 ```
 
-In this mode the runtime keeps one warmed interpreter instance.
+In this mode the runtime keeps one warmed interpreter instance per canonical
+component path. Loading the same path again reuses that instance only when the
+full configuration is identical; a different configuration is rejected. The
+instance is closed after the last module identifier for that path is dropped.
 
 ### Example - Python interpreter
 
@@ -92,14 +112,20 @@ Below are three separate diagrams for `wasm.run`, `wasm.call`, and `wasm.batch`.
 
 ```mermaid
 flowchart TD
-    subgraph Lua thread
+    subgraph TX thread
         LR[wasm.run]
+        FR[tt_wasm_run_module]
+        RH[return join handle]
+        LJ[wasm.join]
+        CoioRun[coio_call joins worker]
     end
 
-    LR -- run --> FR[tt_wasm_run_module]
+    LR -- run --> FR
+    FR -- spawn --> ST
+    FR --> RH
 
     subgraph Worker thread
-        FR -- spawn --> ST[spawn_tt_thread]
+        ST[spawn_tt_thread]
         ST -- start --> TR[Tokio runtime & WasmFiber]
         TR -- instantiate --> RI[Command::instantiate_async]
         RI -- run --> RRun[wasi_cli_run.call_run]
@@ -108,8 +134,10 @@ flowchart TD
         RRun --> RDone[return result]
     end
 
-    RDone -- send --> CoioRun[coio_call]
-    CoioRun -- join --> ReturnRun[Lua gets result]
+    RH -. later .-> LJ
+    LJ --> CoioRun
+    RDone --> CoioRun
+    CoioRun --> ReturnRun[Lua gets true or an error]
 ```
 
 ### wasm.call

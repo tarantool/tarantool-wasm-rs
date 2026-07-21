@@ -4,13 +4,16 @@ This document describes how WIT interface types are mapped to Lua values when us
 
 Reference: [WIT Type System Specification](https://component-model.bytecodealliance.org/design/wit.html)
 
-> **Note**: The `resource` type is **not supported** in the current implementation.
+> **Note**: A `resource` cannot currently be passed through the public Lua
+> `wasm.call`/session APIs as a component export parameter or result. Host-side
+> imported resources, including Tarantool iterators and WASI resources, are
+> supported internally by the runtime.
 
 | WIT Type                  | Lua Representation             | Notes                                          |
 | ------------------------- | -------------------------------| ---------------------------------------------- |
 | `bool`                    | `true` / `false`               | Boolean literal                                |
 | `s8`, `s16`, `s32`, `s64` | `number`                       | Signed integers                                |
-| `u8`, `u16`, `u32`, `u64` | `number`                       | Unsigned integers                              |
+| `u8`, `u16`, `u32`, `u64` | `number` or `uint64_t` cdata   | Values above `i64::MAX` are returned as LuaJIT cdata |
 | `f32`, `f64`              | `number`                       | Floating point values                          |
 | `char`                    | `string` (1-character)         | UTF-8 single character                         |
 | `string`                  | `string`                       | UTF-8 string                                   |
@@ -22,7 +25,7 @@ Reference: [WIT Type System Specification](https://component-model.bytecodeallia
 | `variant`                 | `table` (single key-value)     | E.g., `{ some = 42 }`                          |
 | `enum`                    | `string`                       | One of the enum names                          |
 | `flags`                   | `table` (array of strings)     | E.g., `{ "get", "put" }`                       |
-| `resource`                | Not supported                  |                                                |
+| `resource`                | Not supported by exported calls | Host imports may use resources internally     |
 
 ---
 
@@ -77,6 +80,7 @@ component:t_u8(255)
 component:t_u16(65535)
 component:t_u32(4294967295)
 component:t_u64(123456789012345)
+component:t_u64(require('ffi').cast('uint64_t', -1)) -- u64::MAX
 ```
 
 ### Type: `f32`, `f64`
@@ -139,11 +143,12 @@ component:t_option(42)
 ### Type: `result<T, E>`
 
 ```wit
-t-result: func() -> result<u8, string>
+t-result: func() -> result<u8, string>;
 ```
 
 ```lua
 local ok, res = unpack(component:t_result())
+if ok then
   -- res has type u8
   print("Success:", res)
 else
@@ -208,6 +213,10 @@ component:t_variant({any = true})
 component:t_variant({restricted = {"a", "b"}})
 ```
 
+For a payload-less case, the input uses `{ none = true }`. The current return
+conversion produces an empty table (`{}`), because Lua tables cannot retain a
+key whose value is `nil`.
+
 ### Type: `enum`
 
 ```wit
@@ -242,8 +251,12 @@ component:t_flags({})
 component:t_flags({"read", "execute"})
 ```
 
-### Not Supported: `resource`
+### Resources
 
-The `resource` type defined in WIT is currently **not supported**.
+Resources exposed by a component cannot currently cross the Lua call boundary
+as parameters or results. The runtime itself does support imported host
+resources through Wasmtime's resource table. Tarantool index and tuple
+iterators use this mechanism, and their lifetime and TX-thread constraints are
+described in [thread-safety.md](thread-safety.md).
 
 See: [WIT Spec - Resource](https://component-model.bytecodealliance.org/design/wit.html#resources)

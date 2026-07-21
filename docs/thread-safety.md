@@ -39,11 +39,24 @@ non-yielding finalizer back to TX. This is the safety condition for the narrow
 
 | Area | MT-safety and lifetime guarantee |
 | --- | --- |
-| `tnt_tx_push` / `tnt_tx_flush` | Tarantool's external-thread bridge is specifically required to be called outside TX. A queued `Box<TxCtx>` remains allocated until the TX callback takes ownership. Its contract requires all external workers to terminate before Tarantool shutdown; the shutdown trigger interrupts Wasmtime by incrementing the engine epochs and gives workers time to exit. The callback asserts that it entered TX. |
+| `tnt_tx_push` / `tnt_tx_flush` | Tarantool's external-thread bridge is specifically required to be called outside TX. While the runtime is `Running`, a queued `Box<TxCtx>` remains allocated until the TX callback takes ownership. Submission is serialized with the transition to `Stopping`, so no worker can call these functions after shutdown begins. Callbacks submitted by an already active worker during `Stopping` go to an in-process queue drained on TX. The callback asserts that it entered TX. |
 | Logging (`say`) | Tarantool creates an on-demand thread-local cord for a native thread, formats through a thread-local buffer, protects logger configuration with a mutex, and emits through the logger file descriptor. The binding passes owned Rust strings for the duration of each call and retains no borrowed pointer afterward. Logger reconfiguration and shutdown remain TX-owned lifecycle operations. |
 | MessagePack conversion | Pure Rust decoding/encoding over owned input and output buffers; it does not enter Tarantool or retain pointers into guest memory. |
 | zlib | Pure compression/decompression over owned input and output buffers; it does not enter Tarantool or retain pointers into guest memory. |
 | Wasmtime/WASI execution | Engine and component objects use their documented thread-safe ownership. A store and instance remain owned by one worker and are not concurrently accessed. |
+
+## Shutdown
+
+The runtime has a process-wide `Running` → `Stopping` → `Stopped` lifecycle.
+The Tarantool shutdown trigger first rejects new loads, calls, sessions, and
+workers, then increments both Wasmtime engine epochs to interrupt running
+stores. It closes sessions and shared interpreters, cancels background runs,
+and continues draining callbacks from active workers on TX. Only after the
+active worker count reaches zero does it join every worker thread, clear the
+module and component registries, and enter `Stopped`.
+
+This ordering is required by the `tnt_tx_push` contract: all external worker
+threads are gone before Tarantool proceeds with shutdown.
 
 No other Tarantool C API may be added to a worker-side binding without either
 dispatching it to TX with `debug_assert_tx_thread()` or documenting its native
