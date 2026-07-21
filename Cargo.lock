@@ -2178,7 +2178,6 @@ dependencies = [
  "nix",
  "rmp-serde",
  "rmpv",
- "scopeguard",
  "serde",
  "serde_json",
  "sha2",
