@@ -1,6 +1,7 @@
 local t = require('luatest')
 local wasm = require('wasm')
 local fio = require('fio')
+local ffi = require('ffi')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
@@ -39,56 +40,70 @@ end
 
 -- signed integers
 g.test_s8 = function(cg)
-    local res = wasm.call(cg.m, "t-s8", -100)
-    t.assert_equals(res, -100)
+    for _, value in ipairs({-128, 127}) do
+        t.assert_equals(wasm.call(cg.m, "t-s8", value), value)
+    end
 end
 
 g.test_s16 = function(cg)
-    local res = wasm.call(cg.m, "t-s16", -12345)
-    t.assert_equals(res, -12345)
+    for _, value in ipairs({-32768, 32767}) do
+        t.assert_equals(wasm.call(cg.m, "t-s16", value), value)
+    end
 end
 
 g.test_s32 = function(cg)
-    local res = wasm.call(cg.m, "t-s32", -123456789)
-    t.assert_equals(res, -123456789)
+    for _, value in ipairs({-2147483648, 2147483647}) do
+        t.assert_equals(wasm.call(cg.m, "t-s32", value), value)
+    end
 end
 
 g.test_s64 = function(cg)
+    local value = 9007199254740991
+    t.assert_equals(wasm.call(cg.m, "t-s64", value), value)
+end
+
+g.test_s64_negative = function(cg)
     t.skip_if(
         cg.params.lang == "js",
-        "JS Number cannot safely represent full range of 64-bit integers; " ..
-        "use BigInt or another language for exact s64 support"
+        "componentize-js traps when lowering a negative s64 result"
     )
-
-    local res = wasm.call(cg.m, "t-s64", -123456789012345)
-    t.assert_equals(res, -123456789012345)
+    local value = -9007199254740991
+    t.assert_equals(wasm.call(cg.m, "t-s64", value), value)
 end
 
 -- unsigned integers
 g.test_u8 = function(cg)
-    local res = wasm.call(cg.m, "t-u8", 255)
-    t.assert_equals(res, 255)
+    for _, value in ipairs({0, 255}) do
+        t.assert_equals(wasm.call(cg.m, "t-u8", value), value)
+    end
 end
 
 g.test_u16 = function(cg)
-    local res = wasm.call(cg.m, "t-u16", 65535)
-    t.assert_equals(res, 65535)
+    for _, value in ipairs({0, 65535}) do
+        t.assert_equals(wasm.call(cg.m, "t-u16", value), value)
+    end
 end
 
 g.test_u32 = function(cg)
+    for _, value in ipairs({0, 2147483647}) do
+        t.assert_equals(wasm.call(cg.m, "t-u32", value), value)
+    end
+end
+
+g.test_u32_high_bit = function(cg)
     t.skip_if(
         cg.params.lang == "js",
-        "Skipped due to JS Number precision limits; values above 2^53 may " ..
-        "lose precision when roundtripped through wasm bindings"
+        "componentize-js corrupts u32 results with the high bit set"
     )
-
-    local res = wasm.call(cg.m, "t-u32", 4294967295)
-    t.assert_equals(res, 4294967295)
+    for _, value in ipairs({2147483648, 4294967295}) do
+        t.assert_equals(wasm.call(cg.m, "t-u32", value), value)
+    end
 end
 
 g.test_u64 = function(cg)
-    local res = wasm.call(cg.m, "t-u64", 123456789012345)
-    t.assert_equals(res, 123456789012345)
+    for _, value in ipairs({0, 9007199254740991, ffi.cast('uint64_t', -1)}) do
+        t.assert_equals(wasm.call(cg.m, "t-u64", value), value)
+    end
 end
 
 -- floats

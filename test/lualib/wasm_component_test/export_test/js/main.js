@@ -15,8 +15,7 @@ export function tS32(x) {
 }
 
 export function tS64(x) {
-    console.log(x);
-    return BigInt.asIntN(64, x);
+    return x;
 }
 
 export function tU8(x) {
@@ -28,7 +27,6 @@ export function tU16(x) {
 }
 
 export function tU32(x) {
-    console.log(x);
     return x;
 }
 

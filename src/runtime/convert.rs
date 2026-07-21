@@ -257,7 +257,7 @@ pub fn val_to_rmpv(val: &Val) -> Result<RmpvValue> {
         Val::S32(i) => RmpvValue::Integer((*i as i64).into()),
         Val::U32(i) => RmpvValue::Integer((*i as i64).into()),
         Val::S64(i) => RmpvValue::Integer((*i).into()),
-        Val::U64(i) => RmpvValue::Integer((*i as i64).into()),
+        Val::U64(i) => RmpvValue::Integer((*i).into()),
         Val::Float32(f) => RmpvValue::F64(*f as f64),
         Val::Float64(f) => RmpvValue::F64(*f),
         Val::Bool(b) => RmpvValue::Boolean(*b),
@@ -468,7 +468,13 @@ pub fn from_rmpv(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value
     Ok(match val {
         Nil => LV::Nil,
         Boolean(b) => LV::Boolean(*b),
-        Integer(i) => LV::Integer(i.as_i64().unwrap_or(0)),
+        Integer(i) => {
+            if let Some(value) = i.as_i64() {
+                LV::Integer(value)
+            } else {
+                rmpv_to_lua_via_msgpack(lua, val)?
+            }
+        }
         F32(f) => LV::Number(*f as f64),
         F64(f) => LV::Number(*f),
         String(s) => LV::String(lua.create_string(s.as_str().unwrap_or(""))?),
