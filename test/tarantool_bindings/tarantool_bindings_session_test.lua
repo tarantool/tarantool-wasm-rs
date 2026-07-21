@@ -42,7 +42,7 @@ end)
 -- current
 g.test_current = function(cg)
     local res = wasm.call(cg.m, "t-current")
-    t.assert_type(res.id, "number")
+    t.assert_equals(res.id, box.session.id())
 end
 
 -- broadcast

@@ -9,6 +9,11 @@ use tarantool::error::TarantoolErrorCode;
 
 impl session::Host for SyncWasmStates {
     async fn current(&mut self) -> Session {
+        if let Some(session_id) = self.caller_session_id() {
+            return Session {
+                id: session_id as i64,
+            };
+        }
         self.executor()
             .execute(|| {
                 debug_assert_tx_thread();

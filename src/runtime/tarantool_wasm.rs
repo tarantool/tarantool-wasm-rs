@@ -47,6 +47,7 @@ use crate::runtime::{
     executor::{Executor, TxMode},
     wasm_fiber::{WasmFiber, WasmFiberStatus},
 };
+use crate::ffi;
 
 use self::{
     calls::{execute_call_job, execute_call_job_on_instance},
@@ -181,6 +182,7 @@ pub(crate) struct WasmStates {
     pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
     pub(crate) executor: Executor,
     pub(crate) tx_mode: TxMode,
+    pub(crate) caller_session_id: Option<u64>,
 }
 
 impl WasmStates {
@@ -268,6 +270,7 @@ impl WasmStates {
             yielder: None,
             executor: Executor::TxPush, // start outside the transaction
             tx_mode: TxMode::None,
+            caller_session_id: None,
         }
     }
 }
@@ -306,6 +309,12 @@ impl SyncWasmStates {
 
     pub fn executor(&self) -> Executor {
         self.state.lock().unwrap().executor
+    }
+    pub(crate) fn caller_session_id(&self) -> Option<u64> {
+        self.state.lock().unwrap().caller_session_id
+    }
+    pub(crate) fn set_caller_session_id(&mut self, session_id: Option<u64>) {
+        self.state.get_mut().unwrap().caller_session_id = session_id;
     }
 
     pub(crate) async fn yield_now(&self) {
@@ -435,6 +444,7 @@ struct CallJob {
     interface: Option<String>,
     func: String,
     args: Vec<RmpvValue>,
+    caller_session_id: Option<u64>,
 }
 
 impl CallJob {
@@ -443,7 +453,12 @@ impl CallJob {
             interface,
             func,
             args,
+            caller_session_id: None,
         }
+    }
+    fn with_caller_session_id(mut self, session_id: u64) -> Self {
+        self.caller_session_id = Some(session_id);
+        self
     }
 
     fn cache_key(&self) -> ExportCacheKey {
@@ -452,6 +467,10 @@ impl CallJob {
             func: self.func.clone(),
         }
     }
+}
+fn current_session_id() -> u64 {
+    debug_assert_tx_thread();
+    unsafe { ffi::session::box_session_id() }
 }
 
 impl From<(Option<String>, String, Vec<RmpvValue>)> for CallJob {
@@ -1266,6 +1285,7 @@ pub fn tt_wasm_session_call_function(
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
+    let caller_session_id = current_session_id();
     let session = runtime_state
         .sessions
         .read()
@@ -1278,7 +1298,7 @@ pub fn tt_wasm_session_call_function(
     session
         .cmd_tx
         .send(SessionCommand::Call(
-            CallJob::new(interface, func, args),
+            CallJob::new(interface, func, args).with_caller_session_id(caller_session_id),
             result_tx,
         ))
         .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
@@ -1291,6 +1311,7 @@ pub fn tt_wasm_session_call_functions(
     session_handle: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
 ) -> Result<Vec<RmpvValue>> {
+    let caller_session_id = current_session_id();
     let session = runtime_state
         .sessions
         .read()
@@ -1299,7 +1320,10 @@ pub fn tt_wasm_session_call_functions(
         .cloned()
         .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
 
-    let jobs = calls.into_iter().map(CallJob::from).collect::<Vec<_>>();
+    let jobs = calls
+        .into_iter()
+        .map(|call| CallJob::from(call).with_caller_session_id(caller_session_id))
+        .collect::<Vec<_>>();
     let (result_tx, result_rx) = std_mpsc::channel();
     session
         .cmd_tx
@@ -1436,6 +1460,7 @@ pub fn tt_wasm_call_function(
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
+    let caller_session_id = current_session_id();
     let loaded = runtime_state
         .modules
         .read()
@@ -1478,7 +1503,8 @@ pub fn tt_wasm_call_function(
             .unwrap();
 
         rt.block_on(async move {
-            let job = CallJob::new(interface, func, args);
+            let job =
+                CallJob::new(interface, func, args).with_caller_session_id(caller_session_id);
             execute_call_job(&mut store, &linker, &component, export_cache.as_ref(), &job).await
         })
     })?;
@@ -1504,6 +1530,7 @@ pub fn tt_wasm_call_functions(
     module_uid: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
 ) -> Result<Vec<RmpvValue>> {
+    let caller_session_id = current_session_id();
     let loaded = runtime_state
         .modules
         .read()
@@ -1516,7 +1543,10 @@ pub fn tt_wasm_call_functions(
     let cfg = loaded.config;
     let fuel = loaded.fuel;
     let export_cache = loaded.export_cache;
-    let jobs = calls.into_iter().map(CallJob::from).collect::<Vec<_>>();
+    let jobs = calls
+        .into_iter()
+        .map(|call| CallJob::from(call).with_caller_session_id(caller_session_id))
+        .collect::<Vec<_>>();
 
     let handle = spawn_tt_thread("wasm".to_string(), move || {
         let engine = if fuel {
