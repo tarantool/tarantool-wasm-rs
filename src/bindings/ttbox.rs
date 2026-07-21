@@ -1,4 +1,4 @@
-use crate::bindings::helpers::validate_array;
+use crate::bindings::helpers::{debug_assert_tx_thread, validate_array};
 use crate::bindings::tarantool::tarantool::ttbox;
 use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, Space};
 use crate::ffi;
@@ -13,35 +13,49 @@ use tarantool::error::TarantoolErrorCode;
 
 impl ttbox::Host for SyncWasmStates {
     async fn schema_version(&mut self) -> i64 {
-        unsafe { ffi::r#box::box_schema_version() as i64 }
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                unsafe { ffi::r#box::box_schema_version() as i64 }
+            })
+            .await
     }
 
     async fn space_by_name(&mut self, name: String) -> Result<Space, BoxError> {
-        match TarantoolSpace::find(&name) {
-            Some(space) => Ok(Space {
-                id: space.id() as i32,
-            }),
-            None => Err(BoxError::new(
-                TarantoolErrorCode::NoSuchSpace as u32,
-                format!("Space '{name}' not found"),
-            )),
-        }
+        self.executor()
+            .execute(move || {
+                debug_assert_tx_thread();
+                match TarantoolSpace::find(&name) {
+                    Some(space) => Ok(Space {
+                        id: space.id() as i32,
+                    }),
+                    None => Err(BoxError::new(
+                        TarantoolErrorCode::NoSuchSpace as u32,
+                        format!("Space '{name}' not found"),
+                    )),
+                }
+            })
+            .await
     }
 
     async fn index_by_name(&mut self, space: Space, name: String) -> Result<Index, BoxError> {
-        let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
-
-        match spc.index(&name) {
-            Some(index) => Ok(Index {
-                id: index.id() as i32,
-                space_id: space.id,
-                index_base: 0,
-            }),
-            None => Err(BoxError::new(
-                TarantoolErrorCode::NoSuchIndexName as u32,
-                format!("Index '{}' not found in space {}", name, space.id),
-            )),
-        }
+        self.executor()
+            .execute(move || {
+                debug_assert_tx_thread();
+                let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
+                match spc.index(&name) {
+                    Some(index) => Ok(Index {
+                        id: index.id() as i32,
+                        space_id: space.id,
+                        index_base: 0,
+                    }),
+                    None => Err(BoxError::new(
+                        TarantoolErrorCode::NoSuchIndexName as u32,
+                        format!("Index '{}' not found in space {}", name, space.id),
+                    )),
+                }
+            })
+            .await
     }
 
     async fn insert(&mut self, space: Space, tup: Vec<u8>) -> Result<BoxTuple, BoxError> {
@@ -49,6 +63,7 @@ impl ttbox::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
                 let tuple = unsafe { TarantoolTuple::from_slice(&tup) };
@@ -73,6 +88,7 @@ impl ttbox::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let ind = unsafe {
                     TarantoolIndex::from_ids_unchecked(
                         index.space_id as SpaceId,
@@ -99,6 +115,7 @@ impl ttbox::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
                 let tuple = unsafe { TarantoolTuple::from_slice(&tup) };
@@ -118,6 +135,7 @@ impl ttbox::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let ind = unsafe {
                     TarantoolIndex::from_ids_unchecked(
                         index.space_id as SpaceId,
@@ -138,6 +156,7 @@ impl ttbox::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let ind = unsafe {
                     TarantoolIndex::from_ids_unchecked(
                         index.space_id as SpaceId,
@@ -163,6 +182,7 @@ impl ttbox::Host for SyncWasmStates {
     async fn truncate(&mut self, space: Space) -> Result<(), BoxError> {
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
 
                 match spc.truncate() {

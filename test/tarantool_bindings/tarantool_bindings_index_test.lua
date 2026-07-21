@@ -64,6 +64,12 @@ g.test_len = function(cg)
     t.assert_equals(res[2], 3)
 end
 
+g.test_index_calls_run_on_tx_thread = function(cg)
+    local res = wasm.call(cg.m, "t-len", cg.idx)
+    t.assert(res[1])
+    t.assert_equals(res[2], 3)
+end
+
 -- bsize
 g.test_bsize = function(cg)
     local idx = cg.idx

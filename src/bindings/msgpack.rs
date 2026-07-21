@@ -1,3 +1,7 @@
+//! Pure MessagePack/JSON conversion helpers. Except for the separately audited
+//! raw-pointer input, these functions operate only on guest-owned byte buffers
+//! and do not require Tarantool's TX thread.
+
 use crate::bindings::helpers::illegal_params;
 use crate::bindings::tarantool::tarantool::msgpack;
 use crate::bindings::tarantool::tarantool::types::BoxError;

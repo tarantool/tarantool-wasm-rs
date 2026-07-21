@@ -92,6 +92,8 @@ pub mod tnt {
 pub mod r#box {
     //! Bindings to selected `box_*` functions from Tarantool.
     extern "C" {
+        pub fn box_region_used() -> usize;
+        pub fn box_region_truncate(size: usize);
         pub fn box_schema_version() -> u32;
         pub fn box_sequence_current(seq_id: u32, result: *mut i64) -> i32;
         pub fn box_sequence_next(seq_id: u32, result: *mut i64) -> i32;

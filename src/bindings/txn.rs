@@ -1,4 +1,5 @@
 use crate::bindings::error::{handle_tarantool_error, map_tarantool_error};
+use crate::bindings::helpers::{debug_assert_tx_thread, illegal_params};
 use crate::bindings::tarantool::tarantool::txn;
 use crate::bindings::tarantool::tarantool::types::{BoxError, TxnIsolationLevel};
 use crate::ffi;
@@ -20,27 +21,51 @@ impl From<i32> for TxnIsolationLevel {
 
 impl txn::Host for SyncWasmStates {
     async fn txn_id(&mut self) -> i64 {
-        unsafe { ffi::tnt::box_txn_id() }
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                unsafe { ffi::tnt::box_txn_id() }
+            })
+            .await
     }
 
     async fn txn_isolation(&mut self) -> TxnIsolationLevel {
-        let level = unsafe { ffi::tnt::box_txn_isolation() };
-        TxnIsolationLevel::from(level)
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                TxnIsolationLevel::from(unsafe { ffi::tnt::box_txn_isolation() })
+            })
+            .await
     }
 
     async fn txn(&mut self) -> bool {
-        transaction::is_in_transaction()
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                transaction::is_in_transaction()
+            })
+            .await
     }
 
     async fn begin(&mut self) -> Result<(), BoxError> {
+        if !self.can_reschedule_to_tx() {
+            return Err(illegal_params(
+                "transactions require a reschedulable wasm.run execution",
+            ));
+        }
         self.yield_now().await;
         self.begin_tx();
-
+        debug_assert_tx_thread();
         transaction::begin().map_err(|e| map_tarantool_error(e.into()))
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
-        transaction::commit().map_err(|e| map_tarantool_error(e.into()))?;
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                transaction::commit().map_err(|e| map_tarantool_error(e.into()))
+            })
+            .await?;
 
         self.yield_now().await;
         self.end_tx();
@@ -49,7 +74,12 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
-        transaction::rollback().map_err(|e| map_tarantool_error(e.into()))?;
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                transaction::rollback().map_err(|e| map_tarantool_error(e.into()))
+            })
+            .await?;
 
         self.yield_now().await;
         self.end_tx();
@@ -58,14 +88,24 @@ impl txn::Host for SyncWasmStates {
     }
 
     async fn txn_set_isolation(&mut self, isolation: TxnIsolationLevel) -> Result<(), BoxError> {
-        let rc = unsafe { ffi::tnt::box_txn_set_isolation(isolation as u32) };
-        match rc {
-            0 => Ok(()),
-            _ => Err(handle_tarantool_error()),
-        }
+        self.executor()
+            .execute(move || {
+                debug_assert_tx_thread();
+                let rc = unsafe { ffi::tnt::box_txn_set_isolation(isolation as u32) };
+                match rc {
+                    0 => Ok(()),
+                    _ => Err(handle_tarantool_error()),
+                }
+            })
+            .await
     }
 
     async fn txn_make_sync(&mut self) {
-        unsafe { ffi::tnt::box_txn_make_sync() }
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                unsafe { ffi::tnt::box_txn_make_sync() }
+            })
+            .await
     }
 }

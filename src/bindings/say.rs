@@ -1,3 +1,8 @@
+//! Tarantool logging supports native worker threads: `cord()` creates an
+//! on-demand thread-local cord, formatting uses a thread-local buffer, logger
+//! configuration is mutex-protected, and the final write is thread-safe.
+//! These calls intentionally stay off the TX executor.
+
 use crate::bindings::tarantool::tarantool::say;
 use crate::bindings::tarantool::tarantool::types::{LogContext, LogLevel};
 use crate::runtime::tarantool_wasm::SyncWasmStates;

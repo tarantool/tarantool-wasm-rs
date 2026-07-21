@@ -17,7 +17,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc as std_mpsc, Arc, Mutex, RwLock,
     },
-    thread::JoinHandle,
+    thread::{self, JoinHandle, ThreadId},
     time::Duration,
 };
 
@@ -82,6 +82,22 @@ impl WasmRunHandle {
 
 lazy_static! {
     static ref runtime_state: RuntimeState = RuntimeState::new();
+}
+
+pub(crate) fn is_tx_thread() -> bool {
+    thread::current().id() == runtime_state.tx_thread_id
+}
+
+/// Assert that an operation requiring Tarantool TX state runs on TX.
+///
+/// Kept next to the recorded thread identity so runtime and bindings use the
+/// same invariant.
+#[inline]
+pub(crate) fn debug_assert_tx_thread() {
+    debug_assert!(
+        is_tx_thread(),
+        "TX-thread-only Tarantool API called outside the TX thread"
+    );
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -303,6 +319,14 @@ impl SyncWasmStates {
             tokio::task::yield_now().await;
         }
     }
+
+    pub(crate) fn can_reschedule_to_tx(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .yielder
+            .is_some()
+    }
 }
 
 impl WasiView for SyncWasmStates {
@@ -460,6 +484,7 @@ struct WasmSession {
 }
 
 struct RuntimeState {
+    tx_thread_id: ThreadId,
     pub engine: Engine,
     pub linker: Arc<Linker<SyncWasmStates>>,
     pub fuel_engine: Engine,
@@ -491,12 +516,14 @@ impl RuntimeState {
         let fuel_engine_ref = fuel_engine.clone();
 
         let _ = on_shutdown(move || {
+            debug_assert_tx_thread();
             engine_ref.increment_epoch();
             fuel_engine_ref.increment_epoch();
             fiber::sleep(Duration::new(1, 0));
         });
 
         RuntimeState {
+            tx_thread_id: thread::current().id(),
             engine,
             linker: linker_ref,
             fuel_engine,
@@ -706,6 +733,7 @@ pub fn tt_wasm_drop_module(module_uid: String) -> Result<()> {
 }
 
 fn recv_result_via_coio<T: Send + 'static>(receiver: std_mpsc::Receiver<Result<T>>) -> Result<T> {
+    debug_assert_tx_thread();
     let mut result: Result<T> = Err(anyhow!("failed to receive worker response"));
     coio_call(
         &mut |rx: Box<std_mpsc::Receiver<Result<T>>>| {
@@ -720,6 +748,7 @@ fn recv_result_via_coio<T: Send + 'static>(receiver: std_mpsc::Receiver<Result<T
 }
 
 fn join_handle_via_coio<T: Send + 'static>(handle: JoinHandle<Result<T>>) -> Result<T> {
+    debug_assert_tx_thread();
     let mut result: Result<T> = Err(anyhow!("failed to join worker thread"));
     coio_call(
         &mut |h: Box<JoinHandle<Result<T>>>| {
@@ -1456,6 +1485,7 @@ pub fn tt_wasm_call_function(
 
     let mut result: Result<RmpvValue> = Ok(RmpvValue::Nil);
 
+    debug_assert_tx_thread();
     coio_call(
         &mut |h: Box<JoinHandle<Result<RmpvValue>>>| {
             result = h
@@ -1533,6 +1563,7 @@ pub fn tt_wasm_call_functions(
 
     let mut result: Result<Vec<RmpvValue>> = Ok(Vec::new());
 
+    debug_assert_tx_thread();
     coio_call(
         &mut |h: Box<JoinHandle<Result<Vec<RmpvValue>>>>| {
             result = h

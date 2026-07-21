@@ -1,5 +1,5 @@
 use crate::bindings::error::handle_tarantool_error;
-use crate::bindings::helpers::{illegal_params, validate_map};
+use crate::bindings::helpers::{debug_assert_tx_thread, illegal_params, validate_map};
 use crate::bindings::tarantool::tarantool::session;
 use crate::bindings::tarantool::tarantool::types::{BoxError, Session};
 use crate::ffi;
@@ -9,10 +9,15 @@ use tarantool::error::TarantoolErrorCode;
 
 impl session::Host for SyncWasmStates {
     async fn current(&mut self) -> Session {
-        let session_id = unsafe { ffi::session::box_session_id() };
-        Session {
-            id: session_id as i64,
-        }
+        self.executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                let session_id = unsafe { ffi::session::box_session_id() };
+                Session {
+                    id: session_id as i64,
+                }
+            })
+            .await
     }
 
     async fn iproto_send(
@@ -25,6 +30,7 @@ impl session::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let header_start = header.as_ptr();
                 let header_end = unsafe { header_start.add(header.len()) };
                 let body_start = body.as_ptr();
@@ -57,6 +63,7 @@ impl session::Host for SyncWasmStates {
 
         self.executor()
             .execute(move || {
+                debug_assert_tx_thread();
                 let lua = tarantool::lua_state();
                 let broadcast_result = lua.exec_with(
                     r#"

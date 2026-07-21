@@ -1,3 +1,6 @@
+//! Pure compression helpers over guest-owned byte buffers. No Tarantool
+//! runtime, fiber, session, schema, or database state is accessed here.
+
 use crate::bindings::docs::adder::zlib;
 use crate::bindings::tarantool::tarantool::types::BoxError;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
