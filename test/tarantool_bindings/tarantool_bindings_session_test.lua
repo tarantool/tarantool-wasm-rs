@@ -1,12 +1,13 @@
 local t = require('luatest')
 local wasm = require('wasm')
 local fio = require('fio')
+local msgpack = require('msgpack')
+local socket = require('socket')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
 
 local enc = utils.enc
-local dec = utils.dec
 
 local test_group = "bindings_session_test"
 
@@ -29,6 +30,9 @@ g.before_all(function(cg)
     cg.m = wasm.load(path)
 
     box.cfg{}
+    if box.cfg.listen == nil then
+        box.cfg{listen = fio.pathjoin(fio.cwd(), test_group .. '.sock')}
+    end
 end)
 
 g.after_all(function()
@@ -68,45 +72,43 @@ end
 
 -- iproto-send
 g.test_iproto_send = function(cg)
-    t.skip("Skipping: unclear how to use box_iproto_send in current test")
+    local sid
+    local function on_connect()
+        sid = box.session.id()
+    end
+    box.session.on_connect(on_connect)
+    local client = socket.tcp_connect('unix/', box.cfg.listen)
+    t.assert_is_not(client, nil)
+    t.assert_equals(#client:read(128), 128)
+    box.session.on_connect(nil, on_connect)
+    t.assert_type(sid, 'number')
 
-    local captured = {}
-
-    box.iproto.override(box.iproto.type.UNKNOWN,
-        function(sid, header, body)
-            table.insert(captured, {
-                sid = sid,
-                header = dec(header),
-                body = dec(body),
-            })
-            box.iproto.send(sid, {
-                request_type = box.iproto.type.OK,
-                sync = header.SYNC,
-                schema_version = box.info.schema_version,
-            }, {ok = true})
-            return true
-        end
-    )
-
-    local header = enc({
+    local expected_header = {
         SYNC = 42,
         request_type = 999,
-    })
-    local body = enc({message = "hi"})
+    }
+    local expected_body = {message = 'hi'}
+    local header = enc(expected_header)
+    local body = enc(expected_body)
 
     local res = wasm.call(
-        cg.m, "t-iproto-send", {id = box.session.id()}, header, body
+        cg.m, 't-iproto-send', {id = sid}, header, body
     )
-
     t.assert_equals(res, {true})
 
-    t.helpers.retrying({timeout = 2, delay = 0.01}, function()
-        t.assert_equals(#captured, 1)
-    end)
+    local header_raw = string.char(unpack(header))
+    local body_raw = string.char(unpack(body))
+    local packet = client:read(5 + #header_raw + #body_raw)
+    client:close()
+    t.assert_equals(#packet, 5 + #header_raw + #body_raw)
 
-    t.assert_equals(#captured, 1)
-    local req = captured[1]
-    t.assert_equals(req.header.SYNC, 42)
-    t.assert_equals(req.header.request_type, 999)
-    t.assert_equals(req.body.message, "hi")
+    local packet_len, next_offset = msgpack.decode(packet)
+    t.assert_equals(#packet - next_offset + 1, packet_len)
+    local packet_header
+    packet_header, next_offset = msgpack.decode(packet, next_offset)
+    local packet_body
+    packet_body, next_offset = msgpack.decode(packet, next_offset)
+    t.assert_equals(next_offset, #packet + 1)
+    t.assert_equals(packet_header, expected_header)
+    t.assert_equals(packet_body, expected_body)
 end
