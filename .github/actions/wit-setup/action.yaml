@@ -40,5 +40,5 @@ runs:
       shell: bash
 
     - name: Fetch WIT dependencies
-      run: wkg wit fetch
+      run: wkg wit fetch --type wasm
       shell: bash
