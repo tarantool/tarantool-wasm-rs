@@ -408,7 +408,7 @@ fn lua_msgpack_module(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
 fn lua_value_to_rmpv_via_msgpack(lua: &mlua::Lua, val: &mlua::Value) -> mlua::Result<rmpv::Value> {
     let msgpack = lua_msgpack_module(lua)?;
     let encode: mlua::Function = msgpack.get("encode")?;
-    let encoded: mlua::String = encode.call(val.clone())?;
+    let encoded: mlua::LuaString = encode.call(val.clone())?;
     let bytes = encoded.as_bytes();
     msgpack_bytes_to_rmpv(bytes.as_ref()).map_err(mlua::Error::external)
 }
