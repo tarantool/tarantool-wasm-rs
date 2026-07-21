@@ -1,7 +1,6 @@
 local t = require("luatest")
 local wasm = require("wasm")
 local fio = require("fio")
-local fiber = require("fiber")
 local socket = require("socket")
 
 package.path = "./test/?.lua;" .. package.path
@@ -17,35 +16,20 @@ local tls_component = fio.pathjoin(
     "adder.wasm"
 )
 
-local tcp_server_component = fio.pathjoin(
-    utils.get_test_dir(),
-    "lualib",
-    "wasm_component_test",
-    "config_acl_test",
-    "adder.wasm"
-)
-
 g.before_all(function(cg)
     cg.tls_module = wasm.load(tls_component)
-    cg.server_module = wasm.load(tcp_server_component)
 end)
 
 g.after_all(function(cg)
     if cg.tls_module ~= nil then
         pcall(wasm.drop, cg.tls_module)
     end
-    if cg.server_module ~= nil then
-        pcall(wasm.drop, cg.server_module)
-    end
 end)
 
-local function run_plain_tcp_server(module, port)
-    local handle = wasm.run(module, {
-        inherit_stdout = false,
-        args = { "127.0.0.1", tostring(port) },
-    })
-    fiber.sleep(0.4)
-    return handle
+local function run_plain_tcp_server(port)
+    return assert(socket.tcp_server("127.0.0.1", port, function(client)
+        client:close()
+    end))
 end
 
 g.test_tls_handshake_fails_on_plain_tcp = function(cg)
@@ -54,18 +38,22 @@ g.test_tls_handshake_fails_on_plain_tcp = function(cg)
     local got_tls_error = false
 
     for _, port in ipairs(ports) do
-        local handle = run_plain_tcp_server(cg.server_module, port)
+        local server = run_plain_tcp_server(port)
 
-        local result = wasm.call(
+        local ok, result = pcall(
+            wasm.call,
             cg.tls_module,
             "t-tls-handshake-plain-fails",
             "127.0.0.1",
             port
         )
         last_result = result
+        server:close()
+        if not ok then
+            error(result, 0)
+        end
 
-        local ok_join, joined = pcall(wasm.join, handle)
-        if ok_join and joined and type(result) == "string" then
+        if type(result) == "string" then
             if string.find(result, "tls-handshake-error:", 1, true) ~= nil then
                 got_tls_error = true
                 break

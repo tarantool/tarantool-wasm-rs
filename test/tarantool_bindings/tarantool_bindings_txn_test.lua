@@ -1,7 +1,6 @@
 local t = require('luatest')
 local wasm = require('wasm')
 local fio = require('fio')
-local fiber = require('fiber')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
@@ -66,16 +65,7 @@ local function match_line(actual, pattern)
     return cleaned:match(pattern) ~= nil
 end
 
-g.test_txn_lifecycle = function(cg)
-    local get_new_log = read_new_log()
-
-    local handle = wasm.run(cg.m)
-    local res = wasm.join(handle)
-    t.assert(res)
-
-    fiber.sleep(0.05)
-    
-    local content = get_new_log()
+local function assert_expected_log_lines(content)
     local lines = normalize_lines(content)
 
     for _, expected in ipairs(expected_lines) do
@@ -88,4 +78,16 @@ g.test_txn_lifecycle = function(cg)
         end
         t.assert(found, ("Expected log line not found: %s"):format(expected))
     end
+end
+
+g.test_txn_lifecycle = function(cg)
+    local get_new_log = read_new_log()
+
+    local handle = wasm.run(cg.m)
+    local res = wasm.join(handle)
+    t.assert(res)
+
+    t.helpers.retrying({timeout = 2, delay = 0.01}, function()
+        assert_expected_log_lines(get_new_log())
+    end)
 end

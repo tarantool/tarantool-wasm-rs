@@ -1,7 +1,6 @@
 local t = require("luatest")
 local wasm = require("wasm")
 local fio = require("fio")
-local fiber = require("fiber")
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require("utils")
@@ -22,6 +21,21 @@ local function count_lines(s)
         n = n + 1
     end
     return n
+end
+
+local function wait_for_lines(path, min_lines)
+    return t.helpers.retrying({timeout = 5, delay = 0.01}, function()
+        local data = read_file(path)
+        local lines = count_lines(data)
+        t.assert_ge(lines, min_lines)
+        return lines
+    end)
+end
+
+local function wait_for_output(path, expected)
+    t.helpers.retrying({timeout = 5, delay = 0.01}, function()
+        t.assert_equals(read_file(path), expected)
+    end)
 end
 
 local function assert_user_data_destructed(fn)
@@ -50,24 +64,18 @@ g.test_cancel_long_running_task = function(cg)
 
     -- First run: start and cancel quickly
     local handle = wasm.run(m)
-    fiber.sleep(3.0)
+    local n1 = wait_for_lines(out, 1)
     t.assert(wasm.cancel(handle))
-
-    local res = read_file(out)
-    local n1 = count_lines(res)
-    t.assert_ge(n1, 1)
 
     -- After cancel, join() on the same handle must fail
     assert_user_data_destructed(function() wasm.join(handle) end)
 
     -- Second run: let it print more, then cancel
     handle = wasm.run(m)
-    fiber.sleep(4.0)
+    local n2 = wait_for_lines(out, n1 + 1)
     t.assert(wasm.cancel(handle))
 
-    res = read_file(out)
-    local n2 = count_lines(res)
-    t.assert_ge(n2, n1)
+    t.assert_gt(n2, n1)
 end
 
 g.test_cancel_and_join_finished_task = function(cg)
@@ -77,9 +85,9 @@ g.test_cancel_and_join_finished_task = function(cg)
         stdout = out,
     })
 
-    -- 1) Run, wait a bit, cancel after task already finished
+    -- 1) Run, wait for its output, then cancel the finished task
     local handle = wasm.run(m)
-    fiber.sleep(1)
+    wait_for_output(out, "2\n")
     t.assert(wasm.cancel(handle)) -- should be no-op since task is done
 
     local res = read_file(out)
@@ -89,7 +97,6 @@ g.test_cancel_and_join_finished_task = function(cg)
 
     -- 2) Run again and join normally
     handle = wasm.run(m)
-    fiber.sleep(1.0)
     t.assert(wasm.join(handle))
 
     res = read_file(out)

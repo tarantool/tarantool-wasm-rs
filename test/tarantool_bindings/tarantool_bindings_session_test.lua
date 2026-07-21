@@ -1,7 +1,6 @@
 local t = require('luatest')
 local wasm = require('wasm')
 local fio = require('fio')
-local fiber = require('fiber')
 
 package.path = "./test/?.lua;" .. package.path
 local utils = require('utils')
@@ -59,7 +58,9 @@ g.test_broadcast = function(cg)
 
     t.assert_equals(res, {true})
 
-    fiber.sleep(0.01)
+    t.helpers.retrying({timeout = 2, delay = 0.01}, function()
+        t.assert(called)
+    end)
 
     t.assert(called, true)
     t.assert_equals(received_value, {"foo", {a = 42}})
@@ -99,7 +100,9 @@ g.test_iproto_send = function(cg)
 
     t.assert_equals(res, {true})
 
-    fiber.sleep(0.05)
+    t.helpers.retrying({timeout = 2, delay = 0.01}, function()
+        t.assert_equals(#captured, 1)
+    end)
 
     t.assert_equals(#captured, 1)
     local req = captured[1]
