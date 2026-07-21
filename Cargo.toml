@@ -9,7 +9,7 @@ lazy_static = "1.5.0"
 mlua = { version = "0.11.6", features = ["luajit", "module"] }
 nix = { version = "0.30.1", features = ["signal"] }
 tarantool = "8.0.0"
-tokio = "1.49.0"
+tokio = "1.53.1"
 wasmtime = "41.0.3"
 wasmtime-wasi = "41.0.3"
 wasmtime-wasi-http = "41.0.3"
