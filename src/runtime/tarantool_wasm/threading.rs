@@ -1,8 +1,8 @@
 use std::thread::{self, JoinHandle};
 
+use crate::runtime::lifecycle::WorkerGuard;
 use anyhow::Result;
 use nix::sys::signal::{SigSet, Signal};
-use crate::runtime::lifecycle::WorkerGuard;
 
 pub(super) fn spawn_tt_thread<F, T>(name: String, f: F) -> Result<JoinHandle<T>>
 where

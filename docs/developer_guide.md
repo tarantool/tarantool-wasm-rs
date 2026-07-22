@@ -72,7 +72,13 @@ in `run` or `open_session` overrides, load the component with
 
 The heavy lifting happens in `src/runtime/`:
 
-- `tarantool_wasm.rs` – initializes the Wasmtime engines, caches compiled components, links Tarantool bindings and manages loaded modules, sessions, interpreters, and background runs. It also coordinates deterministic shutdown of their worker threads.
+- `tarantool_wasm.rs` – façade that exposes the runtime API and records the Tarantool TX thread.
+- `tarantool_wasm/registry.rs` – loaded-module registry and compiled component cache.
+- `tarantool_wasm/store.rs` – WASI configuration and `Store` construction.
+- `tarantool_wasm/execution.rs` – one-shot calls, batches, and background runs.
+- `tarantool_wasm/session.rs` – persistent component sessions and their workers.
+- `tarantool_wasm/interpreter.rs` – shared interpreter lifecycle and command workers.
+- `tarantool_wasm/shutdown.rs` – deterministic shutdown of sessions, interpreters, and background runs.
 - `wasm_fiber.rs` – tiny wrapper around a Tokio runtime running inside a separate OS thread. It allows yielding execution back to the Tarantool transaction thread.
 - `executor.rs` – abstraction over task execution. Depending on the state it either runs tasks directly or forwards them to the TX thread via `tx_push`/`tx_flush`.
 - `convert.rs` – utilities to convert between Wasmtime component values, MessagePack and Lua values.
