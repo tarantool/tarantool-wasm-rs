@@ -3,7 +3,6 @@ use std::{
     mem,
     pin::Pin,
     ptr,
-    sync::Arc,
     task::Poll,
 };
 
@@ -13,11 +12,8 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
 };
-use wasmtime::{
-    component::{Component, Linker},
-    Store,
-};
-use wasmtime_wasi::p2::bindings::Command;
+use wasmtime::{component::InstancePre, Store};
+use wasmtime_wasi::p2::bindings::CommandPre;
 
 use crate::runtime::{
     tarantool_wasm::SyncWasmStates,
@@ -68,9 +64,8 @@ pub(crate) struct WasmFiber {
 impl WasmFiber {
     pub fn new(
         mut store: Store<SyncWasmStates>,
-        linker: Arc<Linker<SyncWasmStates>>,
-        component: Component,
-    ) -> Self {
+        instance_pre: InstancePre<SyncWasmStates>,
+    ) -> Result<Self> {
         // Timers are needed for clocks to work properly in WASI.
         let rt = Builder::new_current_thread()
             .enable_time()
@@ -81,9 +76,10 @@ impl WasmFiber {
         let canceler = sender.clone();
         let finalizer = sender.clone();
         store.data().state.lock().unwrap().yielder = Some(sender);
+        let command_pre = CommandPre::new(instance_pre)?;
 
         let handle = rt.spawn(async move {
-            let command = Command::instantiate_async(&mut store, &component, &linker).await?;
+            let command = command_pre.instantiate_async(&mut store).await?;
             let _ = command.wasi_cli_run().call_run(&mut store).await?;
             finalizer
                 .send(WasmFiberStatus::Finished)
@@ -91,12 +87,12 @@ impl WasmFiber {
                 .map_err(|e| anyhow!("failed to signal fiber completion: {e}"))?;
             Ok(())
         });
-        WasmFiber {
+        Ok(WasmFiber {
             rt,
             awaiter,
             handle: Some(handle),
             canceler,
-        }
+        })
     }
 
     pub(crate) fn canceler(&self) -> mpsc::Sender<WasmFiberStatus> {

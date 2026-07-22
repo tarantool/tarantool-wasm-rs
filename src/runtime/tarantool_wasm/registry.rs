@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone)]
 pub(super) struct LoadedModule {
     pub(super) component: Component,
+    pub(super) instance_pre: InstancePre<SyncWasmStates>,
     pub(super) config: WasmConfig,
     pub(super) fuel: bool,
     pub(super) export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
@@ -12,19 +13,25 @@ pub(super) struct LoadedModule {
 #[derive(Clone)]
 struct CachedComponent {
     source: Arc<[u8]>,
-    component: Component,
+    prepared: PreparedComponent,
+}
+
+#[derive(Clone)]
+pub(super) struct PreparedComponent {
+    pub(super) component: Component,
+    pub(super) instance_pre: InstancePre<SyncWasmStates>,
 }
 
 const COMPONENT_CACHE_CAPACITY: usize = 32;
 
 #[derive(Default)]
 pub(super) struct ComponentCache {
-    entries: HashMap<(PathBuf, bool), CachedComponent>,
-    insertion_order: VecDeque<(PathBuf, bool)>,
+    entries: HashMap<(PathBuf, bool, bool), CachedComponent>,
+    insertion_order: VecDeque<(PathBuf, bool, bool)>,
 }
 
 impl ComponentCache {
-    fn insert(&mut self, key: (PathBuf, bool), component: CachedComponent) {
+    fn insert(&mut self, key: (PathBuf, bool, bool), component: CachedComponent) {
         if let std::collections::hash_map::Entry::Occupied(mut entry) =
             self.entries.entry(key.clone())
         {
@@ -71,8 +78,9 @@ pub(super) struct RuntimeState {
 
 impl RuntimeState {
     pub(super) fn new() -> Self {
-        let engine = Engine::new(&runtime_config(false)).unwrap();
-        let fuel_engine = Engine::new(&runtime_config(true)).unwrap();
+        let cache = Cache::new(CacheConfig::new()).expect("failed to initialize Wasmtime cache");
+        let engine = Engine::new(&runtime_config(false, cache.clone())).unwrap();
+        let fuel_engine = Engine::new(&runtime_config(true, cache)).unwrap();
 
         let linker = build_runtime_linker(&engine);
         let fuel_linker = build_runtime_linker(&fuel_engine);
@@ -109,11 +117,11 @@ impl RuntimeState {
     }
 }
 
-fn load_component(path: &Path, use_fuel: bool) -> Result<Component> {
+fn load_component(path: &Path, use_fuel: bool, precompiled: bool) -> Result<PreparedComponent> {
     let source: Arc<[u8]> = fs::read(path)
         .map_err(|err| anyhow!("failed to read component `{}`: {err}", path.display()))?
         .into();
-    let cache_key = (path.to_path_buf(), use_fuel);
+    let cache_key = (path.to_path_buf(), use_fuel, precompiled);
 
     if let Some(cached) = runtime_state
         .components
@@ -123,7 +131,7 @@ fn load_component(path: &Path, use_fuel: bool) -> Result<Component> {
         .get(&cache_key)
     {
         if cached.source == source {
-            return Ok(cached.component.clone());
+            return Ok(cached.prepared.clone());
         }
     }
 
@@ -132,23 +140,83 @@ fn load_component(path: &Path, use_fuel: bool) -> Result<Component> {
     } else {
         &runtime_state.engine
     };
-    let component = Component::from_binary(engine, &source)?;
+    let linker = if use_fuel {
+        runtime_state.fuel_linker.as_ref()
+    } else {
+        runtime_state.linker.as_ref()
+    };
+    let component = if precompiled {
+        match Engine::detect_precompiled(&source) {
+            Some(Precompiled::Component) => {}
+            Some(Precompiled::Module) => {
+                return Err(anyhow!(
+                    "precompiled artifact `{}` is a core module, not a component",
+                    path.display()
+                ));
+            }
+            None => {
+                return Err(anyhow!(
+                    "`{}` is not a precompiled component; remove `precompiled = true` or create it with `wasm.precompile`",
+                    path.display()
+                ));
+            }
+        }
+        // Deserializing native code is unsafe for untrusted input. Lua callers
+        // must opt in explicitly with `precompiled = true`.
+        unsafe { Component::deserialize(engine, &source) }?
+    } else {
+        if Engine::detect_precompiled(&source).is_some() {
+            return Err(anyhow!(
+                "precompiled component `{}` requires `precompiled = true`",
+                path.display()
+            ));
+        }
+        Component::from_binary(engine, &source)?
+    };
+    let prepared = PreparedComponent {
+        instance_pre: linker.instantiate_pre(&component)?,
+        component,
+    };
 
     let mut components = runtime_state.components.write().unwrap();
     if let Some(cached) = components.entries.get(&cache_key) {
         if cached.source == source {
-            return Ok(cached.component.clone());
+            return Ok(cached.prepared.clone());
         }
     }
     components.insert(
         cache_key,
         CachedComponent {
             source,
-            component: component.clone(),
+            prepared: prepared.clone(),
         },
     );
 
-    Ok(component)
+    Ok(prepared)
+}
+
+/// Precompile a component with the exact runtime engine configuration.
+pub fn tt_wasm_precompile_component(
+    input: String,
+    output: String,
+    config: WasmConfig,
+) -> Result<()> {
+    lifecycle::ensure_running()?;
+    let source =
+        fs::read(&input).map_err(|err| anyhow!("failed to read component `{input}`: {err}"))?;
+    if Engine::detect_precompiled(&source).is_some() {
+        return Err(anyhow!("component `{input}` is already precompiled"));
+    }
+    let engine = if config.max_instructions.is_some() {
+        &runtime_state.fuel_engine
+    } else {
+        &runtime_state.engine
+    };
+    let artifact = engine
+        .precompile_component(&source)
+        .map_err(|err| anyhow!("failed to precompile component `{input}`: {err}"))?;
+    fs::write(&output, artifact)
+        .map_err(|err| anyhow!("failed to write precompiled component `{output}`: {err}"))
 }
 
 /// Load a WebAssembly component from disk and register it in the runtime,
@@ -174,7 +242,9 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 existing.refcount.fetch_add(1, Ordering::Relaxed);
                 Arc::clone(existing)
             } else {
-                let component = load_component(&canonical_path, use_fuel)?;
+                let prepared = load_component(&canonical_path, use_fuel, config.precompiled)?;
+                let component = prepared.component;
+                let instance_pre = prepared.instance_pre;
                 let export_cache = Arc::new(RwLock::new(HashMap::new()));
                 let (cmd_tx, cmd_rx) = std_mpsc::channel();
                 let (ready_tx, ready_rx) = std_mpsc::channel();
@@ -182,12 +252,16 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 let worker = spawn_tt_thread("wasm-interpreter".to_string(), {
                     let path_key_for_thread = path_key.clone();
                     let component_for_thread = component.clone();
+                    let instance_pre_for_thread = instance_pre.clone();
                     let config_for_thread = config.clone();
                     let export_cache_for_thread = Arc::clone(&export_cache);
                     move || {
                         run_interpreter_worker(
                             path_key_for_thread,
-                            component_for_thread,
+                            PreparedComponent {
+                                component: component_for_thread,
+                                instance_pre: instance_pre_for_thread,
+                            },
                             config_for_thread,
                             use_fuel,
                             export_cache_for_thread,
@@ -211,6 +285,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 let created = Arc::new(SharedInterpreterEntry {
                     path_key: path_key.clone(),
                     component: component.clone(),
+                    instance_pre,
                     config: config.clone(),
                     fuel: use_fuel,
                     export_cache: Arc::clone(&export_cache),
@@ -225,15 +300,17 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
 
         LoadedModule {
             component: entry.component.clone(),
+            instance_pre: entry.instance_pre.clone(),
             config: entry.config.clone(),
             fuel: entry.fuel,
             export_cache: Arc::clone(&entry.export_cache),
             mode: ModuleMode::Interpreter(entry),
         }
     } else {
-        let component = load_component(&canonical_path, use_fuel)?;
+        let prepared = load_component(&canonical_path, use_fuel, config.precompiled)?;
         LoadedModule {
-            component,
+            component: prepared.component,
+            instance_pre: prepared.instance_pre,
             config,
             fuel: use_fuel,
             export_cache: Arc::new(RwLock::new(HashMap::new())),

@@ -19,6 +19,8 @@ from Python, JavaScript, Go, Rust, or C/C++ with
   and TLS support.
 - Several execution models: isolated calls, batches, persistent sessions,
   shared interpreter instances, and background `wasi:cli/run` tasks.
+- Persistent compilation caching, reusable pre-instantiation, and optional AOT
+  artifacts for large components.
 - Resource limits for linear memory and Wasmtime fuel.
 - A compiled-component cache and deterministic worker shutdown.
 

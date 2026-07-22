@@ -19,3 +19,20 @@ g.test_load_same_path_twice = function()
     wasm.drop(m1)
     wasm.drop(m2)
 end
+
+g.test_precompiled_component = function()
+    local path = fio.pathjoin(utils.get_test_dir(), "lualib", "wasm_component_test", "component_exports_test", "adder.wasm")
+    local tmpdir = fio.tempdir()
+    local artifact = fio.pathjoin(tmpdir, "adder.cwasm")
+
+    t.assert_equals(wasm.precompile(path, artifact), true)
+
+    local ok, err = pcall(wasm.load, artifact)
+    t.assert_equals(ok, false)
+    t.assert_str_contains(tostring(err), "requires `precompiled = true`")
+
+    local module = wasm.load(artifact, { precompiled = true })
+    t.assert_equals(wasm.call(module, "docs:adder/nums@0.1.0::t-s16", 42), 42)
+    wasm.drop(module)
+    fio.rmtree(tmpdir)
+end

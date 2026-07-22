@@ -21,6 +21,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 
 - `load(path[, opts]) -> string` – load a WASM component from file and return a module identifier. Optional `opts`
   configures the WASI context for subsequent runs.
+- `precompile(input, output[, opts]) -> bool` – create a native component using
+  the runtime's exact Wasmtime configuration.
 - `run(uid[, opts]) -> join_handle` – run a component using the `wasi:cli/run` entry point in a background
   thread. When present, `opts` replaces the complete configuration passed to `load`; it is not merged field by field.
 - `cancel(handle) -> bool` – request cancellation of a task started with `run` and wait for the worker
@@ -56,6 +58,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `memory_limit` (default: none) – maximum size of WebAssembly linear memory in bytes.
 - `max_instructions` (default: none) – maximum fuel (approximate instruction count) the module may consume.
 - `interpreter` (default: `false`) – enable shared interpreter singleton mode for the module path.
+- `precompiled` (default: `false`) – deserialize a trusted native artifact
+  produced by `wasm.precompile`. Never enable this for untrusted input.
 - `allowed_ips` (default: none) – array of IP addresses permitted for network access.
 - `allowed_ports` (default: none) – array of TCP/UDP ports permitted for network access.
 - `preopened_dirs` (default: none) – array of `{ host_path, guest_path, perms = "ro" | "rw" }` tables exposing directories to the module. The host and guest paths are positional entries.
@@ -69,6 +73,19 @@ Providing `stdin`, `stdout`, or `stderr` overrides the respective `inherit_*` op
 Fuel support is selected when the component is loaded. To use `max_instructions`
 in `run` or `open_session` overrides, load the component with
 `max_instructions` set as well; otherwise the call is rejected.
+
+Wasmtime's persistent compilation cache is enabled for ordinary `.wasm`
+components. For the lowest startup latency, precompile once and load the native
+artifact explicitly:
+
+```lua
+wasm.precompile('python.wasm', 'python.cwasm')
+local python = wasm.load('python.cwasm', { precompiled = true })
+```
+
+If fuel is required, pass `max_instructions` to both calls. Precompiled
+artifacts are platform- and Wasmtime-version-specific and contain native
+executable code, so they must be distributed as trusted binaries.
 
 The heavy lifting happens in `src/runtime/`:
 

@@ -34,10 +34,10 @@ use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
 use tokio::{runtime::Builder, sync::mpsc};
 use wasmtime::{
     component::{
-        types::ComponentItem, Component, ComponentExportIndex, HasData, Instance, Linker,
-        ResourceTable,
+        types::ComponentItem, Component, ComponentExportIndex, HasData, Instance, InstancePre,
+        Linker, ResourceTable,
     },
-    Engine, Store, StoreLimits, StoreLimitsBuilder,
+    Cache, CacheConfig, Engine, Precompiled, Store, StoreLimits, StoreLimitsBuilder,
 };
 use wasmtime_wasi::cli::OutputFile;
 use wasmtime_wasi::p2::pipe::MemoryInputPipe;
@@ -68,7 +68,7 @@ use self::{
         close_interpreter_impl, run_interpreter_worker, InterpreterCommand, SharedInterpreterEntry,
     },
     linker::{build_runtime_linker, runtime_config},
-    registry::{ExportMap, ModuleMode, RuntimeState},
+    registry::{ExportMap, ModuleMode, PreparedComponent, RuntimeState},
     session::{close_session_impl, SessionCommand, WasmSession},
     shutdown::shutdown_runtime,
     store::{init_store, reset_store_fuel},
@@ -82,7 +82,10 @@ pub(crate) use self::{
 pub use self::{
     execution::{tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_run_module},
     interpreter::{tt_wasm_interpreter_call, tt_wasm_interpreter_exec},
-    registry::{tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module, ExportInfo},
+    registry::{
+        tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module,
+        tt_wasm_precompile_component, ExportInfo,
+    },
     session::{
         tt_wasm_close_session, tt_wasm_open_session, tt_wasm_session_call_function,
         tt_wasm_session_call_functions,

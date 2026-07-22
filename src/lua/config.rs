@@ -168,6 +168,9 @@ pub(super) fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig>
         if let Some(value) = optional_bool(&t, "interpreter")? {
             cfg.interpreter = value;
         }
+        if let Some(value) = optional_bool(&t, "precompiled")? {
+            cfg.precompiled = value;
+        }
     }
     Ok(cfg)
 }
