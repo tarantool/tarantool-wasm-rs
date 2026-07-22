@@ -98,6 +98,11 @@ In this mode the runtime keeps one warmed interpreter instance per canonical
 component path. Loading the same path again reuses that instance only when the
 full configuration is identical; a different configuration is rejected. The
 instance is closed after the last module identifier for that path is dropped.
+All Tarantool clients using that path observe the same guest state, and calls
+are executed sequentially by one worker. A failed `interpreter_exec` or
+`interpreter_call` returns an error without discarding the instance. A WASM
+trap, including exhausted fuel or a memory fault, recreates the instance, so
+all accumulated guest state is lost before the next operation.
 
 ### Example - Python interpreter
 
@@ -119,6 +124,15 @@ local v2 = wasm.interpreter_call(m, "next") -- 2
 Data passed to `interpreter_call` is encoded as MessagePack array and forwarded
 to the component `call(func, args_msgpack)` export. Returned MessagePack bytes
 are decoded back into Lua values.
+
+Interpreter mode does not make executed source trustworthy. WASI environment,
+standard streams, and networking are inherited by default. Restrict those
+options and set `memory_limit` and `max_instructions` when the source may be
+unbounded or supplied by another user. Without fuel, an infinite loop blocks
+every caller sharing the interpreter.
+
+The checked-in Python fixture and its pinned build instructions live in
+`python-interpreter/`.
 
 ## Diagrams
 

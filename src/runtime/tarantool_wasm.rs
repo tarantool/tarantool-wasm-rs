@@ -81,7 +81,7 @@ pub(crate) use self::{
 };
 pub use self::{
     execution::{tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_run_module},
-    interpreter::{tt_wasm_interpreter_call, tt_wasm_interpreter_exec},
+    interpreter::{tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_interpreter_key},
     registry::{
         tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module,
         tt_wasm_precompile_component, ExportInfo,

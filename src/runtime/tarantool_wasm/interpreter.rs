@@ -13,10 +13,15 @@ pub(super) struct SharedInterpreterEntry {
 }
 
 pub(super) enum InterpreterCommand {
-    Exec(String, std_mpsc::Sender<Result<()>>),
+    Exec {
+        code: String,
+        caller_session_id: u64,
+        result_tx: std_mpsc::Sender<Result<()>>,
+    },
     Call {
         func: String,
         args_msgpack: Vec<u8>,
+        caller_session_id: u64,
         result_tx: std_mpsc::Sender<Result<Vec<u8>>>,
     },
     Close(std_mpsc::Sender<Result<()>>),
@@ -99,51 +104,56 @@ struct InterpreterJobCtx<'a> {
     config: &'a WasmConfig,
 }
 
-fn run_interpreter_exec_job(ctx: InterpreterJobCtx<'_>, code: String) -> Result<()> {
+fn run_interpreter_exec_job(
+    ctx: InterpreterJobCtx<'_>,
+    code: String,
+    caller_session_id: u64,
+) -> Result<Result<()>> {
     reset_store_fuel(ctx.store, ctx.with_fuel, ctx.config);
-    ctx.rt
-        .block_on(async {
-            let job = CallJob::new(None, "exec".to_string(), vec![RmpvValue::from(code)]);
-            execute_call_job_on_instance(
-                ctx.store,
-                ctx.instance,
-                ctx.component,
-                ctx.export_cache,
-                &job,
-            )
-            .await
-        })
-        .and_then(decode_exec_response)
+    let response = ctx.rt.block_on(async {
+        let job = CallJob::new(None, "exec".to_string(), vec![RmpvValue::from(code)])
+            .with_caller_session_id(caller_session_id);
+        execute_call_job_on_instance(
+            ctx.store,
+            ctx.instance,
+            ctx.component,
+            ctx.export_cache,
+            &job,
+        )
+        .await
+    })?;
+    Ok(decode_exec_response(response))
 }
 
 fn run_interpreter_call_job(
     ctx: InterpreterJobCtx<'_>,
     func: String,
     args_msgpack: Vec<u8>,
-) -> Result<Vec<u8>> {
+    caller_session_id: u64,
+) -> Result<Result<Vec<u8>>> {
     let args_array = args_msgpack
         .iter()
         .map(|b| RmpvValue::from(*b as u64))
         .collect::<Vec<_>>();
 
     reset_store_fuel(ctx.store, ctx.with_fuel, ctx.config);
-    ctx.rt
-        .block_on(async {
-            let job = CallJob::new(
-                None,
-                "call".to_string(),
-                vec![RmpvValue::from(func), RmpvValue::Array(args_array)],
-            );
-            execute_call_job_on_instance(
-                ctx.store,
-                ctx.instance,
-                ctx.component,
-                ctx.export_cache,
-                &job,
-            )
-            .await
-        })
-        .and_then(decode_call_response)
+    let response = ctx.rt.block_on(async {
+        let job = CallJob::new(
+            None,
+            "call".to_string(),
+            vec![RmpvValue::from(func), RmpvValue::Array(args_array)],
+        )
+        .with_caller_session_id(caller_session_id);
+        execute_call_job_on_instance(
+            ctx.store,
+            ctx.instance,
+            ctx.component,
+            ctx.export_cache,
+            &job,
+        )
+        .await
+    })?;
+    Ok(decode_call_response(response))
 }
 
 fn instantiate_interpreter_instance(
@@ -215,7 +225,11 @@ pub(super) fn run_interpreter_worker(
             }
         };
         match command {
-            InterpreterCommand::Exec(code, result_tx) => {
+            InterpreterCommand::Exec {
+                code,
+                caller_session_id,
+                result_tx,
+            } => {
                 let result = run_interpreter_exec_job(
                     InterpreterJobCtx {
                         store: &mut store,
@@ -227,10 +241,14 @@ pub(super) fn run_interpreter_worker(
                         config: &config,
                     },
                     code,
+                    caller_session_id,
                 );
                 match result {
-                    Ok(()) => {
+                    Ok(Ok(())) => {
                         let _ = result_tx.send(Ok(()));
+                    }
+                    Ok(Err(err)) => {
+                        let _ = result_tx.send(Err(err));
                     }
                     Err(err) => {
                         match instantiate_interpreter_instance(
@@ -260,6 +278,7 @@ pub(super) fn run_interpreter_worker(
             InterpreterCommand::Call {
                 func,
                 args_msgpack,
+                caller_session_id,
                 result_tx,
             } => {
                 let result = run_interpreter_call_job(
@@ -274,10 +293,14 @@ pub(super) fn run_interpreter_worker(
                     },
                     func,
                     args_msgpack,
+                    caller_session_id,
                 );
                 match result {
-                    Ok(raw) => {
+                    Ok(Ok(raw)) => {
                         let _ = result_tx.send(Ok(raw));
+                    }
+                    Ok(Err(err)) => {
+                        let _ = result_tx.send(Err(err));
                     }
                     Err(err) => {
                         match instantiate_interpreter_instance(
@@ -353,14 +376,25 @@ fn interpreter_entry_for_module(module_uid: &str) -> Result<Arc<SharedInterprete
     }
 }
 
+/// Return the canonical path used to identify a shared interpreter.
+pub fn tt_wasm_interpreter_key(module_uid: String) -> Result<String> {
+    lifecycle::ensure_running()?;
+    Ok(interpreter_entry_for_module(&module_uid)?.path_key.clone())
+}
+
 /// Execute source code in a shared interpreter instance.
 pub fn tt_wasm_interpreter_exec(module_uid: String, code: String) -> Result<()> {
     lifecycle::ensure_running()?;
+    let caller_session_id = current_session_id();
     let entry = interpreter_entry_for_module(&module_uid)?;
     let (result_tx, result_rx) = std_mpsc::channel();
     entry
         .cmd_tx
-        .send(InterpreterCommand::Exec(code, result_tx))
+        .send(InterpreterCommand::Exec {
+            code,
+            caller_session_id,
+            result_tx,
+        })
         .map_err(|_| anyhow!("interpreter for module `{module_uid}` is closed"))?;
 
     recv_result_via_coio(result_rx)
@@ -373,6 +407,7 @@ pub fn tt_wasm_interpreter_call(
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
     lifecycle::ensure_running()?;
+    let caller_session_id = current_session_id();
     let entry = interpreter_entry_for_module(&module_uid)?;
     let args_msgpack = rmpv_to_msgpack_bytes(&RmpvValue::Array(args))?;
     let (result_tx, result_rx) = std_mpsc::channel();
@@ -382,6 +417,7 @@ pub fn tt_wasm_interpreter_call(
         .send(InterpreterCommand::Call {
             func,
             args_msgpack,
+            caller_session_id,
             result_tx,
         })
         .map_err(|_| anyhow!("interpreter for module `{module_uid}` is closed"))?;

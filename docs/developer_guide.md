@@ -74,6 +74,13 @@ Fuel support is selected when the component is loaded. To use `max_instructions`
 in `run` or `open_session` overrides, load the component with
 `max_instructions` set as well; otherwise the call is rejected.
 
+Shared interpreters are keyed by canonical component path, not by Tarantool
+session. Their state is therefore visible to every client using the same path.
+Ordinary guest errors preserve the instance; the worker reinstantiates the
+component only after a WASM trap, discarding its state. See
+`python-interpreter/README.md` for the pinned toolchain and command used to
+rebuild the Python fixture.
+
 Wasmtime's persistent compilation cache is enabled for ordinary `.wasm`
 components. For the lowest startup latency, precompile once and load the native
 artifact explicitly:

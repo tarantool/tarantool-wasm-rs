@@ -10,8 +10,9 @@ use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
     debug_assert_tx_thread, tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session,
     tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_interpreter_call, tt_wasm_interpreter_exec,
-    tt_wasm_load_module, tt_wasm_open_session, tt_wasm_precompile_component, tt_wasm_run_module,
-    tt_wasm_session_call_function, tt_wasm_session_call_functions, WasmRunHandle,
+    tt_wasm_interpreter_key, tt_wasm_load_module, tt_wasm_open_session,
+    tt_wasm_precompile_component, tt_wasm_run_module, tt_wasm_session_call_function,
+    tt_wasm_session_call_functions, WasmRunHandle,
 };
 
 use super::args::{
@@ -249,6 +250,55 @@ fn interpreter_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     from_rmpv(lua, &result_val)
 }
 
+fn interpreter_key(_: &Lua, module_uid: String) -> LuaResult<String> {
+    tt_wasm_interpreter_key(module_uid).map_err(mlua::Error::external)
+}
+
+fn create_interpreter_functions(lua: &Lua) -> LuaResult<(LuaFunction, LuaFunction)> {
+    let raw_exec = lua.create_function(interpreter_exec)?;
+    let raw_call = lua.create_function(interpreter_call)?;
+    let key_for = lua.create_function(interpreter_key)?;
+
+    lua.load(
+        r#"
+        local raw_exec, raw_call, key_for = ...
+        local fiber = require('fiber')
+        local locks = setmetatable({}, {__mode = 'v'})
+
+        local function pack(...)
+            return {n = select('#', ...), ...}
+        end
+
+        local function serialized(raw, ...)
+            local module_uid = select(1, ...)
+            local key = key_for(module_uid)
+            local lock = locks[key]
+            if lock == nil then
+                lock = fiber.channel(1)
+                lock:put(true)
+                locks[key] = lock
+            end
+
+            lock:get()
+            local result = pack(pcall(raw, ...))
+            lock:put(true)
+
+            if not result[1] then
+                error(result[2], 0)
+            end
+            return unpack(result, 2, result.n)
+        end
+
+        return function(...)
+            return serialized(raw_exec, ...)
+        end, function(...)
+            return serialized(raw_call, ...)
+        end
+        "#,
+    )
+    .call((raw_exec, raw_call, key_for))
+}
+
 /// Call a function on an already opened long-lived WASM session.
 fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let mut iter = args.into_iter();
@@ -351,6 +401,8 @@ fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
 
 pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;
+    let (serialized_interpreter_exec, serialized_interpreter_call) =
+        create_interpreter_functions(lua)?;
     module.set("load", lua.create_function(load)?)?;
     module.set("precompile", lua.create_function(precompile)?)?;
     module.set("run", lua.create_function(run)?)?;
@@ -359,8 +411,8 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("cancel", lua.create_function(cancel)?)?;
     module.set("call", lua.create_function(call)?)?;
     module.set("batch", lua.create_function(batch)?)?;
-    module.set("interpreter_exec", lua.create_function(interpreter_exec)?)?;
-    module.set("interpreter_call", lua.create_function(interpreter_call)?)?;
+    module.set("interpreter_exec", serialized_interpreter_exec)?;
+    module.set("interpreter_call", serialized_interpreter_call)?;
     module.set("session_call", lua.create_function(session_call)?)?;
     module.set("session_batch", lua.create_function(session_batch)?)?;
     module.set("close_session", lua.create_function(close_session)?)?;

@@ -44,6 +44,7 @@ from wit_world.imports import (
     wasi_tls_types as wit_wasi_tls_types,
     zlib as wit_zlib,
 )
+from wit_world import Err
 
 import json
 import base64
@@ -78,27 +79,35 @@ _globals = {
 }
 
 def _default_for_msgpack(obj):
-    if isinstance(obj, datetime):
+    if isinstance(obj, datetime.datetime):
         if obj.tzinfo is None:
-            obj = obj.replace(tzinfo=timezone.utc)
+            obj = obj.replace(tzinfo=datetime.timezone.utc)
         return msgpack.Timestamp.from_datetime(obj)
     raise TypeError(f"Cannot serialize {type(obj)!r}")
 
 class WitWorld:
     def exec(self, code: str):
-        exec(code, _globals, _globals)
+        try:
+            exec(code, _globals, _globals)
+        except Exception as error:
+            message = "".join(traceback.format_exception_only(type(error), error)).strip()
+            raise Err(message) from None
 
     # componentize-py maps WIT list<u8> to Python bytes.
     def call(self, func: str, args_msgpack: bytes) -> bytes:
-        args = msgpack.unpackb(args_msgpack, raw=False)
-        if not isinstance(args, list):
-            raise ValueError("args payload must be list")
+        try:
+            args = msgpack.unpackb(args_msgpack, raw=False)
+            if not isinstance(args, list):
+                raise ValueError("args payload must be list")
 
-        fn = _globals[func]
-        result = fn(*args)
-        return msgpack.packb(
-            result,
-            use_bin_type=True,
-            default=_default_for_msgpack,
-            datetime=True,
-        )
+            fn = _globals[func]
+            result = fn(*args)
+            return msgpack.packb(
+                result,
+                use_bin_type=True,
+                default=_default_for_msgpack,
+                datetime=True,
+            )
+        except Exception as error:
+            message = "".join(traceback.format_exception_only(type(error), error)).strip()
+            raise Err(message) from None
