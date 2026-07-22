@@ -121,7 +121,7 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
         .get(&module_uid)
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
         .clone();
-    let component = loaded.component;
+    let instance_pre = loaded.instance_pre;
     let mut cfg = loaded.config;
     if let Some(over) = config {
         cfg = over;
@@ -140,12 +140,6 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
         } else {
             &runtime_state.engine
         };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
-        };
-
         let wasi_view = match SyncWasmStates::new(cfg.clone()) {
             Ok(wasi_view) => wasi_view,
             Err(err) => {
@@ -164,7 +158,7 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
         store.set_epoch_deadline(1);
         store.epoch_deadline_trap();
 
-        let fiber = WasmFiber::new(store, linker, component);
+        let fiber = WasmFiber::new(store, instance_pre)?;
         let _ = canceler_tx.send(Ok(fiber.canceler()));
         fiber.block_on()?;
         Ok::<(), anyhow::Error>(())
@@ -218,6 +212,7 @@ pub fn tt_wasm_call_function(
         .clone();
 
     let component = loaded.component;
+    let instance_pre = loaded.instance_pre;
     let cfg = loaded.config;
     let fuel = loaded.fuel;
     let export_cache = loaded.export_cache;
@@ -227,11 +222,6 @@ pub fn tt_wasm_call_function(
             &runtime_state.fuel_engine
         } else {
             &runtime_state.engine
-        };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
         };
         let wasi_view = SyncWasmStates::new(cfg.clone())?;
         let mut store = Store::new(engine, wasi_view);
@@ -252,7 +242,14 @@ pub fn tt_wasm_call_function(
 
         rt.block_on(async move {
             let job = CallJob::new(interface, func, args).with_caller_session_id(caller_session_id);
-            execute_call_job(&mut store, &linker, &component, export_cache.as_ref(), &job).await
+            execute_call_job(
+                &mut store,
+                &instance_pre,
+                &component,
+                export_cache.as_ref(),
+                &job,
+            )
+            .await
         })
     })?;
 
@@ -291,6 +288,7 @@ pub fn tt_wasm_call_functions(
         .clone();
 
     let component = loaded.component;
+    let instance_pre = loaded.instance_pre;
     let cfg = loaded.config;
     let fuel = loaded.fuel;
     let export_cache = loaded.export_cache;
@@ -305,12 +303,6 @@ pub fn tt_wasm_call_functions(
         } else {
             &runtime_state.engine
         };
-        let linker = if fuel {
-            runtime_state.fuel_linker.clone()
-        } else {
-            runtime_state.linker.clone()
-        };
-
         let rt = Builder::new_current_thread()
             .enable_time()
             .enable_io()
@@ -333,8 +325,14 @@ pub fn tt_wasm_call_functions(
                 store.epoch_deadline_trap();
 
                 results_all.push(
-                    execute_call_job(&mut store, &linker, &component, export_cache.as_ref(), &job)
-                        .await?,
+                    execute_call_job(
+                        &mut store,
+                        &instance_pre,
+                        &component,
+                        export_cache.as_ref(),
+                        &job,
+                    )
+                    .await?,
                 );
             }
 

@@ -1,4 +1,4 @@
-use wasmtime::{component::Linker, Config, Engine};
+use wasmtime::{component::Linker, Cache, Config, Engine};
 use wasmtime_wasi_tls::p2::LinkOptions;
 
 use crate::bindings::{
@@ -11,8 +11,9 @@ use crate::bindings::{
 
 use super::SyncWasmStates;
 
-pub(super) fn runtime_config(with_fuel: bool) -> Config {
+pub(super) fn runtime_config(with_fuel: bool, cache: Cache) -> Config {
     let mut config = Config::new();
+    config.cache(Some(cache));
     if with_fuel {
         config.consume_fuel(true);
     }

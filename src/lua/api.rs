@@ -10,8 +10,8 @@ use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
     debug_assert_tx_thread, tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session,
     tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_interpreter_call, tt_wasm_interpreter_exec,
-    tt_wasm_load_module, tt_wasm_open_session, tt_wasm_run_module, tt_wasm_session_call_function,
-    tt_wasm_session_call_functions, WasmRunHandle,
+    tt_wasm_load_module, tt_wasm_open_session, tt_wasm_precompile_component, tt_wasm_run_module,
+    tt_wasm_session_call_function, tt_wasm_session_call_functions, WasmRunHandle,
 };
 
 use super::args::{
@@ -81,6 +81,27 @@ fn load(lua: &Lua, args: LuaMultiValue) -> LuaResult<String> {
     };
 
     tt_wasm_load_module(path, cfg).map_err(LuaError::runtime)
+}
+
+/// Precompile a component for faster subsequent loads.
+///
+/// The optional third argument accepts the same configuration table as
+/// [`load`]. Only engine-affecting options, currently `max_instructions`, are
+/// used while producing the artifact.
+fn precompile(lua: &Lua, args: LuaMultiValue) -> LuaResult<bool> {
+    let mut iter = args.into_iter();
+    let input = parse_required_string(iter.next(), "expected input path as string")?;
+    let output = parse_required_string(iter.next(), "expected output path as string")?;
+    let cfg = match iter.next() {
+        Some(value) => {
+            let tbl: LuaTable = LuaTable::from_lua(value, lua)?;
+            parse_config_table(Some(tbl))?
+        }
+        None => parse_config_table(None)?,
+    };
+
+    tt_wasm_precompile_component(input, output, cfg).map_err(LuaError::runtime)?;
+    Ok(true)
 }
 
 /// Start execution of a previously loaded module in a background fiber.
@@ -331,6 +352,7 @@ fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
 pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;
     module.set("load", lua.create_function(load)?)?;
+    module.set("precompile", lua.create_function(precompile)?)?;
     module.set("run", lua.create_function(run)?)?;
     module.set("open_session", lua.create_function(open_session)?)?;
     module.set("join", lua.create_function(join)?)?;

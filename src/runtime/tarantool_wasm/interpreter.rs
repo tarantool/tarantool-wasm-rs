@@ -3,6 +3,7 @@ use super::*;
 pub(super) struct SharedInterpreterEntry {
     pub(super) path_key: String,
     pub(super) component: Component,
+    pub(super) instance_pre: InstancePre<SyncWasmStates>,
     pub(super) config: WasmConfig,
     pub(super) fuel: bool,
     pub(super) export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
@@ -148,39 +149,36 @@ fn run_interpreter_call_job(
 fn instantiate_interpreter_instance(
     path_key: &str,
     engine: &Engine,
-    linker: &Linker<SyncWasmStates>,
-    component: &Component,
+    instance_pre: &InstancePre<SyncWasmStates>,
     config: &WasmConfig,
     with_fuel: bool,
     rt: &tokio::runtime::Runtime,
 ) -> Result<(Store<SyncWasmStates>, Instance)> {
     let mut store = init_store(engine, config, with_fuel)?;
     let instance = rt
-        .block_on(linker.instantiate_async(&mut store, component))
+        .block_on(instance_pre.instantiate_async(&mut store))
         .map_err(|err| anyhow!("failed to instantiate interpreter `{path_key}`: {err}"))?;
     Ok((store, instance))
 }
 
 pub(super) fn run_interpreter_worker(
     path_key: String,
-    component: Component,
+    prepared: PreparedComponent,
     config: WasmConfig,
     with_fuel: bool,
     export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
     ready_tx: std_mpsc::Sender<Result<()>>,
     cmd_rx: std_mpsc::Receiver<InterpreterCommand>,
 ) -> Result<()> {
+    let PreparedComponent {
+        component,
+        instance_pre,
+    } = prepared;
     let engine = if with_fuel {
         &runtime_state.fuel_engine
     } else {
         &runtime_state.engine
     };
-    let linker = if with_fuel {
-        runtime_state.fuel_linker.clone()
-    } else {
-        runtime_state.linker.clone()
-    };
-
     let rt = Builder::new_current_thread()
         .enable_time()
         .enable_io()
@@ -190,8 +188,7 @@ pub(super) fn run_interpreter_worker(
     let (mut store, mut instance) = match instantiate_interpreter_instance(
         &path_key,
         engine,
-        linker.as_ref(),
-        &component,
+        &instance_pre,
         &config,
         with_fuel,
         &rt,
@@ -239,8 +236,7 @@ pub(super) fn run_interpreter_worker(
                         match instantiate_interpreter_instance(
                             &path_key,
                             engine,
-                            linker.as_ref(),
-                            &component,
+                            &instance_pre,
                             &config,
                             with_fuel,
                             &rt,
@@ -287,8 +283,7 @@ pub(super) fn run_interpreter_worker(
                         match instantiate_interpreter_instance(
                             &path_key,
                             engine,
-                            linker.as_ref(),
-                            &component,
+                            &instance_pre,
                             &config,
                             with_fuel,
                             &rt,

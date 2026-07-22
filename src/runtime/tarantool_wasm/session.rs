@@ -14,24 +14,22 @@ pub(super) struct WasmSession {
 
 pub(super) fn run_session_worker(
     module_uid: String,
-    component: Component,
+    prepared: PreparedComponent,
     config: WasmConfig,
     with_fuel: bool,
     export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
     ready_tx: std_mpsc::Sender<Result<()>>,
     cmd_rx: std_mpsc::Receiver<SessionCommand>,
 ) -> Result<()> {
+    let PreparedComponent {
+        component,
+        instance_pre,
+    } = prepared;
     let engine = if with_fuel {
         &runtime_state.fuel_engine
     } else {
         &runtime_state.engine
     };
-    let linker = if with_fuel {
-        runtime_state.fuel_linker.clone()
-    } else {
-        runtime_state.linker.clone()
-    };
-
     let mut store = match init_store(engine, &config, with_fuel) {
         Ok(store) => store,
         Err(err) => {
@@ -48,7 +46,7 @@ pub(super) fn run_session_worker(
         .build()
         .unwrap();
 
-    let instance = match rt.block_on(linker.instantiate_async(&mut store, &component)) {
+    let instance = match rt.block_on(instance_pre.instantiate_async(&mut store)) {
         Ok(instance) => instance,
         Err(err) => {
             let init_error =
@@ -160,6 +158,7 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
     }
 
     let component = loaded.component;
+    let instance_pre = loaded.instance_pre;
     let fuel = loaded.fuel;
     let export_cache = loaded.export_cache;
 
@@ -170,7 +169,10 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
     let worker = spawn_tt_thread("wasm-session".to_string(), move || {
         run_session_worker(
             module_uid_for_thread,
-            component,
+            PreparedComponent {
+                component,
+                instance_pre,
+            },
             cfg,
             fuel,
             export_cache,

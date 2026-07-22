@@ -39,6 +39,22 @@ bytes, and fuel mode. Repeated loads of an unchanged file reuse the compiled
 `Component`; they do not share a `Store`, instance, or guest state unless the
 session or shared-interpreter APIs are used. The cache holds at most 32
 compiled components and evicts the oldest entry when full.
+Each cached component also keeps Wasmtime's `InstancePre`, so linker work is
+performed once at load time and reused by calls, sessions, interpreters, and
+background runs. A persistent Wasmtime compilation cache additionally avoids
+recompiling unchanged components after a Tarantool restart.
+
+For large components, an AOT artifact removes compilation from the load path:
+
+```lua
+wasm.precompile('python.wasm', 'python.cwasm')
+local m = wasm.load('python.cwasm', { precompiled = true })
+```
+
+The opt-in is intentional: deserialization maps native executable code and is
+safe only for trusted artifacts. A `.cwasm` file is tied to the target platform,
+Wasmtime version, and runtime engine settings. When fuel is enabled, use the
+same `max_instructions` setting for `precompile` and `load`.
 
 ### Executing Multiple Functions Sequentially
 

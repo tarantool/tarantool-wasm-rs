@@ -43,6 +43,8 @@ pub struct WasmConfig {
     pub max_instructions: Option<u64>,
     /// Enable shared interpreter mode for this module.
     pub interpreter: bool,
+    /// Load a trusted component precompiled by this runtime.
+    pub precompiled: bool,
 }
 
 impl Default for WasmConfig {
@@ -68,6 +70,7 @@ impl Default for WasmConfig {
             memory_limit: None,
             max_instructions: None,
             interpreter: false,
+            precompiled: false,
         }
     }
 }
