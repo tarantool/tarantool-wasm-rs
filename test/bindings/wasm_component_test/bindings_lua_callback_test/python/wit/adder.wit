@@ -1,0 +1,10 @@
+package docs:adder@0.1.3;
+
+interface lua-callback {
+  call: func(name: string, payload: list<u8>) -> result<list<u8>, string>;
+}
+
+world adder {
+  import lua-callback;
+  export invoke: func(name: string, payload: list<u8>) -> result<list<u8>, string>;
+}

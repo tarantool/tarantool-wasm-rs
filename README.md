@@ -164,6 +164,28 @@ local value = wasm.call(
 )
 ```
 
+### Call a registered Lua function from a guest
+
+Register the function before executing the component:
+
+```lua
+local module = wasm.load('./callbacks.wasm')
+
+wasm.register_callback('normalize-user', function(user)
+    return {id = user.id, name = string.upper(user.name)}
+end)
+
+local normalized = wasm.call(module, 'normalize', {id = 1, name = 'alice'})
+assert(normalized.name == 'ALICE')
+
+wasm.unregister_callback('normalize-user')
+wasm.drop(module)
+```
+
+The guest's `normalize` export calls `lua-callback.call` with the registered
+name and MessagePack-encoded input. See [Lua callbacks](docs/lua_callbacks.md)
+for the WIT interface, execution flow, and constraints.
+
 ## Persistent sessions
 
 Ordinary calls instantiate the component again for every export. A session
@@ -319,6 +341,8 @@ join(handle)                               -> true
 cancel(handle)                             -> true
 
 drop(module_uid)                           -> true
+register_callback(name, function)          -> true
+unregister_callback(name)                  -> boolean
 ```
 
 Arguments and results cross the boundary through MessagePack. See
@@ -384,6 +408,8 @@ The release build is produced with `just build-release` at
   interpreter, cache, and shutdown behavior.
 - [WIT-to-Lua type mapping](docs/wit_to_lua_types.md) — values and conversion
   limitations.
+- [Lua callbacks](docs/lua_callbacks.md) — calling registered Lua functions
+  from guest components.
 - [Thread-safety boundary](docs/thread-safety.md) — TX-only Tarantool APIs and
   the lifetime guarantees for worker-side operations.
 - [Platform compatibility](docs/platform-support.md) — tested Linux images,

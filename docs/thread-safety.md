@@ -17,6 +17,7 @@ and CI builds turn a violation into a panic at the offending API boundary.
 | Database and schema | space/index lookup, schema version, index reads and writes, sequences |
 | Transactions | transaction state, begin, commit, rollback, isolation, synchronous commit flag |
 | Session | current session, iproto send, Lua broadcast |
+| Lua callbacks | registry lookup, MessagePack-to-Lua conversion, closure invocation, and result conversion |
 | Diagnostics | read, set, and clear Tarantool's fiber-local last error |
 | Tuples | creation, update/upsert, reference counts, fields, validation, comparison, iterators |
 | Metadata | key-def and tuple-format creation, use, reference counts, and destruction; APIs returning box-region memory are enclosed in a savepoint guard that truncates the current TX fiber region after copying |

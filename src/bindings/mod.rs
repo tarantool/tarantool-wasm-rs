@@ -32,6 +32,7 @@ pub mod error;
 pub mod helpers;
 pub mod index;
 pub mod key_def;
+pub mod lua_callback;
 pub mod metrics;
 pub mod msgpack;
 pub mod say;

@@ -2,7 +2,7 @@ use wasmtime::{component::Linker, Cache, Config, Engine};
 use wasmtime_wasi_tls::p2::LinkOptions;
 
 use crate::bindings::{
-    docs::adder::zlib,
+    docs::adder::{lua_callback, zlib},
     tarantool::tarantool::{
         box_tuple, error, index, key_def, metrics, msgpack, say, sequence, session, ttbox,
         tuple_format, txn, types,
@@ -53,6 +53,8 @@ pub(super) fn build_runtime_linker(engine: &Engine) -> Linker<SyncWasmStates> {
         tuple_format::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = box_tuple::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = metrics::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ =
+        lua_callback::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     linker
 }
