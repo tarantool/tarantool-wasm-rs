@@ -309,6 +309,29 @@ Arguments and results cross the boundary through MessagePack. See
 [Mapping WIT types to Lua](docs/wit_to_lua_types.md) for exact representations
 and current limitations.
 
+## Supported platforms
+
+Release builds are tested on x86-64 with Rust 1.94.0 and Tarantool 3.7.0.
+
+| Distribution | Version | CI coverage | Support status |
+| --- | --- | --- | --- |
+| Debian | 12 (Bookworm) | Release build and full `luatest` suite | Supported |
+| Fedora | 39 | Release build and full `luatest` suite | Supported |
+| CentOS | 8 | Release build and full `luatest` suite | Supported |
+| RED OS | 7.3.4 | Release build and full `luatest` suite | Supported |
+| Astra Linux | 1.7 | Release build and full `luatest` suite | Supported |
+
+Linux checks run in pinned PackPack containers.
+
+The Linux release matrix can be reproduced locally with:
+
+```sh
+./scripts/test_distros.sh
+```
+
+See [Platform compatibility](docs/platform-support.md) for image names, GLIBC
+requirements, and test scope.
+
 ## Development and testing
 
 Build and place the debug module in the test loader path:
@@ -333,6 +356,7 @@ cargo fmt -- --check
 cargo clippy --all-targets --all-features
 ```
 
+
 The release build is produced with `just build-release` at
 `target/x86_64-unknown-linux-gnu/release/libtarantool_wasm_rs.so`.
 
@@ -346,6 +370,8 @@ The release build is produced with `just build-release` at
   limitations.
 - [Thread-safety boundary](docs/thread-safety.md) — TX-only Tarantool APIs and
   the lifetime guarantees for worker-side operations.
+- [Platform compatibility](docs/platform-support.md) — tested Linux images,
+  GLIBC constraints, and CI coverage.
 
 ## Related projects
 
