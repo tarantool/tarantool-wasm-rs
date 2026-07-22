@@ -193,8 +193,10 @@ Large interpreter components are expensive to instantiate. Load them with
 `interpreter = true` to keep one warmed instance per canonical path:
 
 ```lua
-local python = wasm.load('./python-interpreter.wasm', {
+local python = wasm.load('./python-interpreter/adder.wasm', {
     interpreter = true,
+    memory_limit = 512 * 1024 * 1024,
+    max_instructions = 5 * 1000 * 1000 * 1000,
 })
 
 wasm.interpreter_exec(python, [[
@@ -213,6 +215,20 @@ wasm.drop(python)
 
 Loading the same path again shares the interpreter only when the complete
 configuration is identical. The last `wasm.drop` closes the worker.
+
+The instance and its Python globals are shared by every module identifier and
+every Tarantool client using that canonical path. Ordinary interpreter errors
+are returned to Lua and preserve the instance. A WASM trap, such as exhausted
+fuel or a memory fault, recreates the instance and discards all shared state.
+Calls are serialized; one long-running call delays all other users of the same
+interpreter. Set `memory_limit` and `max_instructions` for untrusted or
+potentially unbounded code.
+
+Interpreter mode is not a security boundary. WASI inherits the Tarantool
+process environment, standard streams, and network access by default. Disable
+the corresponding `inherit_*` and `allow_*` options unless the executed code
+needs them. Instructions for rebuilding the checked-in Python component are in
+[`python-interpreter/README.md`](python-interpreter/README.md).
 
 ## Background execution
 

@@ -62,11 +62,111 @@ def next():
     t.assert_equals(wasm.interpreter_call(m3, 'next'), 1)
 end
 
+g.test_python_error_preserves_state = function(cg)
+    local m = load_interpreter(cg)
+
+    t.assert_equals(wasm.interpreter_exec(m, [[
+counter = 0
+def next_value():
+    global counter
+    counter += 1
+    return counter
+
+def fail():
+    raise RuntimeError('expected failure')
+]]), true)
+    t.assert_equals(wasm.interpreter_call(m, 'next_value'), 1)
+
+    local ok, err = pcall(wasm.interpreter_call, m, 'fail')
+    t.assert_equals(ok, false)
+    t.assert_str_contains(tostring(err), 'expected failure')
+
+    t.assert_equals(wasm.interpreter_call(m, 'next_value'), 2)
+end
+
+g.test_rejects_different_config_for_shared_path = function(cg)
+    load_interpreter(cg)
+
+    local ok, err = pcall(wasm.load, wasm_path, {
+        interpreter = true,
+        memory_limit = 256 * 1024 * 1024,
+    })
+    t.assert_equals(ok, false)
+    t.assert_str_contains(tostring(err), 'already loaded with a different config')
+end
+
+g.test_memory_limit_applies_during_interpreter_startup = function()
+    local ok, err = pcall(wasm.load, wasm_path, {
+        interpreter = true,
+        memory_limit = 1024 * 1024,
+    })
+    t.assert_equals(ok, false)
+    t.assert_str_contains(tostring(err), 'exceeds memory limits')
+end
+
+g.test_fuel_interrupts_call_and_interpreter_recovers = function(cg)
+    local m = wasm.load(wasm_path, {
+        interpreter = true,
+        max_instructions = 100 * 1000 * 1000,
+    })
+    table.insert(cg.modules, m)
+
+    t.assert_equals(wasm.interpreter_exec(m, [[
+def spin():
+    while True:
+        pass
+]]), true)
+
+    local ok = pcall(wasm.interpreter_call, m, 'spin')
+    t.assert_equals(ok, false)
+
+    t.assert_equals(wasm.interpreter_exec(m, [[
+def answer():
+    return 42
+]]), true)
+    t.assert_equals(wasm.interpreter_call(m, 'answer'), 42)
+end
+
+g.test_concurrent_fibers_are_serialized = function(cg)
+    local fiber = require('fiber')
+    local m = load_interpreter(cg)
+    local result = fiber.channel(20)
+
+    t.assert_equals(wasm.interpreter_exec(m, [[
+counter = 0
+def next_value():
+    global counter
+    counter += 1
+    return counter
+]]), true)
+
+    for _ = 1, 2 do
+        fiber.new(function()
+            for _ = 1, 10 do
+                local value = wasm.interpreter_call(m, 'next_value')
+                result:put(value)
+            end
+        end)
+    end
+
+    local values = {}
+    for _ = 1, 20 do
+        local value = result:get(10)
+        t.assert(value ~= nil, 'interpreter call fiber timed out')
+        t.assert_equals(type(value), 'number', tostring(value))
+        table.insert(values, value)
+    end
+    table.sort(values)
+    for i, value in ipairs(values) do
+        t.assert_equals(value, i)
+    end
+end
+
 g.test_tarantool_wasi_python_and_datetime = function(cg)
     local m = load_interpreter(cg)
 
     local script = [[
-from wit_world.imports import metrics, monotonic_clock
+from wit_world.imports import metrics, monotonic_clock, session
 import datetime
 import hashlib
 
@@ -84,6 +184,12 @@ def add(a, b):
 
 def make_dt():
     return datetime.datetime(2024, 5, 6, 7, 8, 9, tzinfo=datetime.timezone.utc)
+
+def make_naive_dt():
+    return datetime.datetime(2024, 5, 6, 7, 8, 9)
+
+def caller_session_id():
+    return session.current().id
 ]]
 
     t.assert_equals(wasm.interpreter_exec(m, script), true)
@@ -109,4 +215,12 @@ def make_dt():
     t.assert_equals(dt.min, 8)
     t.assert_equals(dt.sec, 9)
     t.assert_str_contains(tostring(dt), '2024-05-06T07:08:09')
+
+    local naive_dt = wasm.interpreter_call(m, 'make_naive_dt')
+    t.assert_equals(naive_dt.year, 2024)
+    t.assert_equals(naive_dt.month, 5)
+    t.assert_equals(naive_dt.day, 6)
+    t.assert_equals(naive_dt.tzoffset, 0)
+
+    t.assert_equals(wasm.interpreter_call(m, 'caller_session_id'), box.session.id())
 end

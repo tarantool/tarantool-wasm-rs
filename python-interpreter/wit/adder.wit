@@ -56,8 +56,8 @@ world adder {
   import wasi:http/outgoing-handler@0.2.3;
   import wasi:tls/types@0.2.0-draft;
 
-  export exec: func(code: string);
-  export call: func(%func: string, args-msgpack: list<u8>) -> list<u8>;
+  export exec: func(code: string) -> result<_, string>;
+  export call: func(%func: string, args-msgpack: list<u8>) -> result<list<u8>, string>;
 }
 package tarantool:tarantool@0.1.3 {
   interface types {
