@@ -27,7 +27,8 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
   thread to terminate.
 - `join(handle)` – wait for completion of a module started with `run`.
 - `call(uid, func, ...) -> any` – call an exported function synchronously. Arguments and results are encoded with MessagePack.
-- `batch(uid, calls) -> table` – execute multiple exports sequentially inside one worker thread.
+- `batch(uid, calls) -> table` – execute multiple exports sequentially inside one worker thread. Each item gets a new
+  store and component instance; use a session when guest state must persist between calls.
 - `interpreter_exec(uid, code) -> bool` – execute source in shared interpreter mode.
 - `interpreter_call(uid, func, ...) -> any` – call a function in shared interpreter mode.
 - `open_session(uid[, opts]) -> string` – open a long-lived session with a persistent component instance. As with `run`, `opts` replaces the complete load configuration.

@@ -1729,7 +1729,10 @@ pub fn tt_wasm_call_function(
     result
 }
 
-/// Call multiple exported functions of a module in sequence.
+/// Call multiple exported functions of a module in sequence on one worker thread.
+///
+/// Each call uses a fresh store and component instance. Use a session batch when
+/// guest state must persist between calls.
 pub fn tt_wasm_call_functions(
     module_uid: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
