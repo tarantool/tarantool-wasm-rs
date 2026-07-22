@@ -6,6 +6,7 @@ use mlua::prelude::*;
 use mlua::Value;
 use tarantool::coio::coio_call;
 
+use crate::bindings::lua_callback::callback_registry_key;
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
     debug_assert_tx_thread, tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session,
@@ -399,6 +400,26 @@ fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
     }
 }
 
+/// Keep a Lua closure alive under a stable name that guest components can call.
+fn register_callback(lua: &Lua, (name, callback): (String, LuaFunction)) -> LuaResult<bool> {
+    if name.is_empty() {
+        return Err(LuaError::runtime("callback name must not be empty"));
+    }
+    lua.set_named_registry_value(&callback_registry_key(&name), callback)?;
+    Ok(true)
+}
+
+/// Remove a previously registered Lua callback.
+fn unregister_callback(lua: &Lua, name: String) -> LuaResult<bool> {
+    if name.is_empty() {
+        return Err(LuaError::runtime("callback name must not be empty"));
+    }
+    let key = callback_registry_key(&name);
+    let existed = !matches!(lua.named_registry_value::<LuaValue>(&key)?, LuaValue::Nil);
+    lua.unset_named_registry_value(&key)?;
+    Ok(existed)
+}
+
 pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;
     let (serialized_interpreter_exec, serialized_interpreter_call) =
@@ -418,5 +439,10 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("close_session", lua.create_function(close_session)?)?;
     module.set("exports", lua.create_function(exports)?)?;
     module.set("drop", lua.create_function(drop)?)?;
+    module.set("register_callback", lua.create_function(register_callback)?)?;
+    module.set(
+        "unregister_callback",
+        lua.create_function(unregister_callback)?,
+    )?;
     Ok(module)
 }
