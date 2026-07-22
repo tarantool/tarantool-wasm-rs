@@ -3,8 +3,8 @@ use crate::bindings::tarantool::tarantool::error;
 use crate::bindings::tarantool::tarantool::types::{BoxError, ErrorCode};
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
-use std::ffi::CString;
 use tarantool::error::{self as tnt_error, TarantoolErrorCode};
+use tarantool::util::into_cstring_lossy;
 
 pub fn handle_tarantool_error() -> BoxError {
     debug_assert_tx_thread();
@@ -95,8 +95,7 @@ impl error::Host for SyncWasmStates {
                     line,
                     ..
                 } = err;
-                let message_cstr =
-                    CString::new(message).expect("Failed to convert error message to CString");
+                let message_cstr = into_cstring_lossy(message);
                 let file_line = match (file.as_deref(), line) {
                     (Some(file), Some(line)) => Some((file, line)),
                     _ => None,

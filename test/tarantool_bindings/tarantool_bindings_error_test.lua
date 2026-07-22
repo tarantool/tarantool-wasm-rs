@@ -76,6 +76,18 @@ g.test_error_set_and_last = function(cg)
     t.assert_equals(unpacked.line, 42)
 end
 
+g.test_error_set_replaces_embedded_nul = function(cg)
+    local err = wasm.call(
+        cg.m, "t-new", "timeout", "before" .. string.char(0) .. "after"
+    )
+    local res = wasm.batch(cg.m, {
+        {"t-set", err},
+        {"t-last"},
+    })
+    t.assert_equals(res[1], nil)
+    t.assert_equals(res[2].message, "before�after")
+end
+
 -- clear
 g.test_error_clear = function(cg)
     local err = wasm.call(
