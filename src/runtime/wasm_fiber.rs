@@ -1,4 +1,11 @@
-use std::{mem, ptr, sync::Arc};
+use std::{
+    future::{poll_fn, Future},
+    mem,
+    pin::Pin,
+    ptr,
+    sync::Arc,
+    task::Poll,
+};
 
 use anyhow::{anyhow, Result};
 use tokio::{
@@ -103,17 +110,33 @@ impl WasmFiber {
     }
 
     fn resume(&mut self) -> Result<WasmFiberStatus> {
-        self.rt.block_on(async {
-            match self.awaiter.recv().await {
-                Some(status) => Ok(status),
-                None => {
-                    if let Some(handle) = self.handle.take() {
-                        handle.await??;
-                    }
-                    Ok(WasmFiberStatus::Finished)
+        let handle = self
+            .handle
+            .as_mut()
+            .ok_or_else(|| anyhow!("fiber task is no longer available"))?;
+        let status = self.rt.block_on(async {
+            let (status, task_completed) = poll_fn(|cx| {
+                if let Poll::Ready(result) = Pin::new(&mut *handle).poll(cx) {
+                    return Poll::Ready(match result {
+                        Ok(result) => result.map(|()| (WasmFiberStatus::Finished, true)),
+                        Err(err) => Err(err.into()),
+                    });
                 }
+
+                self.awaiter
+                    .poll_recv(cx)
+                    .map(|status| Ok((status.unwrap_or(WasmFiberStatus::Finished), false)))
+            })
+            .await?;
+            if matches!(status, WasmFiberStatus::Finished) && !task_completed {
+                (&mut *handle).await??;
             }
-        })
+            Ok::<_, anyhow::Error>(status)
+        })?;
+        if matches!(status, WasmFiberStatus::Finished) {
+            self.handle.take();
+        }
+        Ok(status)
     }
 
     fn resume_on_tx(self) -> Result<(WasmFiber, WasmFiberStatus)> {

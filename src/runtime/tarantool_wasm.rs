@@ -1598,7 +1598,7 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
 
         let fiber = WasmFiber::new(store, linker, component);
         let _ = canceler_tx.send(fiber.canceler());
-        let _ = fiber.block_on();
+        fiber.block_on()?;
         Ok::<(), anyhow::Error>(())
     })?;
     let cancel_tx = canceler_rx

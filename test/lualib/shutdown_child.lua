@@ -17,7 +17,8 @@ local idle_component = fio.pathjoin(
     'test/lualib/wasm_component_test/export_test/c/adder.component.wasm'
 )
 local run_component = fio.pathjoin(
-    root, 'test/lualib/wasm_component_test/cancel_run_test/adder.wasm'
+    root,
+    'test/lualib/wasm_component_test/cancel_run_test/adder.component.wasm'
 )
 
 local function report_setup(phase)

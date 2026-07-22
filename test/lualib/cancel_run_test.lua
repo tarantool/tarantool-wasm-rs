@@ -51,7 +51,7 @@ end)
 
 local wasm_path = fio.pathjoin(
     utils.get_test_dir(),
-    "lualib", "wasm_component_test", "cancel_run_test", "adder.wasm"
+    "lualib", "wasm_component_test", "cancel_run_test", "adder.component.wasm"
 )
 
 g.test_cancel_long_running_task = function(cg)
@@ -103,4 +103,17 @@ g.test_cancel_and_join_finished_task = function(cg)
     t.assert_equals(res, "2\n")
 
     assert_user_data_destructed(function() wasm.cancel(handle) end)
+end
+
+g.test_join_propagates_guest_trap = function()
+    local m = wasm.load(wasm_path, {
+        env = { TRAP = "True" },
+    })
+    local handle = wasm.run(m)
+
+    local ok, err = pcall(wasm.join, handle)
+
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), "wasm")
+    t.assert(wasm.drop(m))
 end
