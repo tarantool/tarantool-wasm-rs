@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use lazy_static::lazy_static;
 use rmpv::Value as RmpvValue;
 use tarantool::{coio::coio_call, fiber, trigger::on_shutdown};
@@ -192,40 +192,38 @@ pub(crate) struct WasmStates {
 }
 
 impl WasmStates {
-    pub fn new(config: WasmConfig) -> Self {
+    pub fn new(config: WasmConfig) -> Result<Self> {
         let table = ResourceTable::new();
         let mut builder = WasiCtxBuilder::new();
 
         if let Some(path) = &config.stdin {
-            if let Ok(bytes) = std::fs::read(path) {
-                builder.stdin(MemoryInputPipe::new(bytes));
-            }
+            let bytes = std::fs::read(path)
+                .with_context(|| format!("failed to read stdin from `{path}`"))?;
+            builder.stdin(MemoryInputPipe::new(bytes));
         } else if config.inherit_stdin {
             builder.inherit_stdin();
         }
 
         if let Some(path) = &config.stdout {
-            if let Ok(file) = OpenOptions::new()
+            let file = OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(true)
                 .open(path)
-            {
-                builder.stdout(OutputFile::new(file));
-            }
+                .with_context(|| format!("failed to open stdout file `{path}`"))?;
+            builder.stdout(OutputFile::new(file));
         } else if config.inherit_stdout {
             builder.inherit_stdout();
         }
 
         if let Some(path) = &config.stderr {
-            if let Ok(file) = OpenOptions::new()
+            let file = OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(true)
                 .open(path)
-            {
-                builder.stderr(OutputFile::new(file));
-            }
+                .with_context(|| format!("failed to open stderr file `{path}`"))?;
+            builder.stderr(OutputFile::new(file));
         } else if config.inherit_stderr {
             builder.inherit_stderr();
         }
@@ -248,8 +246,11 @@ impl WasmStates {
             let allowed_ips: HashSet<IpAddr> = config
                 .allowed_ips
                 .iter()
-                .filter_map(|ip| ip.parse::<IpAddr>().ok())
-                .collect();
+                .map(|ip| {
+                    ip.parse::<IpAddr>()
+                        .with_context(|| format!("invalid allowed IP address `{ip}`"))
+                })
+                .collect::<Result<_>>()?;
             let allow_all_ports = config.allowed_ports.is_empty();
             let allowed_ports: HashSet<u16> = config.allowed_ports.iter().copied().collect();
             builder.socket_addr_check(move |addr, _| {
@@ -264,11 +265,15 @@ impl WasmStates {
             .allow_udp(config.allow_udp);
 
         for (host, guest, dir_perms, file_perms) in config.preopened_dirs.iter() {
-            let _ = builder.preopened_dir(host, guest, *dir_perms, *file_perms);
+            builder
+                .preopened_dir(host, guest, *dir_perms, *file_perms)
+                .map_err(|err| {
+                    anyhow!("failed to preopen directory `{host}` as `{guest}`: {err}")
+                })?;
         }
 
         let ctx = builder.build();
-        Self {
+        Ok(Self {
             table,
             ctx,
             http: WasiHttpCtx::new(),
@@ -277,7 +282,7 @@ impl WasmStates {
             executor: Executor::TxPush, // start outside the transaction
             tx_mode: TxMode::None,
             caller_session_id: None,
-        }
+        })
     }
 }
 
@@ -289,16 +294,16 @@ pub(crate) struct SyncWasmStates {
 }
 
 impl SyncWasmStates {
-    pub(crate) fn new(config: WasmConfig) -> Self {
+    pub(crate) fn new(config: WasmConfig) -> Result<Self> {
         let mut builder = StoreLimitsBuilder::new();
         if let Some(limit) = config.memory_limit {
             builder = builder.memory_size(limit);
         }
         let limits = builder.build();
-        SyncWasmStates {
-            state: Mutex::new(WasmStates::new(config)),
+        Ok(SyncWasmStates {
+            state: Mutex::new(WasmStates::new(config)?),
             limits,
-        }
+        })
     }
 
     pub fn begin_tx(&mut self) {
@@ -898,8 +903,12 @@ fn join_handle_via_coio<T: Send + 'static>(handle: JoinHandle<Result<T>>) -> Res
     result
 }
 
-fn init_store(engine: &Engine, config: &WasmConfig, with_fuel: bool) -> Store<SyncWasmStates> {
-    let wasi_view = SyncWasmStates::new(config.clone());
+fn init_store(
+    engine: &Engine,
+    config: &WasmConfig,
+    with_fuel: bool,
+) -> Result<Store<SyncWasmStates>> {
+    let wasi_view = SyncWasmStates::new(config.clone())?;
     let mut store = Store::new(engine, wasi_view);
     store.limiter(|state| &mut state.limits);
     if with_fuel {
@@ -908,7 +917,7 @@ fn init_store(engine: &Engine, config: &WasmConfig, with_fuel: bool) -> Store<Sy
     }
     store.set_epoch_deadline(1);
     store.epoch_deadline_trap();
-    store
+    Ok(store)
 }
 
 fn reset_store_fuel(store: &mut Store<SyncWasmStates>, with_fuel: bool, config: &WasmConfig) {
@@ -1052,7 +1061,7 @@ fn instantiate_interpreter_instance(
     with_fuel: bool,
     rt: &tokio::runtime::Runtime,
 ) -> Result<(Store<SyncWasmStates>, Instance)> {
-    let mut store = init_store(engine, config, with_fuel);
+    let mut store = init_store(engine, config, with_fuel)?;
     let instance = rt
         .block_on(linker.instantiate_async(&mut store, component))
         .map_err(|err| anyhow!("failed to instantiate interpreter `{path_key}`: {err}"))?;
@@ -1237,7 +1246,15 @@ fn run_session_worker(
         runtime_state.linker.clone()
     };
 
-    let mut store = init_store(engine, &config, with_fuel);
+    let mut store = match init_store(engine, &config, with_fuel) {
+        Ok(store) => store,
+        Err(err) => {
+            let init_error =
+                anyhow!("failed to initialize session for module `{module_uid}`: {err:#}");
+            let _ = ready_tx.send(Err(anyhow!("{init_error:#}")));
+            return Err(init_error);
+        }
+    };
 
     let rt = Builder::new_current_thread()
         .enable_time()
@@ -1585,7 +1602,14 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
             runtime_state.linker.clone()
         };
 
-        let wasi_view = SyncWasmStates::new(cfg.clone());
+        let wasi_view = match SyncWasmStates::new(cfg.clone()) {
+            Ok(wasi_view) => wasi_view,
+            Err(err) => {
+                let message = format!("{err:#}");
+                let _ = canceler_tx.send(Err(anyhow!("{message}")));
+                return Err(anyhow!(message));
+            }
+        };
         let mut store = Store::new(engine, wasi_view);
         store.limiter(|state| &mut state.limits);
         if fuel {
@@ -1597,13 +1621,23 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
         store.epoch_deadline_trap();
 
         let fiber = WasmFiber::new(store, linker, component);
-        let _ = canceler_tx.send(fiber.canceler());
+        let _ = canceler_tx.send(Ok(fiber.canceler()));
         fiber.block_on()?;
         Ok::<(), anyhow::Error>(())
     })?;
-    let cancel_tx = canceler_rx
-        .recv()
-        .map_err(|_| anyhow!("failed to receive fiber cancel handle"))?;
+    let cancel_tx = match canceler_rx.recv() {
+        Ok(Ok(cancel_tx)) => cancel_tx,
+        Ok(Err(err)) => {
+            let _ = join_handle_via_coio(handle);
+            return Err(err);
+        }
+        Err(_) => {
+            return match join_handle_via_coio(handle) {
+                Err(err) => Err(err),
+                Ok(()) => Err(anyhow!("failed to receive fiber cancel handle")),
+            };
+        }
+    };
     if let Err(err) = lifecycle::ensure_running() {
         let _ = cancel_tx.blocking_send(WasmFiberStatus::Canceled);
         let _ = join_handle_via_coio(handle);
@@ -1655,7 +1689,7 @@ pub fn tt_wasm_call_function(
         } else {
             runtime_state.linker.clone()
         };
-        let wasi_view = SyncWasmStates::new(cfg.clone());
+        let wasi_view = SyncWasmStates::new(cfg.clone())?;
         let mut store = Store::new(engine, wasi_view);
         store.limiter(|state| &mut state.limits);
         if fuel {
@@ -1741,7 +1775,7 @@ pub fn tt_wasm_call_functions(
             let mut results_all = Vec::new();
 
             for job in jobs.into_iter() {
-                let wasi_view = SyncWasmStates::new(cfg.clone());
+                let wasi_view = SyncWasmStates::new(cfg.clone())?;
                 let mut store = Store::new(engine, wasi_view);
                 store.limiter(|state| &mut state.limits);
                 if fuel {

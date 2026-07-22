@@ -1,6 +1,69 @@
 use crate::runtime::tarantool_wasm::WasmConfig;
 use mlua::prelude::*;
+use std::net::IpAddr;
 use wasmtime_wasi::{DirPerms, FilePerms};
+
+fn invalid_type(field: &str, expected: &str, value: &LuaValue) -> LuaError {
+    LuaError::runtime(format!(
+        "invalid `{field}`: expected {expected}, got {}",
+        value.type_name()
+    ))
+}
+
+fn optional_bool(tbl: &LuaTable, field: &str) -> LuaResult<Option<bool>> {
+    match tbl.get::<LuaValue>(field)? {
+        LuaValue::Nil => Ok(None),
+        LuaValue::Boolean(value) => Ok(Some(value)),
+        value => Err(invalid_type(field, "boolean", &value)),
+    }
+}
+
+fn optional_string(tbl: &LuaTable, field: &str) -> LuaResult<Option<String>> {
+    match tbl.get::<LuaValue>(field)? {
+        LuaValue::Nil => Ok(None),
+        LuaValue::String(value) => Ok(Some(value.to_str()?.to_string())),
+        value => Err(invalid_type(field, "string", &value)),
+    }
+}
+
+fn optional_table(tbl: &LuaTable, field: &str) -> LuaResult<Option<LuaTable>> {
+    match tbl.get::<LuaValue>(field)? {
+        LuaValue::Nil => Ok(None),
+        LuaValue::Table(value) => Ok(Some(value)),
+        value => Err(invalid_type(field, "table", &value)),
+    }
+}
+
+fn unsigned_integer(value: LuaValue, field: &str) -> LuaResult<u64> {
+    match value {
+        LuaValue::Integer(value) => u64::try_from(value).map_err(|_| {
+            LuaError::runtime(format!("invalid `{field}`: expected non-negative integer"))
+        }),
+        LuaValue::Number(value)
+            if value.is_finite()
+                && value >= 0.0
+                && value.fract() == 0.0
+                && value < u64::MAX as f64 =>
+        {
+            Ok(value as u64)
+        }
+        value => Err(invalid_type(field, "non-negative integer", &value)),
+    }
+}
+
+fn optional_u64(tbl: &LuaTable, field: &str) -> LuaResult<Option<u64>> {
+    match tbl.get::<LuaValue>(field)? {
+        LuaValue::Nil => Ok(None),
+        value => unsigned_integer(value, field).map(Some),
+    }
+}
+
+fn required_string(value: LuaValue, field: &str) -> LuaResult<String> {
+    match value {
+        LuaValue::String(value) => Ok(value.to_str()?.to_string()),
+        value => Err(invalid_type(field, "string", &value)),
+    }
+}
 
 /// Parse a Lua table into a [`WasmConfig`].
 ///
@@ -9,87 +72,101 @@ use wasmtime_wasi::{DirPerms, FilePerms};
 pub(super) fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig> {
     let mut cfg = WasmConfig::default();
     if let Some(t) = tbl {
-        if let Ok(Some(inherit_env)) = t.get::<Option<bool>>("inherit_env") {
-            cfg.inherit_env = inherit_env;
+        if let Some(value) = optional_bool(&t, "inherit_env")? {
+            cfg.inherit_env = value;
         }
-        if let Ok(Some(inherit_args)) = t.get::<Option<bool>>("inherit_args") {
-            cfg.inherit_args = inherit_args;
+        if let Some(value) = optional_bool(&t, "inherit_args")? {
+            cfg.inherit_args = value;
         }
-        if let Ok(args_tbl) = t.get::<LuaTable>("args") {
-            for val in args_tbl.sequence_values::<String>() {
-                cfg.args.push(val?);
+        if let Some(args_tbl) = optional_table(&t, "args")? {
+            for value in args_tbl.sequence_values::<String>() {
+                cfg.args.push(value?);
             }
         }
-        if let Ok(Some(inherit_stdin)) = t.get::<Option<bool>>("inherit_stdin") {
-            cfg.inherit_stdin = inherit_stdin;
+        if let Some(value) = optional_bool(&t, "inherit_stdin")? {
+            cfg.inherit_stdin = value;
         }
-        if let Ok(Some(inherit_stdout)) = t.get::<Option<bool>>("inherit_stdout") {
-            cfg.inherit_stdout = inherit_stdout;
+        if let Some(value) = optional_bool(&t, "inherit_stdout")? {
+            cfg.inherit_stdout = value;
         }
-        if let Ok(Some(inherit_stderr)) = t.get::<Option<bool>>("inherit_stderr") {
-            cfg.inherit_stderr = inherit_stderr;
+        if let Some(value) = optional_bool(&t, "inherit_stderr")? {
+            cfg.inherit_stderr = value;
         }
-        if let Ok(stdin) = t.get::<String>("stdin") {
-            cfg.stdin = Some(stdin);
-        }
-        if let Ok(stdout) = t.get::<String>("stdout") {
-            cfg.stdout = Some(stdout);
-        }
-        if let Ok(stderr) = t.get::<String>("stderr") {
-            cfg.stderr = Some(stderr);
-        }
-        if let Ok(env_tbl) = t.get::<LuaTable>("env") {
-            for pair in env_tbl.pairs::<String, String>() {
-                let (k, v) = pair?;
-                cfg.env.insert(k, v);
+        cfg.stdin = optional_string(&t, "stdin")?;
+        cfg.stdout = optional_string(&t, "stdout")?;
+        cfg.stderr = optional_string(&t, "stderr")?;
+        if let Some(env_tbl) = optional_table(&t, "env")? {
+            for pair in env_tbl.pairs::<LuaValue, LuaValue>() {
+                let (key, value) = pair?;
+                let key = required_string(key, "env key")?;
+                let value = required_string(value, "env value")?;
+                cfg.env.insert(key, value);
             }
         }
-        if let Ok(Some(inherit_network)) = t.get::<Option<bool>>("inherit_network") {
-            cfg.inherit_network = inherit_network;
+        if let Some(value) = optional_bool(&t, "inherit_network")? {
+            cfg.inherit_network = value;
         }
-        if let Ok(Some(allow_ip_name_lookup)) = t.get::<Option<bool>>("allow_ip_name_lookup") {
-            cfg.allow_ip_name_lookup = allow_ip_name_lookup;
+        if let Some(value) = optional_bool(&t, "allow_ip_name_lookup")? {
+            cfg.allow_ip_name_lookup = value;
         }
-        if let Ok(Some(allow_tcp)) = t.get::<Option<bool>>("allow_tcp") {
-            cfg.allow_tcp = allow_tcp;
+        if let Some(value) = optional_bool(&t, "allow_tcp")? {
+            cfg.allow_tcp = value;
         }
-        if let Ok(Some(allow_udp)) = t.get::<Option<bool>>("allow_udp") {
-            cfg.allow_udp = allow_udp;
+        if let Some(value) = optional_bool(&t, "allow_udp")? {
+            cfg.allow_udp = value;
         }
-        if let Ok(ip_tbl) = t.get::<LuaTable>("allowed_ips") {
-            for ip in ip_tbl.sequence_values::<String>() {
-                cfg.allowed_ips.push(ip?);
+        if let Some(ip_tbl) = optional_table(&t, "allowed_ips")? {
+            for value in ip_tbl.sequence_values::<LuaValue>() {
+                let ip = required_string(value?, "allowed_ips entry")?;
+                ip.parse::<IpAddr>().map_err(|err| {
+                    LuaError::runtime(format!("invalid IP address `{ip}`: {err}"))
+                })?;
+                cfg.allowed_ips.push(ip);
             }
         }
-        if let Ok(port_tbl) = t.get::<LuaTable>("allowed_ports") {
-            for port in port_tbl.sequence_values::<u16>() {
-                cfg.allowed_ports.push(port?);
+        if let Some(port_tbl) = optional_table(&t, "allowed_ports")? {
+            for value in port_tbl.sequence_values::<LuaValue>() {
+                let port = unsigned_integer(value?, "allowed_ports entry")?;
+                let port = u16::try_from(port).map_err(|_| {
+                    LuaError::runtime(format!(
+                        "invalid `allowed_ports entry`: port {port} is out of range"
+                    ))
+                })?;
+                cfg.allowed_ports.push(port);
             }
         }
-        if let Ok(po_tbl) = t.get::<LuaTable>("preopened_dirs") {
-            for entry in po_tbl.sequence_values::<LuaTable>() {
-                let tbl = entry?;
-                let host: String = tbl.raw_get(1)?;
-                let guest: String = tbl.raw_get(2)?;
-
-                let perms: Option<String> = tbl.raw_get("perms").ok();
+        if let Some(po_tbl) = optional_table(&t, "preopened_dirs")? {
+            for entry in po_tbl.sequence_values::<LuaValue>() {
+                let entry = entry?;
+                let LuaValue::Table(entry) = entry else {
+                    return Err(invalid_type("preopened_dirs entry", "table", &entry));
+                };
+                let host = required_string(entry.raw_get::<LuaValue>(1)?, "preopened_dirs host")?;
+                let guest = required_string(entry.raw_get::<LuaValue>(2)?, "preopened_dirs guest")?;
+                let perms = optional_string(&entry, "perms")?;
                 let (dir_perms, file_perms) = match perms.as_deref() {
                     Some("ro") => (DirPerms::READ, FilePerms::READ),
-                    _ => (DirPerms::all(), FilePerms::all()),
+                    Some("rw") | None => (DirPerms::all(), FilePerms::all()),
+                    Some(perms) => {
+                        return Err(LuaError::runtime(format!(
+                        "invalid preopened directory permissions `{perms}`; expected `ro` or `rw`"
+                    )))
+                    }
                 };
-
                 cfg.preopened_dirs
                     .push((host, guest, dir_perms, file_perms));
             }
         }
-        if let Ok(memory_limit) = t.get::<u64>("memory_limit") {
-            cfg.memory_limit = Some(memory_limit as usize);
+        if let Some(memory_limit) = optional_u64(&t, "memory_limit")? {
+            cfg.memory_limit = Some(usize::try_from(memory_limit).map_err(|_| {
+                LuaError::runtime(format!(
+                    "invalid `memory_limit`: {memory_limit} is out of range"
+                ))
+            })?);
         }
-        if let Ok(max_instructions) = t.get::<u64>("max_instructions") {
-            cfg.max_instructions = Some(max_instructions);
-        }
-        if let Ok(Some(interpreter)) = t.get::<Option<bool>>("interpreter") {
-            cfg.interpreter = interpreter;
+        cfg.max_instructions = optional_u64(&t, "max_instructions")?;
+        if let Some(value) = optional_bool(&t, "interpreter")? {
+            cfg.interpreter = value;
         }
     }
     Ok(cfg)

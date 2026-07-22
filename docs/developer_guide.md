@@ -60,6 +60,9 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `preopened_dirs` (default: none) – array of `{ host_path, guest_path, perms = "ro" | "rw" }` tables exposing directories to the module. The host and guest paths are positional entries.
   - `perms` is optional and can be `"ro"` (read-only) or `"rw"` (read-write, default).
 
+Defaults are applied only when a field is absent. Invalid field types, malformed IP addresses, unknown permission values,
+and inaccessible stream or preopened-directory paths are rejected with a Lua error.
+
 Providing `stdin`, `stdout`, or `stderr` overrides the respective `inherit_*` option and redirects the module's streams to files.
 
 Fuel support is selected when the component is loaded. To use `max_instructions`
