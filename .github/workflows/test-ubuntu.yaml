@@ -1,4 +1,4 @@
-name: Build and Test [Debug]
+name: Test
 
 on:
   push:
@@ -8,11 +8,24 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
+  test:
+    name: ${{ matrix.profile }} (ubuntu-jammy)
+    runs-on: ubuntu-20.04-self-hosted
+    timeout-minutes: 90
+
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy
 
-    runs-on: ubuntu-20.04-self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: debug
+            build_command: cargo build
+            artifact: target/debug/libtarantool_wasm_rs.so
+          - profile: release
+            build_command: cargo build --release --target x86_64-unknown-linux-gnu
+            artifact: target/x86_64-unknown-linux-gnu/release/libtarantool_wasm_rs.so
 
     steps:
       - uses: actions/checkout@v4
@@ -25,13 +38,13 @@ jobs:
           rustup update stable
           rustup default stable
 
-      - name: Build (debug)
-        run: cargo build
+      - name: Build (${{ matrix.profile }})
+        run: ${{ matrix.build_command }}
 
       - name: Prepare wasm module
         run: |
           mkdir -p .rocks/lib/tarantool
-          cp target/debug/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
+          cp "${{ matrix.artifact }}" .rocks/lib/tarantool/wasm.so
 
       - name: Setup Tarantool
         uses: tarantool/setup-tarantool@v3
@@ -44,13 +57,14 @@ jobs:
           sudo apt install -y tt
           tt version
 
-      - run: echo $PWD/.rocks/bin >> $GITHUB_PATH
+      - name: Add local rocks to PATH
+        run: echo "$PWD/.rocks/bin" >> "$GITHUB_PATH"
 
       - name: Install luatest
         run: |
-          if ! command -v luatest > /dev/null; then
+          if ! command -v luatest >/dev/null 2>&1; then
             tt rocks install luatest
           fi
 
-      - name: Run tests
+      - name: Run all tests
         run: luatest -v -l luatest.log

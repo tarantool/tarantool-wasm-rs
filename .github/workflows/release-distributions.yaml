@@ -1,0 +1,48 @@
+name: Distributions
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-release:
+    name: test release (${{ matrix.distribution }})
+    runs-on: ubuntu-20.04-self-hosted
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        distribution:
+          - debian-bookworm
+          - fedora-39
+          - centos-8
+          - redos-7.3
+          - astra-1.7
+
+    env:
+      DISTRO_TEST_VOLUME_PREFIX: twasm-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+      DISTRO_TEST_RUSTUP_VOLUME: twasm-rustup-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+      DISTRO_TEST_CARGO_VOLUME: twasm-cargo-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+      DISTRO_TEST_CACHE_DIR: /tmp/twasm-packages-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build release and run all tests
+        run: ./scripts/test_distros.sh "${{ matrix.distribution }}"
+
+      - name: Remove Docker volumes
+        if: always()
+        run: |
+          docker volume rm -f \
+            "$DISTRO_TEST_VOLUME_PREFIX-target-${{ matrix.distribution }}" \
+            "$DISTRO_TEST_VOLUME_PREFIX-test-${{ matrix.distribution }}" \
+            "$DISTRO_TEST_RUSTUP_VOLUME" \
+            "$DISTRO_TEST_CARGO_VOLUME" || true
+          rm -rf -- "$DISTRO_TEST_CACHE_DIR"
