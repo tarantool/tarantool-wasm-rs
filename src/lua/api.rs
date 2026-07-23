@@ -8,17 +8,18 @@ use mlua::Value;
 use tarantool::coio::coio_call;
 
 use super::resource::{
-    from_rmpv_with_session, mark_consumed, to_rmpv_with_session_tracking, LuaWasmResource,
-    SessionLease,
+    from_rmpv_with_instance, mark_consumed, to_rmpv_with_instance_tracking, InstanceLease,
+    LuaWasmResource,
 };
 use crate::bindings::lua_callback::callback_registry_key;
 use crate::runtime::convert::{from_rmpv, to_rmpv};
 use crate::runtime::tarantool_wasm::{
-    debug_assert_tx_thread, tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_close_session,
-    tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_interpreter_call, tt_wasm_interpreter_exec,
-    tt_wasm_interpreter_key, tt_wasm_load_module, tt_wasm_open_session,
+    debug_assert_tx_thread, tt_wasm_bind_instance, tt_wasm_call_function, tt_wasm_call_functions,
+    tt_wasm_close_session, tt_wasm_drop_module, tt_wasm_export_names,
+    tt_wasm_instance_call_function_with_ownership, tt_wasm_interpreter_call,
+    tt_wasm_interpreter_exec, tt_wasm_interpreter_key, tt_wasm_load_module, tt_wasm_open_session,
     tt_wasm_precompile_component, tt_wasm_run_module, tt_wasm_session_call_function_with_ownership,
-    tt_wasm_session_call_functions_with_ownership, WasmRunHandle,
+    tt_wasm_session_call_functions_with_ownership, WasmInstanceTarget, WasmRunHandle,
 };
 
 use super::args::{
@@ -313,11 +314,11 @@ fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let (interface, func) = parse_function_selector(iter.next())?;
     let rest_args: Vec<Value> = iter.collect();
 
-    let session = SessionLease::borrowed(session_handle.clone());
+    let instance = InstanceLease::borrowed(WasmInstanceTarget::Session(session_handle.clone()));
     let mut used = Vec::new();
     let rmp_args = rest_args
         .iter()
-        .map(|value| to_rmpv_with_session_tracking(lua, value, session.as_ref(), &mut used))
+        .map(|value| to_rmpv_with_instance_tracking(lua, value, instance.as_ref(), &mut used))
         .collect::<Result<Vec<_>, _>>()?;
 
     let result =
@@ -325,7 +326,7 @@ fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
             .map_err(mlua::Error::external)?;
     mark_consumed(&used, &result.consumed);
 
-    let lua_val = from_rmpv_with_session(lua, &result.value, session)?;
+    let lua_val = from_rmpv_with_instance(lua, &result.value, instance)?;
     Ok(lua_val)
 }
 
@@ -335,7 +336,7 @@ fn session_batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
 
     let session_handle = parse_required_string(iter.next(), "expected session_handle as string")?;
     let calls_tbl = parse_calls_table(iter.next())?;
-    let session = SessionLease::borrowed(session_handle.clone());
+    let instance = InstanceLease::borrowed(WasmInstanceTarget::Session(session_handle.clone()));
     let mut calls = Vec::new();
     let mut used: Vec<LuaWasmResource> = Vec::new();
     for call in calls_tbl.sequence_values::<LuaValue>() {
@@ -349,10 +350,10 @@ fn session_batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         let mut call_args = Vec::new();
         for index in 2..=call.raw_len() {
             let value = call.raw_get(index)?;
-            call_args.push(to_rmpv_with_session_tracking(
+            call_args.push(to_rmpv_with_instance_tracking(
                 lua,
                 &value,
-                session.as_ref(),
+                instance.as_ref(),
                 &mut used,
             )?);
         }
@@ -365,7 +366,7 @@ fn session_batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let results_tbl = lua.create_table()?;
     for (i, result) in results.into_iter().enumerate() {
         mark_consumed(&used, &result.consumed);
-        let lua_val = from_rmpv_with_session(lua, &result.value, Arc::clone(&session))?;
+        let lua_val = from_rmpv_with_instance(lua, &result.value, Arc::clone(&instance))?;
         results_tbl.set(i + 1, lua_val)?;
     }
 
@@ -426,7 +427,7 @@ fn exports(lua: &Lua, module_uid: String) -> LuaResult<Value> {
 
 fn create_bound_export(
     lua: &Lua,
-    session: Arc<SessionLease>,
+    instance: Arc<InstanceLease>,
     interface: Option<String>,
     func: String,
 ) -> LuaResult<LuaFunction> {
@@ -434,17 +435,17 @@ fn create_bound_export(
         let mut used = Vec::new();
         let rmp_args = args
             .iter()
-            .map(|value| to_rmpv_with_session_tracking(lua, value, session.as_ref(), &mut used))
+            .map(|value| to_rmpv_with_instance_tracking(lua, value, instance.as_ref(), &mut used))
             .collect::<Result<Vec<_>, _>>()?;
-        let result = tt_wasm_session_call_function_with_ownership(
-            session.handle().to_string(),
+        let result = tt_wasm_instance_call_function_with_ownership(
+            instance.target(),
             interface.clone(),
             func.clone(),
             rmp_args,
         )
         .map_err(mlua::Error::external)?;
         mark_consumed(&used, &result.consumed);
-        from_rmpv_with_session(lua, &result.value, Arc::clone(&session))
+        from_rmpv_with_instance(lua, &result.value, Arc::clone(&instance))
     })
 }
 
@@ -457,10 +458,17 @@ fn resource_member(func: &str) -> Option<(&str, &str)> {
 }
 
 /// Bind the exports of a loaded module to Lua functions.
-fn bind(lua: &Lua, module_uid: String) -> LuaResult<LuaTable> {
+fn bind(
+    lua: &Lua,
+    module_uid: String,
+    serialized_interpreter_exec: &LuaFunction,
+    serialized_interpreter_call: &LuaFunction,
+) -> LuaResult<LuaTable> {
     let export_map = tt_wasm_export_names(module_uid.clone()).map_err(mlua::Error::external)?;
-    let session =
-        SessionLease::owned(tt_wasm_open_session(module_uid, None).map_err(mlua::Error::external)?);
+    let instance = InstanceLease::owned(
+        tt_wasm_bind_instance(module_uid.clone()).map_err(mlua::Error::external)?,
+    );
+    let is_interpreter = matches!(instance.target(), WasmInstanceTarget::Interpreter(_));
     let proxy = lua.create_table()?;
     for (namespace, funcs) in export_map {
         let interface = (!namespace.is_empty()).then_some(namespace.clone());
@@ -472,7 +480,7 @@ fn bind(lua: &Lua, module_uid: String) -> LuaResult<LuaTable> {
         for func_name in funcs.into_keys() {
             let bound = create_bound_export(
                 lua,
-                Arc::clone(&session),
+                Arc::clone(&instance),
                 interface.clone(),
                 func_name.clone(),
             )?;
@@ -498,7 +506,42 @@ fn bind(lua: &Lua, module_uid: String) -> LuaResult<LuaTable> {
             proxy.set(namespace, target)?;
         }
     }
+    if is_interpreter {
+        let (bound_exec, bound_call): (LuaFunction, LuaFunction) = lua
+            .load(
+                r#"
+                local interpreter_exec, interpreter_call, module_uid = ...
+                return function(code)
+                    return interpreter_exec(module_uid, code)
+                end, function(func, ...)
+                    return interpreter_call(module_uid, func, ...)
+                end
+                "#,
+            )
+            .call((
+                serialized_interpreter_exec.clone(),
+                serialized_interpreter_call.clone(),
+                module_uid,
+            ))?;
+        proxy.set("interpreter_exec", bound_exec)?;
+        proxy.set("interpreter_call", bound_call)?;
+    }
     Ok(proxy)
+}
+
+fn create_bind_function(
+    lua: &Lua,
+    serialized_interpreter_exec: LuaFunction,
+    serialized_interpreter_call: LuaFunction,
+) -> LuaResult<LuaFunction> {
+    lua.create_function(move |lua, module_uid: String| {
+        bind(
+            lua,
+            module_uid,
+            &serialized_interpreter_exec,
+            &serialized_interpreter_call,
+        )
+    })
 }
 
 /// Drop a previously loaded module and free associated resources.
@@ -533,6 +576,11 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;
     let (serialized_interpreter_exec, serialized_interpreter_call) =
         create_interpreter_functions(lua)?;
+    let bind = create_bind_function(
+        lua,
+        serialized_interpreter_exec.clone(),
+        serialized_interpreter_call.clone(),
+    )?;
     module.set("load", lua.create_function(load)?)?;
     module.set("precompile", lua.create_function(precompile)?)?;
     module.set("run", lua.create_function(run)?)?;
@@ -547,7 +595,7 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("session_batch", lua.create_function(session_batch)?)?;
     module.set("close_session", lua.create_function(close_session)?)?;
     module.set("exports", lua.create_function(exports)?)?;
-    module.set("bind", lua.create_function(bind)?)?;
+    module.set("bind", bind)?;
     module.set("drop", lua.create_function(drop)?)?;
     module.set("register_callback", lua.create_function(register_callback)?)?;
     module.set(

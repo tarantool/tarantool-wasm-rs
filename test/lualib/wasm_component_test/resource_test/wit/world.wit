@@ -15,4 +15,9 @@ interface counters {
 
 world resource-test {
     export counters;
+    export exec: func(code: string) -> result<_, string>;
+    export call: func(
+        %func: string,
+        args-msgpack: list<u8>,
+    ) -> result<list<u8>, string>;
 }

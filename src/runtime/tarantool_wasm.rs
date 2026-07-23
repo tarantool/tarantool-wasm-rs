@@ -66,7 +66,9 @@ use self::{
     },
     exports::{collect_exports, export_info_from_component_func},
     interpreter::{
-        close_interpreter_impl, run_interpreter_worker, InterpreterCommand, SharedInterpreterEntry,
+        close_interpreter_impl, run_interpreter_worker,
+        tt_wasm_interpreter_call_export_with_ownership, tt_wasm_interpreter_drop_resource,
+        tt_wasm_interpreter_drop_resource_detached, InterpreterCommand, SharedInterpreterEntry,
     },
     linker::{build_runtime_linker, runtime_config},
     registry::{ExportMap, ModuleMode, PreparedComponent, RuntimeState},
@@ -82,7 +84,10 @@ pub use self::session::{tt_wasm_session_call_function, tt_wasm_session_call_func
 pub(crate) use self::{
     execution::WasmRunHandle,
     session::{
-        tt_wasm_session_call_function_with_ownership, tt_wasm_session_call_functions_with_ownership,
+        tt_wasm_bind_instance, tt_wasm_close_instance_detached,
+        tt_wasm_instance_call_function_with_ownership, tt_wasm_instance_drop_resource,
+        tt_wasm_instance_drop_resource_detached, tt_wasm_session_call_function_with_ownership,
+        tt_wasm_session_call_functions_with_ownership, WasmInstanceTarget,
     },
     store::{SyncWasmStates, WasmStates},
 };
@@ -93,10 +98,7 @@ pub use self::{
         tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module,
         tt_wasm_precompile_component, ExportInfo,
     },
-    session::{
-        tt_wasm_close_session, tt_wasm_close_session_detached, tt_wasm_open_session,
-        tt_wasm_session_drop_resource, tt_wasm_session_drop_resource_detached,
-    },
+    session::{tt_wasm_close_session, tt_wasm_open_session},
     store::WasmConfig,
 };
 

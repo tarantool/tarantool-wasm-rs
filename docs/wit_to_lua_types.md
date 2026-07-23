@@ -249,10 +249,12 @@ component:t_flags({"read", "execute"})
 
 ### Resources
 
-WIT resources require a persistent component instance. `wasm.bind(module)`
-opens and owns a session automatically. The explicit `open_session`,
-`session_call`, and `session_batch` APIs use the same resource representation.
-The one-shot `call` and `batch` APIs do not support resource handles.
+WIT resources require a persistent component instance. For a regular module,
+`wasm.bind(module)` opens and owns a session automatically. For a module
+loaded with `interpreter = true`, it routes calls to the existing shared
+interpreter instance. The explicit `open_session`, `session_call`, and
+`session_batch` APIs use the same resource representation. The one-shot
+`call` and `batch` APIs do not support resource handles.
 
 ```wit
 resource counter {
@@ -281,7 +283,7 @@ assert(counters.counter.sum(first, second) == 44)
 assert(counters.consume(first) == 22)
 
 -- Explicit cleanup is deterministic. Remaining live resources are also
--- released when their session closes.
+-- released when their component instance closes.
 second:drop()
 wasm.drop(module)
 ```
@@ -291,15 +293,17 @@ metadata. `drop()` returns `true` when it releases a live handle and `false`
 after an earlier explicit drop. Lua garbage collection schedules a fallback
 drop, but applications should call `drop()` when release timing matters.
 
-Resources are session-affine. Passing a handle to a function bound to another
-module session raises an error before entering the component. Passing a handle
-as `own<T>` transfers ownership to the guest; a subsequent use reports that the
-resource is no longer available. `borrow<T>` calls leave the handle in the
-session resource table.
+Resources are instance-affine. Passing a handle to a function bound to another
+component instance raises an error before entering the component. Proxies for
+module identifiers that share one interpreter instance may exchange handles.
+Passing a handle as `own<T>` transfers ownership to the guest; a subsequent
+use reports that the resource is no longer available. `borrow<T>` calls leave
+the handle in the instance resource table. Reinstantiating an interpreter
+after a WASM trap invalidates all handles from the previous instance.
 
 Resources may appear inside lists, maps, options, tuples, records, variants,
 and results. The conversion walks those values recursively and preserves the
-same session and ownership checks for nested handles.
+same instance and ownership checks for nested handles.
 
 Imported host resources, including Tarantool iterators and WASI resources,
 continue to use Wasmtime's host resource table. Their TX-thread constraints are
