@@ -79,9 +79,9 @@ pub(super) async fn execute_call_job_on_instance(
     export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
     job: &CallJob,
 ) -> Result<RmpvValue> {
-    store
-        .data_mut()
-        .set_caller_session_id(job.caller_session_id);
+    let state = store.data_mut();
+    state.set_caller_session_id(job.caller_session_id);
+    state.enter_call(job.call_chain.clone())?;
     let func_index = resolve_call_export_index(component, export_cache, job)?;
 
     let export = instance
@@ -123,9 +123,9 @@ pub(super) async fn execute_session_call_job_on_instance(
     resources: &mut SessionResources,
     job: &CallJob,
 ) -> Result<SessionCallResult> {
-    store
-        .data_mut()
-        .set_caller_session_id(job.caller_session_id);
+    let state = store.data_mut();
+    state.set_caller_session_id(job.caller_session_id);
+    state.enter_call(job.call_chain.clone())?;
     let func_index = resolve_call_export_index(component, export_cache, job)?;
     let export = instance
         .get_func(&mut *store, func_index)

@@ -553,11 +553,30 @@ fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
 }
 
 /// Keep a Lua closure alive under a stable name that guest components can call.
-fn register_callback(lua: &Lua, (name, callback): (String, LuaFunction)) -> LuaResult<bool> {
+fn register_callback(
+    lua: &Lua,
+    (name, callback, options): (String, LuaFunction, Option<LuaTable>),
+) -> LuaResult<bool> {
     if name.is_empty() {
         return Err(LuaError::runtime("callback name must not be empty"));
     }
-    lua.set_named_registry_value(&callback_registry_key(&name), callback)?;
+
+    let timeout_ms = options
+        .map(|options| options.get::<Option<u64>>("timeout_ms"))
+        .transpose()?
+        .flatten();
+    if timeout_ms == Some(0) {
+        return Err(LuaError::runtime(
+            "callback timeout_ms must be greater than zero",
+        ));
+    }
+
+    let registration = lua.create_table()?;
+    registration.set("callback", callback)?;
+    if let Some(timeout_ms) = timeout_ms {
+        registration.set("timeout_ms", timeout_ms)?;
+    }
+    lua.set_named_registry_value(&callback_registry_key(&name), registration)?;
     Ok(true)
 }
 
