@@ -86,6 +86,11 @@ wasm.close_session(s)
 A session keeps one component instance and one store alive across calls, allowing in-memory guest state and resources to be reused between invocations.
 Calling `wasm.drop(module_uid)` closes all sessions belonging to that module.
 
+`wasm.bind(module_uid)` uses the same execution model for a regular module. It
+opens a managed session, routes bound exports and resource methods through that
+session, and closes the session when the last Lua proxy or resource releases
+its lease.
+
 ## Shared Interpreter Mode
 
 For interpreter components (large WASM binaries), enable shared mode at load:
@@ -103,6 +108,18 @@ are executed sequentially by one worker. A failed `interpreter_exec` or
 `interpreter_call` returns an error without discarding the instance. A WASM
 trap, including exhausted fuel or a memory fault, recreates the instance, so
 all accumulated guest state is lost before the next operation.
+
+`wasm.bind(module_uid)` does not open another session for a module loaded with
+`interpreter = true`. The proxy retains the existing shared interpreter entry
+and sends static WIT export calls, resource methods, and resource drops to its
+command queue. It also exposes module-bound `interpreter_exec(code)` and
+`interpreter_call(func, ...)` helpers. All these operations therefore observe
+the same guest state and resource table.
+
+Resource handles are tied to the component instance that created them. Proxies
+for module identifiers backed by the same shared interpreter can exchange
+handles. A trap replaces the interpreter's `Store`, component instance, and
+resource table; handles created by the previous instance become invalid.
 
 ### Example - Python interpreter
 
@@ -136,7 +153,85 @@ The checked-in Python fixture and its pinned build instructions live in
 
 ## Diagrams
 
-Below are three separate diagrams for `wasm.run`, `wasm.call`, and `wasm.batch`. Each represents the sequence of actions within its respective thread, with no overlap between the scenarios.
+The persistent execution diagrams show why sessions and interpreters preserve
+state while one-shot calls do not. The remaining diagrams describe
+`wasm.run`, `wasm.call`, and `wasm.batch`.
+
+### Session and regular `wasm.bind`
+
+Each session owns a dedicated worker, `Store`, component instance, and resource
+table. Commands for that session execute sequentially on its worker.
+
+```mermaid
+flowchart LR
+    subgraph TX["Tarantool TX thread"]
+        Open["wasm.open_session<br/>or wasm.bind(regular module)"]
+        Calls["session_call / session_batch<br/>bound export / resource method"]
+        Sessions[("session registry")]
+        Close["close_session<br/>module drop<br/>Lua lease drop"]
+    end
+
+    subgraph Worker["Dedicated session worker"]
+        Queue["SessionCommand queue"]
+        Runtime["Tokio runtime"]
+        Instance["Store + component instance"]
+        Resources[("resource table")]
+    end
+
+    Open -->|"spawn once"| Queue
+    Open -->|"register handle"| Sessions
+    Calls --> Sessions
+    Sessions --> Queue
+    Queue --> Runtime
+    Runtime --> Instance
+    Instance <--> Resources
+    Instance -->|"result via coio"| Calls
+    Close --> Sessions
+    Sessions -->|"Close / DropResource"| Queue
+```
+
+### Shared interpreter and interpreter `wasm.bind`
+
+Interpreter module identifiers for the same canonical path point to one shared
+entry. Module-level helpers, bound helpers, static exports, and resources all
+use the same command queue and component instance.
+
+```mermaid
+flowchart LR
+    subgraph TX["Tarantool TX thread"]
+        LoadA["wasm.load(path,<br/>interpreter = true)"]
+        LoadB["another load<br/>of the same path"]
+        Exec["wasm.interpreter_exec/call"]
+        Bind["wasm.bind(interpreter module)"]
+        Bound["bound interpreter helpers<br/>exports / resource methods"]
+        Registry[("shared interpreters<br/>by canonical path")]
+        Drop["last wasm.drop"]
+    end
+
+    subgraph Worker["One shared interpreter worker"]
+        Entry["SharedInterpreterEntry"]
+        Queue["InterpreterCommand queue"]
+        Instance["Store + component instance"]
+        Resources[("resource table")]
+        Recreate["recreate after WASM trap"]
+    end
+
+    LoadA --> Registry
+    LoadB --> Registry
+    Registry --> Entry
+    Exec --> Entry
+    Bind -->|"retain existing target"| Entry
+    Bind --> Bound
+    Bound --> Entry
+    Entry --> Queue
+    Queue --> Instance
+    Instance <--> Resources
+    Instance -->|"result via coio"| Exec
+    Instance -->|"result via coio"| Bound
+    Instance -->|"trap"| Recreate
+    Recreate -->|"new Store, instance,<br/>and resource table"| Instance
+    Drop -->|"close worker"| Entry
+```
 
 ### wasm.run
 
