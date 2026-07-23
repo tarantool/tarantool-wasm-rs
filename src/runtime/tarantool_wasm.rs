@@ -9,6 +9,7 @@ mod exports;
 mod interpreter;
 mod linker;
 mod registry;
+pub(crate) mod resources;
 mod session;
 mod shutdown;
 mod store;
@@ -58,7 +59,7 @@ use crate::runtime::{
 };
 
 use self::{
-    calls::{execute_call_job, execute_call_job_on_instance},
+    calls::{execute_call_job, execute_call_job_on_instance, execute_session_call_job_on_instance},
     execution::{
         current_session_id, join_handle_via_coio, recv_result_via_coio, CallJob, ExportCacheKey,
         WasmRunEntry,
@@ -69,14 +70,20 @@ use self::{
     },
     linker::{build_runtime_linker, runtime_config},
     registry::{ExportMap, ModuleMode, PreparedComponent, RuntimeState},
+    resources::{SessionCallResult, SessionResources},
     session::{close_session_impl, SessionCommand, WasmSession},
     shutdown::shutdown_runtime,
     store::{init_store, reset_store_fuel},
     threading::spawn_tt_thread,
 };
 
+#[allow(unused_imports)]
+pub use self::session::{tt_wasm_session_call_function, tt_wasm_session_call_functions};
 pub(crate) use self::{
     execution::WasmRunHandle,
+    session::{
+        tt_wasm_session_call_function_with_ownership, tt_wasm_session_call_functions_with_ownership,
+    },
     store::{SyncWasmStates, WasmStates},
 };
 pub use self::{
@@ -87,8 +94,8 @@ pub use self::{
         tt_wasm_precompile_component, ExportInfo,
     },
     session::{
-        tt_wasm_close_session, tt_wasm_open_session, tt_wasm_session_call_function,
-        tt_wasm_session_call_functions,
+        tt_wasm_close_session, tt_wasm_close_session_detached, tt_wasm_open_session,
+        tt_wasm_session_drop_resource, tt_wasm_session_drop_resource_detached,
     },
     store::WasmConfig,
 };

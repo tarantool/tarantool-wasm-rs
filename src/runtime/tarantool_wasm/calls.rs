@@ -9,6 +9,10 @@ use wasmtime::{
 
 use crate::runtime::convert::{to_component_val, val_to_rmpv};
 
+use super::{
+    resources::{from_session_val, to_session_val, SessionCallResult},
+    SessionResources,
+};
 use super::{CallJob, ExportCacheKey, SyncWasmStates};
 
 fn resolve_call_export_index(
@@ -109,4 +113,65 @@ pub(super) async fn execute_call_job_on_instance(
         .await?;
 
     values_to_rmpv(&results_buf)
+}
+
+pub(super) async fn execute_session_call_job_on_instance(
+    store: &mut Store<SyncWasmStates>,
+    instance: &Instance,
+    component: &Component,
+    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    resources: &mut SessionResources,
+    job: &CallJob,
+) -> Result<SessionCallResult> {
+    store
+        .data_mut()
+        .set_caller_session_id(job.caller_session_id);
+    let func_index = resolve_call_export_index(component, export_cache, job)?;
+    let export = instance
+        .get_func(&mut *store, func_index)
+        .ok_or_else(|| anyhow!("function export `{}` not found", job.func))?;
+    let export_ty = export.ty(store.as_context());
+    let param_types = export_ty.params().map(|(_, ty)| ty).collect::<Vec<_>>();
+    if job.args.len() != param_types.len() {
+        return Err(anyhow!(
+            "argument count mismatch for `{}`: expected {}, got {}",
+            job.func,
+            param_types.len(),
+            job.args.len()
+        ));
+    }
+
+    let mut consumed = Vec::new();
+    let wasm_args = match param_types
+        .iter()
+        .zip(job.args.iter())
+        .map(|(ty, value)| to_session_val(ty, value, resources, &mut consumed))
+        .collect::<Result<Vec<_>>>()
+    {
+        Ok(args) => args,
+        Err(err) => {
+            resources.restore(consumed);
+            return Err(err);
+        }
+    };
+    let consumed = consumed.iter().map(|(id, _)| *id).collect();
+
+    let result_types = export_ty.results().collect::<Vec<_>>();
+    let mut results = vec![Val::Bool(false); result_types.len()];
+    export
+        .call_async(&mut *store, &wasm_args, &mut results)
+        .await?;
+
+    let value = match results.as_slice() {
+        [] => Ok(RmpvValue::Nil),
+        [value] => from_session_val(&result_types[0], value, resources),
+        values => Ok(RmpvValue::Array(
+            values
+                .iter()
+                .zip(result_types)
+                .map(|(value, ty)| from_session_val(&ty, value, resources))
+                .collect::<Result<_>>()?,
+        )),
+    }?;
+    Ok(SessionCallResult { value, consumed })
 }

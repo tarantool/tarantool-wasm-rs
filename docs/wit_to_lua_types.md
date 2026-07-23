@@ -4,11 +4,6 @@ This document describes how WIT interface types are mapped to Lua values when us
 
 Reference: [WIT Type System Specification](https://component-model.bytecodealliance.org/design/wit.html)
 
-> **Note**: A `resource` cannot currently be passed through the public Lua
-> `wasm.call`/session APIs as a component export parameter or result. Host-side
-> imported resources, including Tarantool iterators and WASI resources, are
-> supported internally by the runtime.
-
 | WIT Type                  | Lua Representation             | Notes                                          |
 | ------------------------- | -------------------------------| ---------------------------------------------- |
 | `bool`                    | `true` / `false`               | Boolean literal                                |
@@ -25,7 +20,8 @@ Reference: [WIT Type System Specification](https://component-model.bytecodeallia
 | `variant`                 | `table` (single key-value)     | E.g., `{ some = 42 }`                          |
 | `enum`                    | `string`                       | One of the enum names                          |
 | `flags`                   | `table` (array of strings)     | E.g., `{ "get", "put" }`                       |
-| `resource`                | Not supported by exported calls | Host imports may use resources internally     |
+| `own<resource>`           | `wasm.resource` userdata       | Owned handle; may be consumed or explicitly dropped |
+| `borrow<resource>`        | `wasm.resource` userdata       | Borrowed for the duration of a session call    |
 
 ---
 
@@ -253,10 +249,60 @@ component:t_flags({"read", "execute"})
 
 ### Resources
 
-Resources exposed by a component cannot currently cross the Lua call boundary
-as parameters or results. The runtime itself does support imported host
-resources through Wasmtime's resource table. Tarantool index and tuple
-iterators use this mechanism, and their lifetime and TX-thread constraints are
+WIT resources require a persistent component instance. `wasm.bind(module)`
+opens and owns a session automatically. The explicit `open_session`,
+`session_call`, and `session_batch` APIs use the same resource representation.
+The one-shot `call` and `batch` APIs do not support resource handles.
+
+```wit
+resource counter {
+  constructor(initial: u32);
+  get: func() -> u32;
+  add: func(delta: u32) -> u32;
+  sum: static func(first: borrow<counter>, second: borrow<counter>) -> u32;
+}
+
+consume: func(value: counter) -> u32;
+```
+
+```lua
+local module = wasm.load('./counters.wasm')
+local component = wasm.bind(module)
+local counters = component['example:counters/api@0.1.0']
+
+local first = counters.counter.new(20)
+local second = counters.counter.new(22)
+
+assert(first:get() == 20)
+assert(first:add(2) == 22)
+assert(counters.counter.sum(first, second) == 44)
+
+-- `consume` takes own<counter>; `first` is invalid after this call.
+assert(counters.consume(first) == 22)
+
+-- Explicit cleanup is deterministic. Remaining live resources are also
+-- released when their session closes.
+second:drop()
+wasm.drop(module)
+```
+
+The userdata methods `type()`, `owned()`, and `is_alive()` expose local handle
+metadata. `drop()` returns `true` when it releases a live handle and `false`
+after an earlier explicit drop. Lua garbage collection schedules a fallback
+drop, but applications should call `drop()` when release timing matters.
+
+Resources are session-affine. Passing a handle to a function bound to another
+module session raises an error before entering the component. Passing a handle
+as `own<T>` transfers ownership to the guest; a subsequent use reports that the
+resource is no longer available. `borrow<T>` calls leave the handle in the
+session resource table.
+
+Resources may appear inside lists, maps, options, tuples, records, variants,
+and results. The conversion walks those values recursively and preserves the
+same session and ownership checks for nested handles.
+
+Imported host resources, including Tarantool iterators and WASI resources,
+continue to use Wasmtime's host resource table. Their TX-thread constraints are
 described in [thread-safety.md](thread-safety.md).
 
 See: [WIT Spec - Resource](https://component-model.bytecodealliance.org/design/wit.html#resources)

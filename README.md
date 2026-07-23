@@ -175,7 +175,29 @@ assert(math.add(20, 22) == 42)
 ```
 
 Export names and full interface names are preserved as table keys. The proxy
-does not own the module; release it with `wasm.drop(module)` as usual.
+keeps a component session open so state and WIT resources survive between
+calls. It does not own the module; release the module with `wasm.drop(module)`
+as usual.
+
+WIT resources become Lua userdata. Constructors and static functions are
+grouped under the resource name, while methods use Lua's `:` syntax:
+
+```lua
+local counters = calculator['example:calculator/counters@0.1.0']
+local first = counters.counter.new(20)
+local second = counters.counter.new(22)
+
+assert(first:add(2) == 22)
+assert(counters.counter.sum(first, second) == 44)
+
+first:drop()
+second:drop()
+```
+
+`own<T>` arguments consume their handle and `borrow<T>` arguments leave it
+usable. A resource belongs to one session and cannot be passed to another.
+Call `resource:drop()` for deterministic cleanup; Lua garbage collection is a
+fallback.
 
 ### Call a registered Lua function from a guest
 
