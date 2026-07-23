@@ -13,6 +13,7 @@ use crate::bindings::helpers::debug_assert_tx_thread;
 use crate::bindings::LuaCallbackHandler;
 use crate::runtime::convert::{from_rmpv, msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes, to_rmpv};
 use crate::runtime::lifecycle::{self, RuntimeLifecycle};
+use crate::runtime::metrics;
 use crate::runtime::tarantool_wasm::install_call_chain;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 use mlua::prelude::LuaThreadStatus;
@@ -96,10 +97,24 @@ fn invoke_callback(
     payload: Vec<u8>,
     canceled: Arc<AtomicBool>,
 ) -> Result<Vec<u8>, String> {
+    let started = Instant::now();
+    let result = invoke_callback_inner(lua, name, payload, canceled);
+    metrics::observe_lua_callback(started.elapsed());
+    result
+}
+
+fn invoke_callback_inner(
+    lua: &mlua::Lua,
+    name: String,
+    payload: Vec<u8>,
+    canceled: Arc<AtomicBool>,
+) -> Result<Vec<u8>, String> {
     let (callback, timeout) = callback_registration(lua, &name)?;
     let request = msgpack_bytes_to_rmpv(&payload)
+        .inspect_err(|_| metrics::observe_conversion_error("callback_request"))
         .map_err(|err| format!("invalid MessagePack callback payload: {err:#}"))?;
     let lua_request = from_rmpv(lua, &request)
+        .inspect_err(|_| metrics::observe_conversion_error("callback_request"))
         .map_err(|err| format!("failed to convert callback payload to Lua: {err}"))?;
 
     let deadline = timeout
@@ -148,8 +163,10 @@ fn invoke_callback(
     }
 
     let response = to_rmpv(lua, &lua_response)
+        .inspect_err(|_| metrics::observe_conversion_error("callback_response"))
         .map_err(|err| format!("failed to convert Lua callback response: {err}"))?;
     rmpv_to_msgpack_bytes(&response)
+        .inspect_err(|_| metrics::observe_conversion_error("callback_response"))
         .map_err(|err| format!("failed to encode Lua callback response: {err:#}"))
 }
 

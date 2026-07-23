@@ -31,8 +31,17 @@ g.after_each(function(cg)
 end)
 
 g.test_shared_state_between_calls_and_instances = function(cg)
+    local before = wasm.stats()
     local m1 = load_interpreter(cg)
+    t.assert_equals(
+        wasm.stats().current.interpreters,
+        before.current.interpreters + 1
+    )
     local m2 = load_interpreter(cg)
+    t.assert_equals(
+        wasm.stats().current.interpreters,
+        before.current.interpreters + 1
+    )
 
     local script = [[
 counter = 0
@@ -53,11 +62,19 @@ def next():
     t.assert_equals(wasm.interpreter_call(m2, 'next'), 3)
 
     t.assert_equals(wasm.drop(m2), true)
+    t.assert_equals(
+        wasm.stats().current.interpreters,
+        before.current.interpreters
+    )
 
     -- Remove dropped modules from automatic cleanup.
     cg.modules = {}
 
     local m3 = load_interpreter(cg)
+    t.assert_equals(
+        wasm.stats().current.interpreters,
+        before.current.interpreters + 1
+    )
     t.assert_equals(wasm.interpreter_exec(m3, script), true)
     t.assert_equals(wasm.interpreter_call(m3, 'next'), 1)
 end

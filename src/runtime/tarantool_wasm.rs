@@ -39,7 +39,8 @@ use wasmtime::{
         types::ComponentItem, Component, ComponentExportIndex, HasData, Instance, InstancePre,
         Linker, ResourceTable,
     },
-    Cache, CacheConfig, Engine, Precompiled, Store, StoreLimits, StoreLimitsBuilder,
+    Cache, CacheConfig, Engine, Precompiled, ResourceLimiter, Store, StoreLimits,
+    StoreLimitsBuilder,
 };
 use wasmtime_wasi::cli::OutputFile;
 use wasmtime_wasi::p2::pipe::MemoryInputPipe;
@@ -55,6 +56,7 @@ use crate::runtime::{
     convert::{msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes},
     executor::{Executor, TxMode},
     lifecycle::{self, RuntimeLifecycle},
+    metrics,
     tx::{begin_shutdown, drain_stopping_queue},
     wasm_fiber::{WasmFiber, WasmFiberStatus},
 };
@@ -99,7 +101,7 @@ pub use self::{
     interpreter::{tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_interpreter_key},
     registry::{
         tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module,
-        tt_wasm_precompile_component, ExportInfo,
+        tt_wasm_precompile_component, tt_wasm_stats, ExportInfo,
     },
     session::{tt_wasm_close_session, tt_wasm_open_session},
     store::WasmConfig,

@@ -42,6 +42,7 @@ g.after_all(function(cg)
 end)
 
 g.test_guest_calls_lua_http_handler = function(cg)
+    local before = wasm.stats()
     wasm.register_callback('http-handler', function(request)
         return {
             status = 200,
@@ -63,6 +64,9 @@ g.test_guest_calls_lua_http_handler = function(cg)
         headers = {['content-type'] = 'text/plain'},
         body = 'hello from Lua: /health',
     })
+    local after = wasm.stats()
+    t.assert_ge(after.lua_callback.count, before.lua_callback.count + 1)
+    t.assert_ge(after.tx_wait.count, before.tx_wait.count + 1)
 end
 
 g.test_callback_replacement = function(cg)

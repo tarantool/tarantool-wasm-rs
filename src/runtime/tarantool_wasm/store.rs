@@ -190,7 +190,86 @@ impl WasmStates {
 /// limits.
 pub(crate) struct SyncWasmStates {
     pub(crate) state: Mutex<WasmStates>,
-    pub(crate) limits: StoreLimits,
+    pub(crate) limits: TrackingStoreLimits,
+}
+
+pub(crate) struct TrackingStoreLimits {
+    inner: StoreLimits,
+    linear_memory_bytes: usize,
+    pending_growth: usize,
+}
+
+impl TrackingStoreLimits {
+    fn new(inner: StoreLimits) -> Self {
+        Self {
+            inner,
+            linear_memory_bytes: 0,
+            pending_growth: 0,
+        }
+    }
+}
+
+impl Drop for TrackingStoreLimits {
+    fn drop(&mut self) {
+        metrics::remove_memory_bytes(self.linear_memory_bytes);
+    }
+}
+
+impl ResourceLimiter for TrackingStoreLimits {
+    fn memory_growing(
+        &mut self,
+        current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> std::result::Result<bool, wasmtime::Error> {
+        self.pending_growth = 0;
+        let allowed = self.inner.memory_growing(current, desired, maximum)?;
+        if allowed {
+            let growth = desired.saturating_sub(current);
+            self.linear_memory_bytes = self.linear_memory_bytes.saturating_add(growth);
+            self.pending_growth = growth;
+            metrics::add_memory_bytes(growth);
+        }
+        Ok(allowed)
+    }
+
+    fn memory_grow_failed(
+        &mut self,
+        error: wasmtime::Error,
+    ) -> std::result::Result<(), wasmtime::Error> {
+        let growth = std::mem::take(&mut self.pending_growth);
+        self.linear_memory_bytes = self.linear_memory_bytes.saturating_sub(growth);
+        metrics::remove_memory_bytes(growth);
+        self.inner.memory_grow_failed(error)
+    }
+
+    fn table_growing(
+        &mut self,
+        current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> std::result::Result<bool, wasmtime::Error> {
+        self.inner.table_growing(current, desired, maximum)
+    }
+
+    fn table_grow_failed(
+        &mut self,
+        error: wasmtime::Error,
+    ) -> std::result::Result<(), wasmtime::Error> {
+        self.inner.table_grow_failed(error)
+    }
+
+    fn instances(&self) -> usize {
+        self.inner.instances()
+    }
+
+    fn tables(&self) -> usize {
+        self.inner.tables()
+    }
+
+    fn memories(&self) -> usize {
+        self.inner.memories()
+    }
 }
 
 impl SyncWasmStates {
@@ -199,7 +278,7 @@ impl SyncWasmStates {
         if let Some(limit) = config.memory_limit {
             builder = builder.memory_size(limit);
         }
-        let limits = builder.build();
+        let limits = TrackingStoreLimits::new(builder.build());
         Ok(SyncWasmStates {
             state: Mutex::new(WasmStates::new(config)?),
             limits,

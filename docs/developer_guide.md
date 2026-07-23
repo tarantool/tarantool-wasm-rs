@@ -44,6 +44,9 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
   expose `interpreter_exec(code)` and `interpreter_call(func, ...)` on the
   proxy.
 - `drop(uid) -> bool` – unload a module and free associated resources.
+- `stats() -> table` – return process-wide runtime counters, latency
+  aggregates, object gauges, error classifications, cache activity, fuel use,
+  and linear-memory observations.
 
 `opts` is a table configuring the WASI environment:
 
@@ -114,6 +117,8 @@ The heavy lifting happens in `src/runtime/`:
 - `wasm_fiber.rs` – tiny wrapper around a Tokio runtime running inside a separate OS thread. It allows yielding execution back to the Tarantool transaction thread.
 - `executor.rs` – abstraction over task execution. Depending on the state it either runs tasks directly or forwards them to the TX thread via `tx_push`/`tx_flush`.
 - `convert.rs` – utilities to convert between Wasmtime component values, MessagePack and Lua values.
+- `metrics.rs` – lock-free counters and latency aggregates, plus classified
+  trap and conversion-error snapshots.
 - `lifecycle.rs` – process-wide `Running` → `Stopping` → `Stopped` state and active worker accounting.
 - `tx.rs` – schedules callbacks on the Tarantool transaction thread. During shutdown, callbacks from existing workers are diverted to an in-process queue drained by TX.
 

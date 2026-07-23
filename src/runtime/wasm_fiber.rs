@@ -16,6 +16,7 @@ use wasmtime::{component::InstancePre, Store};
 use wasmtime_wasi::p2::bindings::CommandPre;
 
 use crate::runtime::{
+    metrics,
     tarantool_wasm::SyncWasmStates,
     tx::{tx_push, TxCtx},
 };
@@ -79,8 +80,20 @@ impl WasmFiber {
         let command_pre = CommandPre::new(instance_pre)?;
 
         let handle = rt.spawn(async move {
-            let command = command_pre.instantiate_async(&mut store).await?;
-            let _ = command.wasi_cli_run().call_run(&mut store).await?;
+            let started = std::time::Instant::now();
+            let command_result = command_pre.instantiate_async(&mut store).await;
+            metrics::observe_instantiation(started.elapsed());
+            let command = command_result?;
+
+            let fuel_before = store.get_fuel().ok();
+            let started = std::time::Instant::now();
+            let run_result = command.wasi_cli_run().call_run(&mut store).await;
+            metrics::observe_guest_execution(started.elapsed());
+            metrics::observe_fuel(fuel_before, store.get_fuel().ok());
+            if let Err(err) = &run_result {
+                metrics::observe_trap(err);
+            }
+            let _ = run_result?;
             finalizer
                 .send(WasmFiberStatus::Finished)
                 .await

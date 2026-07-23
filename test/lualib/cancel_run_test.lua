@@ -63,9 +63,12 @@ g.test_cancel_long_running_task = function(cg)
     })
 
     -- First run: start and cancel quickly
+    local before = wasm.stats()
     local handle = wasm.run(m)
+    t.assert_equals(wasm.stats().current.runs, before.current.runs + 1)
     local n1 = wait_for_lines(out, 1)
     t.assert(wasm.cancel(handle))
+    t.assert_equals(wasm.stats().current.runs, before.current.runs)
 
     -- After cancel, join() on the same handle must fail
     assert_user_data_destructed(function() wasm.join(handle) end)

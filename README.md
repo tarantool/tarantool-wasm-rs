@@ -229,6 +229,20 @@ already active component instance returns an error instead of blocking. See
 [Lua callbacks](docs/lua_callbacks.md) for timeout, cancellation, execution
 flow, and constraints.
 
+Runtime counters and latency aggregates are available without stopping active
+components:
+
+```lua
+local stats = wasm.stats()
+print(stats.guest_execution.count, stats.guest_execution.total_ns)
+print(stats.current.sessions, stats.memory.peak_bytes)
+print(stats.traps.by_kind.out_of_fuel or 0)
+```
+
+The counters are process-wide and monotonic for the lifetime of the loaded
+module. See [Runtime metrics](docs/runtime_metrics.md) for the complete schema
+and measurement boundaries.
+
 ## Persistent sessions
 
 Ordinary calls instantiate the component again for every export. A session
@@ -402,6 +416,7 @@ cancel(handle)                             -> true
 drop(module_uid)                           -> true
 register_callback(name, function)          -> true
 unregister_callback(name)                  -> boolean
+stats()                                    -> table
 ```
 
 Arguments and results cross the boundary through MessagePack. See
@@ -469,6 +484,8 @@ The release build is produced with `just build-release` at
   limitations.
 - [Lua callbacks](docs/lua_callbacks.md) — calling registered Lua functions
   from guest components.
+- [Runtime metrics](docs/runtime_metrics.md) — `wasm.stats()` counters,
+  latency aggregates, gauges, traps, fuel, cache, and memory semantics.
 - [Thread-safety boundary](docs/thread-safety.md) — TX-only Tarantool APIs and
   the lifetime guarantees for worker-side operations.
 - [Platform compatibility](docs/platform-support.md) — tested Linux images,

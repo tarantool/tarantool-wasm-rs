@@ -1,3 +1,4 @@
+use std::time::Instant;
 use std::{collections::HashMap, sync::RwLock};
 
 use anyhow::{anyhow, Result};
@@ -8,6 +9,7 @@ use wasmtime::{
 };
 
 use crate::runtime::convert::{to_component_val, val_to_rmpv};
+use crate::runtime::metrics;
 
 use super::{
     resources::{from_session_val, to_session_val, SessionCallResult},
@@ -23,8 +25,10 @@ fn resolve_call_export_index(
     let key = job.cache_key();
 
     if let Some(index) = export_cache.read().unwrap().get(&key).copied() {
+        metrics::observe_export_cache_hit();
         return Ok(index);
     }
+    metrics::observe_export_cache_miss();
 
     let resolved = if let Some(interface_name) = job.interface.as_deref() {
         let interface_index = component
@@ -68,7 +72,10 @@ pub(super) async fn execute_call_job(
     export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
     job: &CallJob,
 ) -> Result<RmpvValue> {
-    let instance = instance_pre.instantiate_async(&mut *store).await?;
+    let started = Instant::now();
+    let instance_result = instance_pre.instantiate_async(&mut *store).await;
+    metrics::observe_instantiation(started.elapsed());
+    let instance = instance_result?;
     execute_call_job_on_instance(store, &instance, component, export_cache, job).await
 }
 
@@ -102,17 +109,33 @@ pub(super) async fn execute_call_job_on_instance(
 
     let mut wasm_args = Vec::with_capacity(param_types.len());
     for (ty, val) in param_types.iter().zip(job.args.iter()) {
-        wasm_args.push(to_component_val(ty, val)?);
+        match to_component_val(ty, val) {
+            Ok(value) => wasm_args.push(value),
+            Err(err) => {
+                metrics::observe_conversion_error("arguments");
+                return Err(err);
+            }
+        }
     }
 
     let result_types = export_ty.results().collect::<Vec<_>>();
     let mut results_buf = vec![Val::Bool(false); result_types.len()];
 
-    export
+    let fuel_before = store.get_fuel().ok();
+    let started = Instant::now();
+    let call_result = export
         .call_async(&mut *store, &wasm_args, &mut results_buf)
-        .await?;
+        .await;
+    metrics::observe_guest_execution(started.elapsed());
+    metrics::observe_fuel(fuel_before, store.get_fuel().ok());
+    if let Err(err) = &call_result {
+        metrics::observe_trap(err);
+    }
+    call_result?;
 
-    values_to_rmpv(&results_buf)
+    values_to_rmpv(&results_buf).inspect_err(|_| {
+        metrics::observe_conversion_error("results");
+    })
 }
 
 pub(super) async fn execute_session_call_job_on_instance(
@@ -150,6 +173,7 @@ pub(super) async fn execute_session_call_job_on_instance(
     {
         Ok(args) => args,
         Err(err) => {
+            metrics::observe_conversion_error("resource_arguments");
             resources.restore(consumed);
             return Err(err);
         }
@@ -158,9 +182,17 @@ pub(super) async fn execute_session_call_job_on_instance(
 
     let result_types = export_ty.results().collect::<Vec<_>>();
     let mut results = vec![Val::Bool(false); result_types.len()];
-    export
+    let fuel_before = store.get_fuel().ok();
+    let started = Instant::now();
+    let call_result = export
         .call_async(&mut *store, &wasm_args, &mut results)
-        .await?;
+        .await;
+    metrics::observe_guest_execution(started.elapsed());
+    metrics::observe_fuel(fuel_before, store.get_fuel().ok());
+    if let Err(err) = &call_result {
+        metrics::observe_trap(err);
+    }
+    call_result?;
 
     let value = match results.as_slice() {
         [] => Ok(RmpvValue::Nil),
@@ -172,6 +204,7 @@ pub(super) async fn execute_session_call_job_on_instance(
                 .map(|(value, ty)| from_session_val(&ty, value, resources))
                 .collect::<Result<_>>()?,
         )),
-    }?;
+    }
+    .inspect_err(|_| metrics::observe_conversion_error("resource_results"))?;
     Ok(SessionCallResult { value, consumed })
 }

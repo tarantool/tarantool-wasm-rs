@@ -1,7 +1,12 @@
 //! Execution helpers bridging the async Wasmtime runtime with Tarantool's
 //! cooperative multitasking environment.
 
-use crate::runtime::tx::{tx_push, TxCtx};
+use std::time::Instant;
+
+use crate::runtime::{
+    metrics,
+    tx::{tx_push, TxCtx},
+};
 use tokio::sync::oneshot;
 use wasmtime_wasi::async_trait;
 
@@ -52,8 +57,10 @@ impl ExecutorImpl for TxPushExecutor {
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
+        let queued_at = Instant::now();
 
         let closure = move || {
+            metrics::observe_tx_wait(queued_at.elapsed());
             let res = task();
             let _ = tx.send(res);
         };

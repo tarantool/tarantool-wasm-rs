@@ -99,6 +99,7 @@ pub(super) fn run_session_worker(
         .build()
         .unwrap();
 
+    let instantiation_started = std::time::Instant::now();
     let instance = match rt.block_on(instance_pre.instantiate_async(&mut store)) {
         Ok(instance) => instance,
         Err(err) => {
@@ -108,6 +109,7 @@ pub(super) fn run_session_worker(
             return Err(init_error);
         }
     };
+    metrics::observe_instantiation(instantiation_started.elapsed());
     let mut resources = SessionResources::new(engine, &component, &instance, &mut store);
 
     let _ = ready_tx.send(Ok(()));

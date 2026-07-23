@@ -197,6 +197,7 @@ fn instantiate_interpreter_instance(
     next_resource_id: u64,
 ) -> Result<(Store<SyncWasmStates>, Instance, SessionResources)> {
     let mut store = init_store(ctx.engine, ctx.config, ctx.with_fuel)?;
+    let started = std::time::Instant::now();
     let instance = ctx
         .rt
         .block_on(ctx.instance_pre.instantiate_async(&mut store))
@@ -206,6 +207,7 @@ fn instantiate_interpreter_instance(
                 ctx.path_key
             )
         })?;
+    metrics::observe_instantiation(started.elapsed());
     let resources = SessionResources::new_with_next_id(
         ctx.engine,
         ctx.component,

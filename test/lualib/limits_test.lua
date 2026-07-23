@@ -27,10 +27,16 @@ g.test_mem_size_no_limit = function(cg)
 end
 
 g.test_fuel_limit = function()
+    local before = wasm.stats()
     local m = wasm.load(path, { max_instructions = 50000000 })
     local ok, err = pcall(wasm.call, m, "foo")
     t.assert_not(ok)
     t.assert_str_contains(tostring(err), "error while executing at wasm backtrace")
+    local after = wasm.stats()
+    t.assert_ge(after.fuel.executions, before.fuel.executions + 1)
+    t.assert_gt(after.fuel.consumed, before.fuel.consumed)
+    t.assert_ge(after.traps.total, before.traps.total + 1)
+    t.assert_ge(after.traps.by_kind.out_of_fuel, 1)
     t.assert(wasm.drop(m))
 end
 

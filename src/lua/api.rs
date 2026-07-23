@@ -13,13 +13,15 @@ use super::resource::{
 };
 use crate::bindings::lua_callback::callback_registry_key;
 use crate::runtime::convert::{from_rmpv, to_rmpv};
+use crate::runtime::metrics::TimingSnapshot;
 use crate::runtime::tarantool_wasm::{
     debug_assert_tx_thread, tt_wasm_bind_instance, tt_wasm_call_function, tt_wasm_call_functions,
     tt_wasm_close_session, tt_wasm_drop_module, tt_wasm_export_names,
     tt_wasm_instance_call_function_with_ownership, tt_wasm_interpreter_call,
     tt_wasm_interpreter_exec, tt_wasm_interpreter_key, tt_wasm_load_module, tt_wasm_open_session,
     tt_wasm_precompile_component, tt_wasm_run_module, tt_wasm_session_call_function_with_ownership,
-    tt_wasm_session_call_functions_with_ownership, WasmInstanceTarget, WasmRunHandle,
+    tt_wasm_session_call_functions_with_ownership, tt_wasm_stats, WasmInstanceTarget,
+    WasmRunHandle,
 };
 
 use super::args::{
@@ -69,6 +71,87 @@ fn join_result_to_anyhow(result: std::thread::Result<Result<()>>) -> Result<()> 
             panic_payload_to_string(payload)
         )),
     }
+}
+
+fn timing_stats_table(lua: &Lua, timing: TimingSnapshot) -> LuaResult<LuaTable> {
+    let table = lua.create_table()?;
+    table.set("count", timing.count)?;
+    table.set("total_ns", timing.total_ns)?;
+    table.set("max_ns", timing.max_ns)?;
+    Ok(table)
+}
+
+fn stats(lua: &Lua, _: ()) -> LuaResult<LuaTable> {
+    let snapshot = tt_wasm_stats();
+    let metrics = snapshot.metrics;
+    let result = lua.create_table()?;
+
+    result.set("compilation", timing_stats_table(lua, metrics.compilation)?)?;
+    result.set(
+        "instantiation",
+        timing_stats_table(lua, metrics.instantiation)?,
+    )?;
+    result.set(
+        "guest_execution",
+        timing_stats_table(lua, metrics.guest_execution)?,
+    )?;
+    result.set("tx_wait", timing_stats_table(lua, metrics.tx_wait)?)?;
+    result.set(
+        "lua_callback",
+        timing_stats_table(lua, metrics.lua_callback)?,
+    )?;
+
+    let fuel = lua.create_table()?;
+    fuel.set("executions", metrics.fuel.executions)?;
+    fuel.set("consumed", metrics.fuel.consumed)?;
+    result.set("fuel", fuel)?;
+
+    let current = lua.create_table()?;
+    current.set("modules", snapshot.modules)?;
+    current.set("sessions", snapshot.sessions)?;
+    current.set("runs", snapshot.runs)?;
+    current.set("interpreters", snapshot.interpreters)?;
+    result.set("current", current)?;
+
+    let cache = lua.create_table()?;
+    let components = lua.create_table()?;
+    components.set("hits", metrics.component_cache.hits)?;
+    components.set("misses", metrics.component_cache.misses)?;
+    cache.set("components", components)?;
+    let exports = lua.create_table()?;
+    exports.set("hits", metrics.export_cache.hits)?;
+    exports.set("misses", metrics.export_cache.misses)?;
+    cache.set("exports", exports)?;
+    result.set("cache", cache)?;
+
+    let traps = lua.create_table()?;
+    let trap_kinds = lua.create_table()?;
+    let mut trap_total = 0_u64;
+    for (kind, count) in metrics.traps {
+        trap_total = trap_total.saturating_add(count);
+        trap_kinds.set(kind, count)?;
+    }
+    traps.set("total", trap_total)?;
+    traps.set("by_kind", trap_kinds)?;
+    result.set("traps", traps)?;
+
+    let conversion_errors = lua.create_table()?;
+    let conversion_kinds = lua.create_table()?;
+    let mut conversion_total = 0_u64;
+    for (kind, count) in metrics.conversion_errors {
+        conversion_total = conversion_total.saturating_add(count);
+        conversion_kinds.set(kind, count)?;
+    }
+    conversion_errors.set("total", conversion_total)?;
+    conversion_errors.set("by_kind", conversion_kinds)?;
+    result.set("conversion_errors", conversion_errors)?;
+
+    let memory = lua.create_table()?;
+    memory.set("current_bytes", metrics.current_memory_bytes)?;
+    memory.set("peak_bytes", metrics.peak_memory_bytes)?;
+    result.set("memory", memory)?;
+
+    Ok(result)
 }
 
 /// Load a WebAssembly component and return its unique identifier.
@@ -601,6 +684,7 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
         serialized_interpreter_call.clone(),
     )?;
     module.set("load", lua.create_function(load)?)?;
+    module.set("stats", lua.create_function(stats)?)?;
     module.set("precompile", lua.create_function(precompile)?)?;
     module.set("run", lua.create_function(run)?)?;
     module.set("open_session", lua.create_function(open_session)?)?;

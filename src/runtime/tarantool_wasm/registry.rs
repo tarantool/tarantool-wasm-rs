@@ -131,9 +131,11 @@ fn load_component(path: &Path, use_fuel: bool, precompiled: bool) -> Result<Prep
         .get(&cache_key)
     {
         if cached.source == source {
+            metrics::observe_component_cache_hit();
             return Ok(cached.prepared.clone());
         }
     }
+    metrics::observe_component_cache_miss();
 
     let engine = if use_fuel {
         &runtime_state.fuel_engine
@@ -145,6 +147,7 @@ fn load_component(path: &Path, use_fuel: bool, precompiled: bool) -> Result<Prep
     } else {
         runtime_state.linker.as_ref()
     };
+    let compilation_started = std::time::Instant::now();
     let component = if precompiled {
         match Engine::detect_precompiled(&source) {
             Some(Precompiled::Component) => {}
@@ -177,6 +180,7 @@ fn load_component(path: &Path, use_fuel: bool, precompiled: bool) -> Result<Prep
         instance_pre: linker.instantiate_pre(&component)?,
         component,
     };
+    metrics::observe_compilation(compilation_started.elapsed());
 
     let mut components = runtime_state.components.write().unwrap();
     if let Some(cached) = components.entries.get(&cache_key) {
@@ -212,11 +216,32 @@ pub fn tt_wasm_precompile_component(
     } else {
         &runtime_state.engine
     };
+    let compilation_started = std::time::Instant::now();
     let artifact = engine
         .precompile_component(&source)
         .map_err(|err| anyhow!("failed to precompile component `{input}`: {err}"))?;
+    metrics::observe_compilation(compilation_started.elapsed());
     fs::write(&output, artifact)
         .map_err(|err| anyhow!("failed to write precompiled component `{output}`: {err}"))
+}
+
+#[derive(Debug)]
+pub struct RuntimeStats {
+    pub(crate) metrics: metrics::MetricsSnapshot,
+    pub modules: u64,
+    pub sessions: u64,
+    pub runs: u64,
+    pub interpreters: u64,
+}
+
+pub fn tt_wasm_stats() -> RuntimeStats {
+    RuntimeStats {
+        metrics: metrics::snapshot(),
+        modules: runtime_state.modules.read().unwrap().len() as u64,
+        sessions: runtime_state.sessions.read().unwrap().len() as u64,
+        runs: runtime_state.runs.read().unwrap().len() as u64,
+        interpreters: runtime_state.shared_interpreters.read().unwrap().len() as u64,
+    }
 }
 
 /// Load a WebAssembly component from disk and register it in the runtime,
