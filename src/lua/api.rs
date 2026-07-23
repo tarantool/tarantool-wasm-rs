@@ -392,6 +392,55 @@ fn exports(lua: &Lua, module_uid: String) -> LuaResult<Value> {
     }
 }
 
+fn create_bound_export(
+    lua: &Lua,
+    module_uid: String,
+    interface: Option<String>,
+    func: String,
+) -> LuaResult<LuaFunction> {
+    lua.create_function(move |lua, args: LuaMultiValue| {
+        let rmp_args = args
+            .iter()
+            .map(|value| to_rmpv(lua, value))
+            .collect::<Result<Vec<_>, _>>()?;
+        let result = tt_wasm_call_function(
+            module_uid.clone(),
+            interface.clone(),
+            func.clone(),
+            rmp_args,
+        )
+        .map_err(mlua::Error::external)?;
+        from_rmpv(lua, &result)
+    })
+}
+
+/// Bind the exports of a loaded module to Lua functions.
+fn bind(lua: &Lua, module_uid: String) -> LuaResult<LuaTable> {
+    let export_map = tt_wasm_export_names(module_uid.clone()).map_err(mlua::Error::external)?;
+    let proxy = lua.create_table()?;
+    for (namespace, funcs) in export_map {
+        let interface = (!namespace.is_empty()).then_some(namespace.clone());
+        let target = if interface.is_some() {
+            lua.create_table()?
+        } else {
+            proxy.clone()
+        };
+        for func_name in funcs.into_keys() {
+            let bound = create_bound_export(
+                lua,
+                module_uid.clone(),
+                interface.clone(),
+                func_name.clone(),
+            )?;
+            target.set(func_name, bound)?;
+        }
+        if interface.is_some() {
+            proxy.set(namespace, target)?;
+        }
+    }
+    Ok(proxy)
+}
+
 /// Drop a previously loaded module and free associated resources.
 fn drop(_: &Lua, module_uid: String) -> LuaResult<bool> {
     match tt_wasm_drop_module(module_uid) {
@@ -438,6 +487,7 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("session_batch", lua.create_function(session_batch)?)?;
     module.set("close_session", lua.create_function(close_session)?)?;
     module.set("exports", lua.create_function(exports)?)?;
+    module.set("bind", lua.create_function(bind)?)?;
     module.set("drop", lua.create_function(drop)?)?;
     module.set("register_callback", lua.create_function(register_callback)?)?;
     module.set(

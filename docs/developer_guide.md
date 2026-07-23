@@ -38,6 +38,7 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `session_batch(session, calls) -> table` – execute multiple calls sequentially in the same session.
 - `close_session(session) -> bool` – close a previously opened session.
 - `exports(uid) -> table` – return a map of exported function names to their parameter and result types.
+- `bind(uid) -> table` – return a Lua proxy whose functions call the component's root and interface exports.
 - `drop(uid) -> bool` – unload a module and free associated resources.
 
 `opts` is a table configuring the WASI environment:

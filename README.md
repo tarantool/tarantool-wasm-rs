@@ -164,18 +164,32 @@ local value = wasm.call(
 )
 ```
 
+`bind` creates a Lua proxy for all callable exports:
+
+```lua
+local calculator = wasm.bind(module)
+assert(calculator.add(20, 22) == 42)
+
+local math = calculator['example:calculator/math@0.1.0']
+assert(math.add(20, 22) == 42)
+```
+
+Export names and full interface names are preserved as table keys. The proxy
+does not own the module; release it with `wasm.drop(module)` as usual.
+
 ### Call a registered Lua function from a guest
 
 Register the function before executing the component:
 
 ```lua
 local module = wasm.load('./callbacks.wasm')
+local component = wasm.bind(module)
 
 wasm.register_callback('normalize-user', function(user)
     return {id = user.id, name = string.upper(user.name)}
 end)
 
-local normalized = wasm.call(module, 'normalize', {id = 1, name = 'alice'})
+local normalized = component.normalize({id = 1, name = 'alice'})
 assert(normalized.name == 'ALICE')
 
 wasm.unregister_callback('normalize-user')
@@ -325,6 +339,7 @@ The complete option reference is in the
 ```text
 load(path[, opts])                         -> module_uid
 exports(module_uid)                        -> table
+bind(module_uid)                           -> table
 call(module_uid, function, ...)            -> value
 batch(module_uid, calls)                   -> values
 
