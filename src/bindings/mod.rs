@@ -12,10 +12,16 @@ bindgen!({
     imports: { default: async },
     exports: { default: async },
     with: {
+        "docs:adder/lua-callback.handler": LuaCallbackHandler,
         "tarantool:tarantool/index.index-iterator": IndexIteratorImpl,
         "tarantool:tarantool/box-tuple.tuple-iterator": TupleIteratorImpl,
     }
 });
+
+/// Stable guest-side handle to a Lua callback registry entry.
+pub struct LuaCallbackHandler {
+    name: String,
+}
 
 /// Wrapper implementing the `iterator` interface for Tarantool's index
 /// iterators.

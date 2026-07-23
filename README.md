@@ -221,9 +221,11 @@ wasm.unregister_callback('normalize-user')
 wasm.drop(module)
 ```
 
-The guest's `normalize` export calls `lua-callback.call` with the registered
-name and MessagePack-encoded input. See [Lua callbacks](docs/lua_callbacks.md)
-for the WIT interface, execution flow, and constraints.
+The guest opens a `lua-callback.handler` resource for the registered name and
+calls the resource with MessagePack-encoded input. Existing resources resolve
+the current Lua closure on every call, so replacement remains dynamic. See
+[Lua callbacks](docs/lua_callbacks.md) for the WIT interface, execution flow,
+and constraints.
 
 ## Persistent sessions
 
