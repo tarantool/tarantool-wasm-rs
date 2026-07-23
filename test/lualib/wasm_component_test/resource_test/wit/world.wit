@@ -1,0 +1,18 @@
+package test:resources@0.1.0;
+
+interface counters {
+    resource counter {
+        constructor(initial: u32);
+        get: func() -> u32;
+        add: func(delta: u32) -> u32;
+        sum: static func(first: borrow<counter>, second: borrow<counter>) -> u32;
+    }
+
+    peek: func(value: borrow<counter>) -> u32;
+    consume: func(value: counter) -> u32;
+    pair: func(first: u32, second: u32) -> tuple<counter, counter>;
+}
+
+world resource-test {
+    export counters;
+}

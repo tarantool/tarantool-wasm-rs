@@ -1,8 +1,12 @@
 use super::*;
 
 pub(super) enum SessionCommand {
-    Call(CallJob, std_mpsc::Sender<Result<RmpvValue>>),
-    Batch(Vec<CallJob>, std_mpsc::Sender<Result<Vec<RmpvValue>>>),
+    Call(CallJob, std_mpsc::Sender<Result<SessionCallResult>>),
+    Batch(
+        Vec<CallJob>,
+        std_mpsc::Sender<Result<Vec<SessionCallResult>>>,
+    ),
+    DropResource(u64, Option<std_mpsc::Sender<Result<()>>>),
     Close(std_mpsc::Sender<Result<()>>),
 }
 
@@ -55,6 +59,7 @@ pub(super) fn run_session_worker(
             return Err(init_error);
         }
     };
+    let mut resources = SessionResources::new(engine, &component, &instance, &mut store);
 
     let _ = ready_tx.send(Ok(()));
 
@@ -74,11 +79,12 @@ pub(super) fn run_session_worker(
             SessionCommand::Call(job, result_tx) => {
                 reset_store_fuel(&mut store, with_fuel, &config);
                 let result = rt.block_on(async {
-                    execute_call_job_on_instance(
+                    execute_session_call_job_on_instance(
                         &mut store,
                         &instance,
                         &component,
                         export_cache.as_ref(),
+                        &mut resources,
                         &job,
                     )
                     .await
@@ -91,11 +97,12 @@ pub(super) fn run_session_worker(
                 for job in jobs {
                     reset_store_fuel(&mut store, with_fuel, &config);
                     match rt.block_on(async {
-                        execute_call_job_on_instance(
+                        execute_session_call_job_on_instance(
                             &mut store,
                             &instance,
                             &component,
                             export_cache.as_ref(),
+                            &mut resources,
                             &job,
                         )
                         .await
@@ -113,8 +120,15 @@ pub(super) fn run_session_worker(
                     Err(err) => Err(err),
                 });
             }
+            SessionCommand::DropResource(id, result_tx) => {
+                let result = rt.block_on(resources.drop_resource(&mut store, id));
+                if let Some(result_tx) = result_tx {
+                    let _ = result_tx.send(result);
+                }
+            }
             SessionCommand::Close(done_tx) => {
-                let _ = done_tx.send(Ok(()));
+                let result = rt.block_on(resources.drop_all(&mut store));
+                let _ = done_tx.send(result);
                 break;
             }
         }
@@ -213,12 +227,22 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
 }
 
 /// Call a single export through an opened long-lived session.
+#[allow(dead_code)]
 pub fn tt_wasm_session_call_function(
     session_handle: String,
     interface: Option<String>,
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<RmpvValue> {
+    Ok(tt_wasm_session_call_function_with_ownership(session_handle, interface, func, args)?.value)
+}
+
+pub(crate) fn tt_wasm_session_call_function_with_ownership(
+    session_handle: String,
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+) -> Result<SessionCallResult> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let session = runtime_state
@@ -242,10 +266,23 @@ pub fn tt_wasm_session_call_function(
 }
 
 /// Call multiple exports through an opened long-lived session.
+#[allow(dead_code)]
 pub fn tt_wasm_session_call_functions(
     session_handle: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
 ) -> Result<Vec<RmpvValue>> {
+    Ok(
+        tt_wasm_session_call_functions_with_ownership(session_handle, calls)?
+            .into_iter()
+            .map(|result| result.value)
+            .collect(),
+    )
+}
+
+pub(crate) fn tt_wasm_session_call_functions_with_ownership(
+    session_handle: String,
+    calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
+) -> Result<Vec<SessionCallResult>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let session = runtime_state
@@ -269,6 +306,35 @@ pub fn tt_wasm_session_call_functions(
     recv_result_via_coio(result_rx)
 }
 
+pub fn tt_wasm_session_drop_resource(session_handle: String, id: u64) -> Result<()> {
+    lifecycle::ensure_running()?;
+    let session = runtime_state
+        .sessions
+        .read()
+        .unwrap()
+        .get(&session_handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
+    let (result_tx, result_rx) = std_mpsc::channel();
+    session
+        .cmd_tx
+        .send(SessionCommand::DropResource(id, Some(result_tx)))
+        .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
+    recv_result_via_coio(result_rx)
+}
+
+pub fn tt_wasm_session_drop_resource_detached(session_handle: &str, id: u64) {
+    let session = runtime_state
+        .sessions
+        .read()
+        .unwrap()
+        .get(session_handle)
+        .cloned();
+    if let Some(session) = session {
+        let _ = session.cmd_tx.send(SessionCommand::DropResource(id, None));
+    }
+}
+
 /// Close a long-lived session and release its worker thread and instance.
 pub fn tt_wasm_close_session(session_handle: String) -> Result<()> {
     lifecycle::ensure_running()?;
@@ -280,4 +346,16 @@ pub fn tt_wasm_close_session(session_handle: String) -> Result<()> {
         .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
 
     close_session_impl(&session_handle, session)
+}
+
+pub fn tt_wasm_close_session_detached(session_handle: &str) {
+    let session = runtime_state
+        .sessions
+        .write()
+        .unwrap()
+        .remove(session_handle);
+    if let Some(session) = session {
+        let (done_tx, _done_rx) = std_mpsc::channel();
+        let _ = session.cmd_tx.send(SessionCommand::Close(done_tx));
+    }
 }
