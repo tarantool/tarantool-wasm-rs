@@ -1,10 +1,16 @@
 package docs:adder@0.1.3;
 
 interface lua-callback {
-  call: func(name: string, payload: list<u8>) -> result<list<u8>, string>;
+  resource handler {
+    call: func(payload: list<u8>) -> result<list<u8>, string>;
+  }
+
+  open: func(name: string) -> result<handler, string>;
 }
 
 world adder {
   import lua-callback;
+  export acquire: func(name: string) -> result<_, string>;
   export invoke: func(name: string, payload: list<u8>) -> result<list<u8>, string>;
+  export release: func(name: string);
 }

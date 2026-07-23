@@ -66,5 +66,11 @@ interface zlib {
 /// Calls Lua closures registered by the embedding Tarantool application.
 /// Request and response values use MessagePack to preserve Lua value types.
 interface lua-callback {
-  call: func(name: string, payload: list<u8>) -> result<list<u8>, string>;
+  resource handler {
+    call: func(payload: list<u8>) -> result<list<u8>, string>;
+  }
+
+  /// Creates a stable guest handle. The Lua closure is resolved by name on
+  /// every call, so registration and replacement remain dynamic.
+  open: func(name: string) -> result<handler, string>;
 }
