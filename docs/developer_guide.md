@@ -38,7 +38,11 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `session_batch(session, calls) -> table` – execute multiple calls sequentially in the same session.
 - `close_session(session) -> bool` – close a previously opened session.
 - `exports(uid) -> table` – return a map of exported function names to their parameter and result types.
-- `bind(uid) -> table` – open a managed session and return a Lua proxy for the component's root, interface, and resource exports.
+- `bind(uid) -> table` – return a Lua proxy for the component's root,
+  interface, and resource exports. Regular modules use a managed session;
+  interpreter modules use their existing shared instance and additionally
+  expose `interpreter_exec(code)` and `interpreter_call(func, ...)` on the
+  proxy.
 - `drop(uid) -> bool` – unload a module and free associated resources.
 
 `opts` is a table configuring the WASI environment:
@@ -78,7 +82,10 @@ in `run` or `open_session` overrides, load the component with
 Shared interpreters are keyed by canonical component path, not by Tarantool
 session. Their state is therefore visible to every client using the same path.
 Ordinary guest errors preserve the instance; the worker reinstantiates the
-component only after a WASM trap, discarding its state. See
+component only after a WASM trap, discarding its state and invalidating its
+resource handles. `bind` sends static WIT export and resource operations
+through the same interpreter worker; `interpreter_call` remains a
+MessagePack-only interface. See
 `python-interpreter/README.md` for the pinned toolchain and command used to
 rebuild the Python fixture.
 

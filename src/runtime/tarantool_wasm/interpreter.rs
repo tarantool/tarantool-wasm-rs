@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) struct SharedInterpreterEntry {
+pub(crate) struct SharedInterpreterEntry {
     pub(super) path_key: String,
     pub(super) component: Component,
     pub(super) instance_pre: InstancePre<SyncWasmStates>,
@@ -24,6 +24,8 @@ pub(super) enum InterpreterCommand {
         caller_session_id: u64,
         result_tx: std_mpsc::Sender<Result<Vec<u8>>>,
     },
+    ExportCall(CallJob, std_mpsc::Sender<Result<SessionCallResult>>),
+    DropResource(u64, Option<std_mpsc::Sender<Result<()>>>),
     Close(std_mpsc::Sender<Result<()>>),
 }
 
@@ -156,19 +158,38 @@ fn run_interpreter_call_job(
     Ok(decode_call_response(response))
 }
 
-fn instantiate_interpreter_instance(
-    path_key: &str,
-    engine: &Engine,
-    instance_pre: &InstancePre<SyncWasmStates>,
-    config: &WasmConfig,
+struct InterpreterInstanceCtx<'a> {
+    path_key: &'a str,
+    engine: &'a Engine,
+    component: &'a Component,
+    instance_pre: &'a InstancePre<SyncWasmStates>,
+    config: &'a WasmConfig,
     with_fuel: bool,
-    rt: &tokio::runtime::Runtime,
-) -> Result<(Store<SyncWasmStates>, Instance)> {
-    let mut store = init_store(engine, config, with_fuel)?;
-    let instance = rt
-        .block_on(instance_pre.instantiate_async(&mut store))
-        .map_err(|err| anyhow!("failed to instantiate interpreter `{path_key}`: {err}"))?;
-    Ok((store, instance))
+    rt: &'a tokio::runtime::Runtime,
+}
+
+fn instantiate_interpreter_instance(
+    ctx: &InterpreterInstanceCtx<'_>,
+    next_resource_id: u64,
+) -> Result<(Store<SyncWasmStates>, Instance, SessionResources)> {
+    let mut store = init_store(ctx.engine, ctx.config, ctx.with_fuel)?;
+    let instance = ctx
+        .rt
+        .block_on(ctx.instance_pre.instantiate_async(&mut store))
+        .map_err(|err| {
+            anyhow!(
+                "failed to instantiate interpreter `{}`: {err}",
+                ctx.path_key
+            )
+        })?;
+    let resources = SessionResources::new_with_next_id(
+        ctx.engine,
+        ctx.component,
+        &instance,
+        &mut store,
+        next_resource_id,
+    );
+    Ok((store, instance, resources))
 }
 
 pub(super) fn run_interpreter_worker(
@@ -195,20 +216,23 @@ pub(super) fn run_interpreter_worker(
         .build()
         .unwrap();
 
-    let (mut store, mut instance) = match instantiate_interpreter_instance(
-        &path_key,
+    let instance_ctx = InterpreterInstanceCtx {
+        path_key: &path_key,
         engine,
-        &instance_pre,
-        &config,
+        component: &component,
+        instance_pre: &instance_pre,
+        config: &config,
         with_fuel,
-        &rt,
-    ) {
-        Ok(v) => v,
-        Err(init_error) => {
-            let _ = ready_tx.send(Err(anyhow!("{init_error}")));
-            return Err(init_error);
-        }
+        rt: &rt,
     };
+    let (mut store, mut instance, mut resources) =
+        match instantiate_interpreter_instance(&instance_ctx, 1) {
+            Ok(v) => v,
+            Err(init_error) => {
+                let _ = ready_tx.send(Err(anyhow!("{init_error}")));
+                return Err(init_error);
+            }
+        };
 
     let _ = ready_tx.send(Ok(()));
 
@@ -251,17 +275,11 @@ pub(super) fn run_interpreter_worker(
                         let _ = result_tx.send(Err(err));
                     }
                     Err(err) => {
-                        match instantiate_interpreter_instance(
-                            &path_key,
-                            engine,
-                            &instance_pre,
-                            &config,
-                            with_fuel,
-                            &rt,
-                        ) {
-                            Ok((new_store, new_instance)) => {
+                        match instantiate_interpreter_instance(&instance_ctx, resources.next_id()) {
+                            Ok((new_store, new_instance, new_resources)) => {
                                 store = new_store;
                                 instance = new_instance;
+                                resources = new_resources;
                                 let _ = result_tx.send(Err(err));
                             }
                             Err(recover_err) => {
@@ -303,17 +321,11 @@ pub(super) fn run_interpreter_worker(
                         let _ = result_tx.send(Err(err));
                     }
                     Err(err) => {
-                        match instantiate_interpreter_instance(
-                            &path_key,
-                            engine,
-                            &instance_pre,
-                            &config,
-                            with_fuel,
-                            &rt,
-                        ) {
-                            Ok((new_store, new_instance)) => {
+                        match instantiate_interpreter_instance(&instance_ctx, resources.next_id()) {
+                            Ok((new_store, new_instance, new_resources)) => {
                                 store = new_store;
                                 instance = new_instance;
+                                resources = new_resources;
                                 let _ = result_tx.send(Err(err));
                             }
                             Err(recover_err) => {
@@ -327,8 +339,51 @@ pub(super) fn run_interpreter_worker(
                     }
                 }
             }
+            InterpreterCommand::ExportCall(job, result_tx) => {
+                reset_store_fuel(&mut store, with_fuel, &config);
+                let result = rt.block_on(async {
+                    execute_session_call_job_on_instance(
+                        &mut store,
+                        &instance,
+                        &component,
+                        export_cache.as_ref(),
+                        &mut resources,
+                        &job,
+                    )
+                    .await
+                });
+                if result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|err| err.downcast_ref::<wasmtime::Trap>().is_some())
+                {
+                    match instantiate_interpreter_instance(&instance_ctx, resources.next_id()) {
+                        Ok((new_store, new_instance, new_resources)) => {
+                            store = new_store;
+                            instance = new_instance;
+                            resources = new_resources;
+                        }
+                        Err(recover_err) => {
+                            let err = result.as_ref().err().expect("trap result must be an error");
+                            let combined = anyhow!(
+                                "{err}; interpreter `{path_key}` entered unrecoverable state: {recover_err}"
+                            );
+                            let _ = result_tx.send(Err(combined));
+                            break;
+                        }
+                    }
+                }
+                let _ = result_tx.send(result);
+            }
+            InterpreterCommand::DropResource(id, result_tx) => {
+                let result = rt.block_on(resources.drop_resource(&mut store, id));
+                if let Some(result_tx) = result_tx {
+                    let _ = result_tx.send(result);
+                }
+            }
             InterpreterCommand::Close(done_tx) => {
-                let _ = done_tx.send(Ok(()));
+                let result = rt.block_on(resources.drop_all(&mut store));
+                let _ = done_tx.send(result);
                 break;
             }
         }
@@ -424,4 +479,45 @@ pub fn tt_wasm_interpreter_call(
 
     let raw = recv_result_via_coio(result_rx)?;
     msgpack_bytes_to_rmpv(&raw)
+}
+
+pub(crate) fn tt_wasm_interpreter_call_export_with_ownership(
+    entry: &Arc<SharedInterpreterEntry>,
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+) -> Result<SessionCallResult> {
+    lifecycle::ensure_running()?;
+    let caller_session_id = current_session_id();
+    let (result_tx, result_rx) = std_mpsc::channel();
+    entry
+        .cmd_tx
+        .send(InterpreterCommand::ExportCall(
+            CallJob::new(interface, func, args).with_caller_session_id(caller_session_id),
+            result_tx,
+        ))
+        .map_err(|_| anyhow!("interpreter `{}` is closed", entry.path_key))?;
+    recv_result_via_coio(result_rx)
+}
+
+pub(crate) fn tt_wasm_interpreter_drop_resource(
+    entry: &Arc<SharedInterpreterEntry>,
+    id: u64,
+) -> Result<()> {
+    lifecycle::ensure_running()?;
+    let (result_tx, result_rx) = std_mpsc::channel();
+    entry
+        .cmd_tx
+        .send(InterpreterCommand::DropResource(id, Some(result_tx)))
+        .map_err(|_| anyhow!("interpreter `{}` is closed", entry.path_key))?;
+    recv_result_via_coio(result_rx)
+}
+
+pub(crate) fn tt_wasm_interpreter_drop_resource_detached(
+    entry: &Arc<SharedInterpreterEntry>,
+    id: u64,
+) {
+    let _ = entry
+        .cmd_tx
+        .send(InterpreterCommand::DropResource(id, None));
 }

@@ -16,6 +16,22 @@ pub(super) struct WasmSession {
     pub(super) join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
 }
 
+#[derive(Clone)]
+pub(crate) enum WasmInstanceTarget {
+    Session(String),
+    Interpreter(Arc<SharedInterpreterEntry>),
+}
+
+impl WasmInstanceTarget {
+    pub(crate) fn same_instance(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Session(left), Self::Session(right)) => left == right,
+            (Self::Interpreter(left), Self::Interpreter(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+}
+
 pub(super) fn run_session_worker(
     module_uid: String,
     prepared: PreparedComponent,
@@ -224,6 +240,71 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
     );
 
     Ok(session_handle)
+}
+
+pub(crate) fn tt_wasm_bind_instance(module_uid: String) -> Result<WasmInstanceTarget> {
+    lifecycle::ensure_running()?;
+    let mode = runtime_state
+        .modules
+        .read()
+        .unwrap()
+        .get(&module_uid)
+        .ok_or_else(|| anyhow!("module `{module_uid}` not found"))?
+        .mode
+        .clone();
+    match mode {
+        ModuleMode::Regular => Ok(WasmInstanceTarget::Session(tt_wasm_open_session(
+            module_uid, None,
+        )?)),
+        ModuleMode::Interpreter(entry) => Ok(WasmInstanceTarget::Interpreter(entry)),
+    }
+}
+
+pub(crate) fn tt_wasm_instance_call_function_with_ownership(
+    target: &WasmInstanceTarget,
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+) -> Result<SessionCallResult> {
+    match target {
+        WasmInstanceTarget::Session(session_handle) => {
+            tt_wasm_session_call_function_with_ownership(
+                session_handle.clone(),
+                interface,
+                func,
+                args,
+            )
+        }
+        WasmInstanceTarget::Interpreter(entry) => {
+            tt_wasm_interpreter_call_export_with_ownership(entry, interface, func, args)
+        }
+    }
+}
+
+pub(crate) fn tt_wasm_instance_drop_resource(target: &WasmInstanceTarget, id: u64) -> Result<()> {
+    match target {
+        WasmInstanceTarget::Session(session_handle) => {
+            tt_wasm_session_drop_resource(session_handle.clone(), id)
+        }
+        WasmInstanceTarget::Interpreter(entry) => tt_wasm_interpreter_drop_resource(entry, id),
+    }
+}
+
+pub(crate) fn tt_wasm_instance_drop_resource_detached(target: &WasmInstanceTarget, id: u64) {
+    match target {
+        WasmInstanceTarget::Session(session_handle) => {
+            tt_wasm_session_drop_resource_detached(session_handle, id);
+        }
+        WasmInstanceTarget::Interpreter(entry) => {
+            tt_wasm_interpreter_drop_resource_detached(entry, id);
+        }
+    }
+}
+
+pub(crate) fn tt_wasm_close_instance_detached(target: &WasmInstanceTarget) {
+    if let WasmInstanceTarget::Session(session_handle) = target {
+        tt_wasm_close_session_detached(session_handle);
+    }
 }
 
 /// Call a single export through an opened long-lived session.

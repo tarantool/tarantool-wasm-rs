@@ -175,9 +175,11 @@ assert(math.add(20, 22) == 42)
 ```
 
 Export names and full interface names are preserved as table keys. The proxy
-keeps a component session open so state and WIT resources survive between
-calls. It does not own the module; release the module with `wasm.drop(module)`
-as usual.
+uses a persistent component instance so state and WIT resources survive
+between calls. For a regular module it owns a managed session. For a module
+loaded with `interpreter = true`, it uses the existing shared interpreter
+instance. The proxy does not own the module; release the module with
+`wasm.drop(module)` as usual.
 
 WIT resources become Lua userdata. Constructors and static functions are
 grouped under the resource name, while methods use Lua's `:` syntax:
@@ -195,8 +197,9 @@ second:drop()
 ```
 
 `own<T>` arguments consume their handle and `borrow<T>` arguments leave it
-usable. A resource belongs to one session and cannot be passed to another.
-Call `resource:drop()` for deterministic cleanup; Lua garbage collection is a
+usable. A resource belongs to one component instance and cannot be passed to
+another. Proxies for the same shared interpreter can exchange resources. Call
+`resource:drop()` for deterministic cleanup; Lua garbage collection is a
 fallback.
 
 ### Call a registered Lua function from a guest
@@ -281,6 +284,21 @@ fuel or a memory fault, recreates the instance and discards all shared state.
 Calls are serialized; one long-running call delays all other users of the same
 interpreter. Set `memory_limit` and `max_instructions` for untrusted or
 potentially unbounded code.
+
+`wasm.bind(python)` binds the component's static WIT exports to this same
+warmed instance, including resource constructors and methods. The proxy also
+provides module-bound interpreter helpers:
+
+```lua
+local bound = wasm.bind(python)
+bound.interpreter_exec('def answer(): return 42')
+assert(bound.interpreter_call('answer') == 42)
+```
+
+Resources can be shared between proxies backed by the same interpreter.
+`interpreter_call` retains its MessagePack data boundary and does not accept
+Lua resource userdata. A WASM trap invalidates resources created by the
+previous instance.
 
 Interpreter mode is not a security boundary. WASI inherits the Tarantool
 process environment, standard streams, and network access by default. Disable

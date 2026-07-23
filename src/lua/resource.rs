@@ -10,46 +10,47 @@ use crate::runtime::{
     convert::{from_rmpv, to_rmpv},
     tarantool_wasm::{
         resources::{decode_resource_handle, encode_resource_argument},
-        tt_wasm_close_session_detached, tt_wasm_session_call_function_with_ownership,
-        tt_wasm_session_drop_resource, tt_wasm_session_drop_resource_detached,
+        tt_wasm_close_instance_detached, tt_wasm_instance_call_function_with_ownership,
+        tt_wasm_instance_drop_resource, tt_wasm_instance_drop_resource_detached,
+        WasmInstanceTarget,
     },
 };
 
-pub(crate) struct SessionLease {
-    handle: String,
+pub(crate) struct InstanceLease {
+    target: WasmInstanceTarget,
     close_on_drop: bool,
 }
 
-impl SessionLease {
-    pub(crate) fn owned(handle: String) -> Arc<Self> {
+impl InstanceLease {
+    pub(crate) fn owned(target: WasmInstanceTarget) -> Arc<Self> {
         Arc::new(Self {
-            handle,
+            target,
             close_on_drop: true,
         })
     }
 
-    pub(crate) fn borrowed(handle: String) -> Arc<Self> {
+    pub(crate) fn borrowed(target: WasmInstanceTarget) -> Arc<Self> {
         Arc::new(Self {
-            handle,
+            target,
             close_on_drop: false,
         })
     }
 
-    pub(crate) fn handle(&self) -> &str {
-        &self.handle
+    pub(crate) fn target(&self) -> &WasmInstanceTarget {
+        &self.target
     }
 }
 
-impl Drop for SessionLease {
+impl Drop for InstanceLease {
     fn drop(&mut self) {
         if self.close_on_drop {
-            tt_wasm_close_session_detached(&self.handle);
+            tt_wasm_close_instance_detached(&self.target);
         }
     }
 }
 
 struct ResourceState {
-    session: Arc<SessionLease>,
+    instance: Arc<InstanceLease>,
     id: u64,
     owned: bool,
     interface: Option<String>,
@@ -60,7 +61,7 @@ struct ResourceState {
 impl Drop for ResourceState {
     fn drop(&mut self) {
         if self.alive.swap(false, Ordering::AcqRel) {
-            tt_wasm_session_drop_resource_detached(self.session.handle(), self.id);
+            tt_wasm_instance_drop_resource_detached(self.instance.target(), self.id);
         }
     }
 }
@@ -78,19 +79,17 @@ impl LuaWasmResource {
         {
             return Ok(false);
         }
-        if let Err(err) =
-            tt_wasm_session_drop_resource(self.0.session.handle().to_string(), self.0.id)
-        {
+        if let Err(err) = tt_wasm_instance_drop_resource(self.0.instance.target(), self.0.id) {
             self.0.alive.store(true, Ordering::Release);
             return Err(mlua::Error::external(err));
         }
         Ok(true)
     }
 
-    fn encode(&self, session: &SessionLease) -> LuaResult<RmpvValue> {
-        if self.0.session.handle() != session.handle() {
+    fn encode(&self, instance: &InstanceLease) -> LuaResult<RmpvValue> {
+        if !self.0.instance.target().same_instance(instance.target()) {
             return Err(LuaError::runtime(
-                "WIT resource belongs to a different WASM session",
+                "WIT resource belongs to a different WASM instance",
             ));
         }
         if !self.0.alive.load(Ordering::Acquire) {
@@ -108,22 +107,22 @@ impl LuaWasmResource {
         let mut values = vec![encode_resource_argument(self.0.id)];
         let mut used = Vec::new();
         for value in iter {
-            values.push(to_rmpv_with_session_tracking(
+            values.push(to_rmpv_with_instance_tracking(
                 lua,
                 &value,
-                self.0.session.as_ref(),
+                self.0.instance.as_ref(),
                 &mut used,
             )?);
         }
-        let result = tt_wasm_session_call_function_with_ownership(
-            self.0.session.handle().to_string(),
+        let result = tt_wasm_instance_call_function_with_ownership(
+            self.0.instance.target(),
             self.0.interface.clone(),
             format!("[method]{}.{}", self.0.resource, method),
             values,
         )
         .map_err(mlua::Error::external)?;
         mark_consumed(&used, &result.consumed);
-        from_rmpv_with_session(lua, &result.value, Arc::clone(&self.0.session))
+        from_rmpv_with_instance(lua, &result.value, Arc::clone(&self.0.instance))
     }
 }
 
@@ -155,10 +154,10 @@ impl LuaUserData for LuaWasmResource {
     }
 }
 
-pub(crate) fn to_rmpv_with_session_tracking(
+pub(crate) fn to_rmpv_with_instance_tracking(
     lua: &Lua,
     value: &LuaValue,
-    session: &SessionLease,
+    instance: &InstanceLease,
     used: &mut Vec<LuaWasmResource>,
 ) -> LuaResult<RmpvValue> {
     Ok(match value {
@@ -174,7 +173,7 @@ pub(crate) fn to_rmpv_with_session_tracking(
                         .sequence_values::<LuaValue>()
                         .map(|value| {
                             value.and_then(|value| {
-                                to_rmpv_with_session_tracking(lua, &value, session, used)
+                                to_rmpv_with_instance_tracking(lua, &value, instance, used)
                             })
                         })
                         .collect::<LuaResult<_>>()?,
@@ -187,8 +186,8 @@ pub(crate) fn to_rmpv_with_session_tracking(
                         .map(|pair| {
                             let (key, value) = pair?;
                             Ok((
-                                to_rmpv_with_session_tracking(lua, &key, session, used)?,
-                                to_rmpv_with_session_tracking(lua, &value, session, used)?,
+                                to_rmpv_with_instance_tracking(lua, &key, instance, used)?,
+                                to_rmpv_with_instance_tracking(lua, &value, instance, used)?,
                             ))
                         })
                         .collect::<LuaResult<_>>()?,
@@ -197,7 +196,7 @@ pub(crate) fn to_rmpv_with_session_tracking(
         }
         LuaValue::UserData(userdata) if userdata.is::<LuaWasmResource>() => {
             let resource = userdata.borrow::<LuaWasmResource>()?.clone();
-            let encoded = resource.encode(session)?;
+            let encoded = resource.encode(instance)?;
             used.push(resource);
             encoded
         }
@@ -213,17 +212,17 @@ pub(crate) fn mark_consumed(resources: &[LuaWasmResource], consumed: &[u64]) {
     }
 }
 
-pub(crate) fn from_rmpv_with_session(
+pub(crate) fn from_rmpv_with_instance(
     lua: &Lua,
     value: &RmpvValue,
-    session: Arc<SessionLease>,
+    instance: Arc<InstanceLease>,
 ) -> LuaResult<LuaValue> {
     Ok(match value {
         RmpvValue::Array(values) => LuaValue::Table(
             lua.create_sequence_from(
                 values
                     .iter()
-                    .map(|value| from_rmpv_with_session(lua, value, Arc::clone(&session)))
+                    .map(|value| from_rmpv_with_instance(lua, value, Arc::clone(&instance)))
                     .collect::<LuaResult<Vec<_>>>()?,
             )?,
         ),
@@ -231,8 +230,8 @@ pub(crate) fn from_rmpv_with_session(
             let table = lua.create_table()?;
             for (key, value) in values {
                 table.set(
-                    from_rmpv_with_session(lua, key, Arc::clone(&session))?,
-                    from_rmpv_with_session(lua, value, Arc::clone(&session))?,
+                    from_rmpv_with_instance(lua, key, Arc::clone(&instance))?,
+                    from_rmpv_with_instance(lua, value, Arc::clone(&instance))?,
                 )?;
             }
             LuaValue::Table(table)
@@ -240,7 +239,7 @@ pub(crate) fn from_rmpv_with_session(
         RmpvValue::Ext(_, _) => match decode_resource_handle(value) {
             Ok(handle) if !handle.resource.is_empty() => LuaValue::UserData(lua.create_userdata(
                 LuaWasmResource(Arc::new(ResourceState {
-                    session,
+                    instance,
                     id: handle.id,
                     owned: handle.owned,
                     interface: handle.interface,

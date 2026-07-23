@@ -7,12 +7,15 @@ local utils = require('utils')
 
 local g = t.group('wit_resources')
 
-g.before_all(function(cg)
-    local path = fio.pathjoin(
+local function resource_component_path()
+    return fio.pathjoin(
         utils.get_test_dir(), 'lualib', 'wasm_component_test',
         'resource_test', 'resource.wasm'
     )
-    cg.module = wasm.load(path)
+end
+
+g.before_all(function(cg)
+    cg.module = wasm.load(resource_component_path())
     cg.bound = wasm.bind(cg.module)
     cg.counters = cg.bound['test:resources/counters@0.1.0']
 end)
@@ -58,7 +61,7 @@ g.test_nested_resource_results = function(cg)
     t.assert(pair[2]:drop())
 end
 
-g.test_resources_cannot_cross_sessions = function(cg)
+g.test_resources_cannot_cross_instances = function(cg)
     local other = wasm.bind(cg.module)
     local counter = cg.counters.counter.new(9)
 
@@ -67,8 +70,49 @@ g.test_resources_cannot_cross_sessions = function(cg)
         counter
     )
     t.assert_not(ok)
-    t.assert_str_contains(tostring(err), 'different WASM session')
+    t.assert_str_contains(tostring(err), 'different WASM instance')
     t.assert(counter:drop())
+end
+
+g.test_interpreter_bindings_share_resources = function()
+    local first_module = wasm.load(
+        resource_component_path(), {interpreter = true}
+    )
+    local second_module = wasm.load(
+        resource_component_path(), {interpreter = true}
+    )
+    local first = wasm.bind(first_module)
+    local second = wasm.bind(second_module)
+    local first_counters = first['test:resources/counters@0.1.0']
+    local second_counters = second['test:resources/counters@0.1.0']
+
+    local counter = first_counters.counter.new(21)
+    t.assert_equals(second_counters.peek(counter), 21)
+
+    t.assert(wasm.interpreter_exec(first_module, [[
+def read_latest():
+    return latest_value()
+]]))
+    t.assert_equals(second.interpreter_call('read_latest'), 21)
+
+    t.assert_equals(counter:add(1), 22)
+    t.assert_equals(
+        wasm.interpreter_call(second_module, 'read_latest'), 22
+    )
+
+    t.assert(second.interpreter_exec([[
+def double_latest():
+    return add_to_latest(latest_value())
+]]))
+    t.assert_equals(
+        wasm.interpreter_call(first_module, 'double_latest'), 44
+    )
+    t.assert_equals(counter:get(), 44)
+
+    t.assert(wasm.drop(first_module))
+    t.assert_equals(second_counters.peek(counter), 44)
+    t.assert(counter:drop())
+    t.assert(wasm.drop(second_module))
 end
 
 g.test_explicit_session_api = function(cg)

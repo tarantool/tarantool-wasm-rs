@@ -40,6 +40,16 @@ impl SessionResources {
         instance: &Instance,
         store: &mut Store<SyncWasmStates>,
     ) -> Self {
+        Self::new_with_next_id(engine, component, instance, store, 1)
+    }
+
+    pub(super) fn new_with_next_id(
+        engine: &Engine,
+        component: &Component,
+        instance: &Instance,
+        store: &mut Store<SyncWasmStates>,
+        next_id: u64,
+    ) -> Self {
         let mut descriptors = Vec::new();
         let component_ty = component.component_type();
         let mut discovery = ResourceDiscovery {
@@ -54,10 +64,14 @@ impl SessionResources {
             discovery.collect_item(item.ty, index, None, name);
         }
         Self {
-            next_id: 1,
+            next_id,
             values: HashMap::new(),
             descriptors,
         }
+    }
+
+    pub(super) fn next_id(&self) -> u64 {
+        self.next_id
     }
 
     fn lower(
