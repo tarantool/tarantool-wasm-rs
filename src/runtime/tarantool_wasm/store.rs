@@ -85,6 +85,8 @@ pub(crate) struct WasmStates {
     pub(crate) executor: Executor,
     pub(crate) tx_mode: TxMode,
     pub(crate) caller_session_id: Option<u64>,
+    pub(crate) instance_thread_id: ThreadId,
+    pub(crate) call_chain: CallChain,
 }
 
 impl WasmStates {
@@ -178,6 +180,8 @@ impl WasmStates {
             executor: Executor::TxPush, // start outside the transaction
             tx_mode: TxMode::None,
             caller_session_id: None,
+            instance_thread_id: thread::current().id(),
+            call_chain: Vec::new(),
         })
     }
 }
@@ -222,6 +226,26 @@ impl SyncWasmStates {
     }
     pub(crate) fn set_caller_session_id(&mut self, session_id: Option<u64>) {
         self.state.get_mut().unwrap().caller_session_id = session_id;
+    }
+
+    pub(crate) fn enter_call(&mut self, mut call_chain: CallChain) -> Result<()> {
+        let state = self.state.get_mut().unwrap();
+        if call_chain.contains(&state.instance_thread_id) {
+            return Err(anyhow!(
+                "reentrant WASM call reached an already active component instance"
+            ));
+        }
+        call_chain.push(state.instance_thread_id);
+        state.call_chain = call_chain;
+        Ok(())
+    }
+
+    pub(crate) fn call_chain(&self) -> CallChain {
+        self.state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .call_chain
+            .clone()
     }
 
     pub(crate) async fn yield_now(&self) {

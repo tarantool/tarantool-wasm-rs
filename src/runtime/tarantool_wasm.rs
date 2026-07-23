@@ -8,6 +8,7 @@ mod execution;
 mod exports;
 mod interpreter;
 mod linker;
+mod reentrancy;
 mod registry;
 pub(crate) mod resources;
 mod session;
@@ -71,6 +72,7 @@ use self::{
         tt_wasm_interpreter_drop_resource_detached, InterpreterCommand, SharedInterpreterEntry,
     },
     linker::{build_runtime_linker, runtime_config},
+    reentrancy::{current_call_chain, ensure_target_not_active, CallChain},
     registry::{ExportMap, ModuleMode, PreparedComponent, RuntimeState},
     resources::{SessionCallResult, SessionResources},
     session::{close_session_impl, SessionCommand, WasmSession},
@@ -83,6 +85,7 @@ use self::{
 pub use self::session::{tt_wasm_session_call_function, tt_wasm_session_call_functions};
 pub(crate) use self::{
     execution::WasmRunHandle,
+    reentrancy::install_call_chain,
     session::{
         tt_wasm_bind_instance, tt_wasm_close_instance_detached,
         tt_wasm_instance_call_function_with_ownership, tt_wasm_instance_drop_resource,

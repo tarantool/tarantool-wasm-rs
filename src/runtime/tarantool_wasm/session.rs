@@ -16,6 +16,17 @@ pub(super) struct WasmSession {
     pub(super) join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
 }
 
+impl WasmSession {
+    fn worker_thread_id(&self) -> Result<ThreadId> {
+        self.join_handle
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+            .map(|handle| handle.thread().id())
+            .ok_or_else(|| anyhow!("WASM session worker is no longer available"))
+    }
+}
+
 #[derive(Clone)]
 pub(crate) enum WasmInstanceTarget {
     Session(String),
@@ -29,6 +40,28 @@ impl WasmInstanceTarget {
             (Self::Interpreter(left), Self::Interpreter(right)) => Arc::ptr_eq(left, right),
             _ => false,
         }
+    }
+
+    fn worker_thread_id(&self) -> Result<ThreadId> {
+        match self {
+            Self::Session(session_handle) => runtime_state
+                .sessions
+                .read()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .get(session_handle)
+                .cloned()
+                .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?
+                .worker_thread_id(),
+            Self::Interpreter(entry) => entry.worker_thread_id(),
+        }
+    }
+
+    fn ensure_not_reentrant(&self) -> Result<CallChain> {
+        let description = match self {
+            Self::Session(session_handle) => format!("session `{session_handle}`"),
+            Self::Interpreter(entry) => format!("interpreter `{}`", entry.path_key),
+        };
+        ensure_target_not_active(self.worker_thread_id()?, &description)
     }
 }
 
@@ -266,6 +299,7 @@ pub(crate) fn tt_wasm_instance_call_function_with_ownership(
     func: String,
     args: Vec<RmpvValue>,
 ) -> Result<SessionCallResult> {
+    target.ensure_not_reentrant()?;
     match target {
         WasmInstanceTarget::Session(session_handle) => {
             tt_wasm_session_call_function_with_ownership(
@@ -282,6 +316,7 @@ pub(crate) fn tt_wasm_instance_call_function_with_ownership(
 }
 
 pub(crate) fn tt_wasm_instance_drop_resource(target: &WasmInstanceTarget, id: u64) -> Result<()> {
+    target.ensure_not_reentrant()?;
     match target {
         WasmInstanceTarget::Session(session_handle) => {
             tt_wasm_session_drop_resource(session_handle.clone(), id)
@@ -333,12 +368,18 @@ pub(crate) fn tt_wasm_session_call_function_with_ownership(
         .get(&session_handle)
         .cloned()
         .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
+    let call_chain = ensure_target_not_active(
+        session.worker_thread_id()?,
+        &format!("session `{session_handle}`"),
+    )?;
 
     let (result_tx, result_rx) = std_mpsc::channel();
     session
         .cmd_tx
         .send(SessionCommand::Call(
-            CallJob::new(interface, func, args).with_caller_session_id(caller_session_id),
+            CallJob::new(interface, func, args)
+                .with_caller_session_id(caller_session_id)
+                .with_call_chain(call_chain),
             result_tx,
         ))
         .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
@@ -373,10 +414,15 @@ pub(crate) fn tt_wasm_session_call_functions_with_ownership(
         .get(&session_handle)
         .cloned()
         .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
+    let call_chain = ensure_target_not_active(
+        session.worker_thread_id()?,
+        &format!("session `{session_handle}`"),
+    )?;
 
     let jobs = calls
         .into_iter()
         .map(|call| CallJob::from(call).with_caller_session_id(caller_session_id))
+        .map(|job| job.with_call_chain(call_chain.clone()))
         .collect::<Vec<_>>();
     let (result_tx, result_rx) = std_mpsc::channel();
     session
@@ -396,6 +442,10 @@ pub fn tt_wasm_session_drop_resource(session_handle: String, id: u64) -> Result<
         .get(&session_handle)
         .cloned()
         .ok_or_else(|| anyhow!("session `{session_handle}` not found"))?;
+    ensure_target_not_active(
+        session.worker_thread_id()?,
+        &format!("session `{session_handle}`"),
+    )?;
     let (result_tx, result_rx) = std_mpsc::channel();
     session
         .cmd_tx

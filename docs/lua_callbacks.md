@@ -42,12 +42,16 @@ wasm.register_callback('normalize-user', function(user)
         id = user.id,
         name = string.upper(user.name),
     }
-end)
+end, {timeout_ms = 100})
 ```
 
 Registering the same name again atomically replaces the previous closure.
 Every existing handler resource observes the replacement on its next call
 because resources do not cache an `mlua::Function`.
+
+The optional `timeout_ms` value must be a positive integer. It limits one
+invocation rather than the lifetime of the registry entry. Omitting the option
+keeps the callback unlimited for backward compatibility.
 
 Remove the registry entry when the application no longer exposes it:
 
@@ -120,6 +124,7 @@ sequenceDiagram
     Store->>Store: resolve resource to callback name
     Store->>TX: Executor::TxPush(name, bytes)
     TX->>Lua: lookup current closure and invoke
+    Lua->>Lua: resume coroutine until final return
     Lua-->>TX: Lua result
     TX-->>Store: MessagePack result or error
     Store-->>Guest: WIT result
@@ -130,16 +135,43 @@ Registration, replacement, invocation, and removal are serialized on the TX
 thread. Concurrent calls from different component workers therefore execute
 one at a time against the current registry entry.
 
+## Yielding and cancellation
+
+Each invocation creates an `mlua::Thread` from the registered closure.
+`coroutine.yield()` suspends that thread, and the runtime resumes it with no
+arguments until the closure returns its final value. Values passed to
+`coroutine.yield()` are intermediate control values and are not sent to the
+guest.
+
+`fiber.yield()` and `fiber.sleep()` suspend the Tarantool fiber that executes
+the TX callback. Other Tarantool fibers continue to run while the Wasm worker
+waits for the handler result. This preserves the Lua fiber stack and resumes
+the same callback after the yield.
+
+The runtime checks `timeout_ms`, shutdown state, and guest-call cancellation
+after every coroutine resume and from a Lua instruction hook. The hook
+interrupts CPU-bound Lua code, including an infinite loop. Cancellation is
+cooperative: native code that does not return to Lua and a long
+`fiber.sleep()` are checked when control returns to the callback.
+
+## Reentrant component calls
+
+A callback may call a different idle component instance. The runtime carries
+the active instance chain through nested calls and associates it with the
+current Tarantool fiber. Calling an instance already present in that chain
+returns `reentrant WASM call rejected` before a command is queued.
+
+This rejects both direct recursion such as `A -> Lua -> A` and cycles such as
+`A -> Lua -> B -> Lua -> A`. Calls from unrelated Tarantool fibers keep
+separate chains, so a suspended callback does not make another component call
+look recursive.
+
 ## Execution constraints
 
-Handler calls are synchronous from the guest's perspective. A slow Lua closure
-delays Tarantool and other guest host calls, so handlers should finish without
-blocking work.
-
-The Lua closure must not yield. Yielding functions require a Tarantool
-fiber/coroutine dispatcher rather than the current TX callback. A handler must
-also avoid re-entering the component instance that is waiting for its result;
-reentrant calls require an explicit deadlock and instance-ownership model.
+Handler calls remain synchronous from the guest's perspective. A callback
+without `timeout_ms` can wait indefinitely, and slow Lua or native work still
+delays the waiting guest. The timeout measures wall-clock time but is enforced
+at cooperative boundaries; it does not preempt arbitrary native code.
 
 Names still share one process-wide namespace and are not an authorization
 boundary. The resource controls guest-side lifetime and type safety, but any
@@ -154,4 +186,6 @@ guest toolchains consume the same published contract.
 The integration test in
 `test/bindings/bindings_lua_callback_test.lua` covers structured values,
 resources created before registration, replacement observed by two component
-instances, resource drop, invalid names, and unregister behavior.
+instances, direct and cyclic reentrancy, interpreter instances, Tarantool
+fiber yields, Lua coroutine yields, timeout, resource drop, invalid names, and
+unregister behavior.

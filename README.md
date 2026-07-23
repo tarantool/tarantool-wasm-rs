@@ -212,7 +212,7 @@ local component = wasm.bind(module)
 
 wasm.register_callback('normalize-user', function(user)
     return {id = user.id, name = string.upper(user.name)}
-end)
+end, {timeout_ms = 100})
 
 local normalized = component.normalize({id = 1, name = 'alice'})
 assert(normalized.name == 'ALICE')
@@ -223,9 +223,11 @@ wasm.drop(module)
 
 The guest opens a `lua-callback.handler` resource for the registered name and
 calls the resource with MessagePack-encoded input. Existing resources resolve
-the current Lua closure on every call, so replacement remains dynamic. See
-[Lua callbacks](docs/lua_callbacks.md) for the WIT interface, execution flow,
-and constraints.
+the current Lua closure on every call, so replacement remains dynamic. Lua
+coroutines and Tarantool fiber yields are supported. Recursive entry into an
+already active component instance returns an error instead of blocking. See
+[Lua callbacks](docs/lua_callbacks.md) for timeout, cancellation, execution
+flow, and constraints.
 
 ## Persistent sessions
 

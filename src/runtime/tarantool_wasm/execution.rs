@@ -41,6 +41,7 @@ pub(super) struct CallJob {
     pub(super) func: String,
     pub(super) args: Vec<RmpvValue>,
     pub(super) caller_session_id: Option<u64>,
+    pub(super) call_chain: CallChain,
 }
 
 impl CallJob {
@@ -50,10 +51,16 @@ impl CallJob {
             func,
             args,
             caller_session_id: None,
+            call_chain: Vec::new(),
         }
     }
     pub(super) fn with_caller_session_id(mut self, session_id: u64) -> Self {
         self.caller_session_id = Some(session_id);
+        self
+    }
+
+    pub(super) fn with_call_chain(mut self, call_chain: CallChain) -> Self {
+        self.call_chain = call_chain;
         self
     }
 
@@ -203,6 +210,7 @@ pub fn tt_wasm_call_function(
 ) -> Result<RmpvValue> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
+    let call_chain = current_call_chain();
     let loaded = runtime_state
         .modules
         .read()
@@ -241,7 +249,9 @@ pub fn tt_wasm_call_function(
             .unwrap();
 
         rt.block_on(async move {
-            let job = CallJob::new(interface, func, args).with_caller_session_id(caller_session_id);
+            let job = CallJob::new(interface, func, args)
+                .with_caller_session_id(caller_session_id)
+                .with_call_chain(call_chain);
             execute_call_job(
                 &mut store,
                 &instance_pre,
@@ -279,6 +289,7 @@ pub fn tt_wasm_call_functions(
 ) -> Result<Vec<RmpvValue>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
+    let call_chain = current_call_chain();
     let loaded = runtime_state
         .modules
         .read()
@@ -295,6 +306,7 @@ pub fn tt_wasm_call_functions(
     let jobs = calls
         .into_iter()
         .map(|call| CallJob::from(call).with_caller_session_id(caller_session_id))
+        .map(|job| job.with_call_chain(call_chain.clone()))
         .collect::<Vec<_>>();
 
     let handle = spawn_tt_thread("wasm".to_string(), move || {
