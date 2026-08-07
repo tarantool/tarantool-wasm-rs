@@ -1,189 +1,136 @@
 package main
 
 import (
-    "go.bytecodealliance.org/cm"
-    "adder-wasm-bindings/internal/docs/adder/adder"
-    kd "adder-wasm-bindings/internal/tarantool/tarantool/key-def"
-    bt "adder-wasm-bindings/internal/tarantool/tarantool/box-tuple"
-    "adder-wasm-bindings/internal/tarantool/tarantool/msgpack"
-    "adder-wasm-bindings/internal/tarantool/tarantool/types"
-    tupleFormat "adder-wasm-bindings/internal/tarantool/tarantool/tuple-format"
-    "encoding/json"
+	"encoding/json"
+
+	"adder-wasm-bindings/internal/docs/adder/adder"
+	bt "adder-wasm-bindings/internal/tarantool/tarantool/box-tuple"
+	kd "adder-wasm-bindings/internal/tarantool/tarantool/key-def"
+	"adder-wasm-bindings/internal/tarantool/tarantool/msgpack"
+	tupleFormat "adder-wasm-bindings/internal/tarantool/tarantool/tuple-format"
+	"adder-wasm-bindings/internal/tarantool/tarantool/types"
+	"go.bytecodealliance.org/cm"
 )
 
 type BoxErrorShape = adder.BoxErrorShape
 type BoxError = types.BoxError
 type BoxTuple = types.BoxTuple
-type TupleField = types.TupleField
 type TupleFormat = types.TupleFormat
 type KeyDef = types.KeyDef
 type KeyPart = types.KeyPart
+type MsgpackValue = types.MsgpackValue
+type MsgpackResult = cm.Result[BoxErrorShape, MsgpackValue, BoxError]
+
+func convertResult[FromShape, ToShape, Value, Err any](
+	result cm.Result[FromShape, Value, Err],
+) cm.Result[ToShape, Value, Err] {
+	if result.IsErr() {
+		return cm.Err[cm.Result[ToShape, Value, Err], ToShape, Value, Err](*result.Err())
+	}
+	return cm.OK[cm.Result[ToShape, Value, Err], ToShape, Value, Err](*result.OK())
+}
+
+func iteratorResult(t BoxTuple) MsgpackResult {
+	created := bt.IteratorNew(t)
+	if created.IsErr() {
+		return cm.Err[MsgpackResult, BoxErrorShape, MsgpackValue, BoxError](*created.Err())
+	}
+	iterator := *created.OK()
+	defer iterator.ResourceDrop()
+
+	result := make([][]any, 0, bt.FieldCount(t)+2)
+	appendField := func(prefix []any, field MsgpackValue) *BoxError {
+		decoded := msgpack.ToJSON(field)
+		if decoded.IsErr() {
+			return decoded.Err()
+		}
+		result = append(result, append(prefix, json.RawMessage(*decoded.OK())))
+		return nil
+	}
+
+	for {
+		position := iterator.Position()
+		next := iterator.Next()
+		if next.IsErr() {
+			return cm.Err[MsgpackResult, BoxErrorShape, MsgpackValue, BoxError](*next.Err())
+		}
+		field := next.OK().Some()
+		if field == nil {
+			break
+		}
+		if err := appendField([]any{position}, *field); err != nil {
+			return cm.Err[MsgpackResult, BoxErrorShape, MsgpackValue, BoxError](*err)
+		}
+	}
+
+	iterator.Rewind()
+	rewindPosition := iterator.Position()
+	rewind := iterator.Next()
+	if rewind.IsErr() {
+		return cm.Err[MsgpackResult, BoxErrorShape, MsgpackValue, BoxError](*rewind.Err())
+	}
+	if field := rewind.OK().Some(); field != nil {
+		if err := appendField([]any{"rewind", rewindPosition}, *field); err != nil {
+			return cm.Err[MsgpackResult, BoxErrorShape, MsgpackValue, BoxError](*err)
+		}
+	}
+
+	seek := iterator.Seek(1)
+	if seek.IsErr() {
+		return cm.Err[MsgpackResult, BoxErrorShape, MsgpackValue, BoxError](*seek.Err())
+	}
+	if field := seek.OK().Some(); field != nil {
+		if err := appendField([]any{"seek", iterator.Position()}, *field); err != nil {
+			return cm.Err[MsgpackResult, BoxErrorShape, MsgpackValue, BoxError](*err)
+		}
+	}
+
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		panic(err)
+	}
+	return convertResult[msgpack.BoxErrorShape, BoxErrorShape, MsgpackValue, BoxError](
+		msgpack.FromJSON(string(encoded)),
+	)
+}
 
 func init() {
-	adder.Exports.TNew = func(data cm.List[uint8]) (result cm.Result[BoxErrorShape, BoxTuple, BoxError]) {
-        res := bt.New(data)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.Err())
-    }
-
-	adder.Exports.TRef =  func(t BoxTuple) (result int32) {
-        return bt.Ref(t)
-    }
-
-	adder.Exports.TUnref =  func(t BoxTuple) {
-        bt.Unref(t)
-    }
-
-	adder.Exports.TFieldCount =  func(t BoxTuple) (result uint32) {
-        return bt.FieldCount(t)
-    }
-
-	adder.Exports.TBsize =  func(t BoxTuple) (result uint64) {
-        return bt.Bsize(t)
-    }
-
-	adder.Exports.TToBuf =  func(t BoxTuple) (result cm.Result[BoxErrorShape, cm.List[uint8], BoxError]) {
-        res := bt.ToBuf(t)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*res.Err())
-    }
-
-	adder.Exports.TFormat =  func(t BoxTuple) (result TupleFormat) {
-        return bt.Format(t)
-    }
-
-	adder.Exports.TField =  func(t BoxTuple, idx uint32) (result cm.Result[BoxErrorShape, TupleField, BoxError]) {
-        res := bt.Field(t, idx)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, TupleField, BoxError], BoxErrorShape, TupleField, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, TupleField, BoxError], BoxErrorShape, TupleField, BoxError](*res.Err())
-    }
-
-	adder.Exports.TFieldByPath =  func(t BoxTuple, path string, indexBase int32) (result cm.Result[BoxErrorShape, TupleField, BoxError]) {
-        res := bt.FieldByPath(t, path, indexBase)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, TupleField, BoxError], BoxErrorShape, TupleField, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, TupleField, BoxError], BoxErrorShape, TupleField, BoxError](*res.Err())
-    }
-
-	adder.Exports.TUpdate =  func(t BoxTuple, expr cm.List[uint8]) (result cm.Result[BoxErrorShape, BoxTuple, BoxError]) {
-        res := bt.Update(t, expr)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.Err())
-    }
-
-	adder.Exports.TUpsert =  func(t BoxTuple, expr cm.List[uint8]) (result cm.Result[BoxErrorShape, BoxTuple, BoxError]) {
-        res := bt.Upsert(t, expr)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.Err())
-    }
-
-	adder.Exports.TValidate =  func(t BoxTuple, format TupleFormat) (result bool) {
-        return bt.Validate(t, format)
-    }
-
-	adder.Exports.TCompare =  func(keyDef KeyDef, left BoxTuple, right BoxTuple) (result int32) {
-        return bt.Compare(keyDef, left, right)
-    }
-
-	adder.Exports.TCompareWithKey =  func(tuple BoxTuple, key cm.List[uint8], keyDef KeyDef) (result int32) {
-        return bt.CompareWithKey(tuple, key, keyDef)
-    }
-
-	adder.Exports.TKeyDefNew =  func(parts cm.List[KeyPart]) (result cm.Result[BoxErrorShape, KeyDef, BoxError]) {
-        res := kd.New(parts)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.Err())
-    }
-
-	adder.Exports.TTupleFormatDefault =  func() (result TupleFormat) {
-        return tupleFormat.Default()
-    }
-
-	adder.Exports.TTupleFormatNew =  func(keyDefs cm.List[KeyDef]) (result cm.Result[BoxErrorShape, TupleFormat, BoxError]) {
-        res := tupleFormat.New(keyDefs)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, TupleFormat, BoxError], BoxErrorShape, TupleFormat, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, TupleFormat, BoxError], BoxErrorShape, TupleFormat, BoxError](*res.Err())
-    }
-
-	adder.Exports.TDecodeFromRawPtr =  func(ptr uint64) (result cm.Result[BoxErrorShape, cm.List[uint8], BoxError]) {
-        res := msgpack.DecodeFromRawPtr(ptr)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*res.Err())
-    }
-
-	adder.Exports.TIterTestAll =  func(t BoxTuple) (result cm.Result[BoxErrorShape, cm.List[uint8], BoxError]) {
-        iterRes := bt.TupleIteratorNewTupleIterator(t)
-        if !iterRes.IsOK() {
-            return cm.Err[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*iterRes.Err())
-        }
-        iter := *iterRes.OK()
-    
-        var res [][]any
-    
-        for {
-            pos := iter.Position()
-            nextRes := iter.Next()
-            if !nextRes.IsOK() {
-                break
-            }
-            field := *nextRes.OK()
-            if field.Ptr == 0 {
-                break
-            }
-            res = append(res, []any{pos, field.Ptr})
-        }
-    
-        // rewind
-        iter.Rewind()
-        rpos := iter.Position()        
-        rfield_result := iter.Next()
-        var rfield TupleField
-        if rfield_result.IsOK() {
-			rfield = *rfield_result.OK()
-		}
-        res = append(res, []any{"rewind", rpos, rfield.Ptr})
-    
-        // seek
-        sfield_result := iter.Seek(1)
-        var sfield TupleField
-        if sfield_result.IsOK() {
-			sfield = *sfield_result.OK()
-		}
-
-        spos := iter.Position()
-        res = append(res, []any{"seek", spos, sfield.Ptr})
-    
-        jsonBytes, err := json.Marshal(res)
-        if err != nil {
-            return cm.Err[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](BoxError{
-                Code:    1,
-                Message: err.Error(),
-            })
-        }
-    
-        msgpack_res := msgpack.Encode(cm.ToList(jsonBytes))
-        if msgpack_res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*msgpack_res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*msgpack_res.Err())
-    }
+	adder.Exports.TNew = func(data MsgpackValue) cm.Result[BoxErrorShape, BoxTuple, BoxError] {
+		return convertResult[bt.BoxErrorShape, BoxErrorShape, BoxTuple, BoxError](bt.New(data))
+	}
+	adder.Exports.TRetain = bt.Retain
+	adder.Exports.TRelease = bt.Release
+	adder.Exports.TFieldCount = bt.FieldCount
+	adder.Exports.TByteSize = bt.ByteSize
+	adder.Exports.TToBytes = func(t BoxTuple) MsgpackResult {
+		return convertResult[bt.BoxErrorShape, BoxErrorShape, MsgpackValue, BoxError](bt.ToBytes(t))
+	}
+	adder.Exports.TFormat = bt.Format
+	adder.Exports.TField = func(t BoxTuple, index uint32) cm.Result[BoxErrorShape, cm.Option[MsgpackValue], BoxError] {
+		return convertResult[bt.BoxErrorShape, BoxErrorShape, cm.Option[MsgpackValue], BoxError](bt.Field(t, index))
+	}
+	adder.Exports.TFieldByPath = func(t BoxTuple, path string) cm.Result[BoxErrorShape, cm.Option[MsgpackValue], BoxError] {
+		return convertResult[bt.BoxErrorShape, BoxErrorShape, cm.Option[MsgpackValue], BoxError](bt.FieldByPath(t, path))
+	}
+	adder.Exports.TUpdate = func(t BoxTuple, expression MsgpackValue) cm.Result[BoxErrorShape, BoxTuple, BoxError] {
+		return convertResult[bt.BoxErrorShape, BoxErrorShape, BoxTuple, BoxError](bt.Update(t, expression))
+	}
+	adder.Exports.TUpsert = func(t BoxTuple, expression MsgpackValue) cm.Result[BoxErrorShape, BoxTuple, BoxError] {
+		return convertResult[bt.BoxErrorShape, BoxErrorShape, BoxTuple, BoxError](bt.Upsert(t, expression))
+	}
+	adder.Exports.TValidate = bt.Validate
+	adder.Exports.TCompare = bt.Compare
+	adder.Exports.TCompareWithKey = func(tuple BoxTuple, key MsgpackValue, keyDef KeyDef) cm.Result[BoxErrorShape, int32, BoxError] {
+		return convertResult[bt.BoxErrorShape, BoxErrorShape, int32, BoxError](bt.CompareWithKey(tuple, key, keyDef))
+	}
+	adder.Exports.TKeyDefNew = func(parts cm.List[KeyPart]) cm.Result[BoxErrorShape, KeyDef, BoxError] {
+		return convertResult[kd.BoxErrorShape, BoxErrorShape, KeyDef, BoxError](kd.New(parts))
+	}
+	adder.Exports.TTupleFormatDefault = tupleFormat.Default
+	adder.Exports.TTupleFormatNew = func(keyDefs cm.List[KeyDef]) cm.Result[BoxErrorShape, TupleFormat, BoxError] {
+		return convertResult[tupleFormat.BoxErrorShape, BoxErrorShape, TupleFormat, BoxError](tupleFormat.New(keyDefs))
+	}
+	adder.Exports.TIterTestAll = iteratorResult
 }
 
 func main() {}

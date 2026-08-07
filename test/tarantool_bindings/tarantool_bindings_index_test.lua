@@ -144,7 +144,7 @@ end
 g.test_count = function(cg)
     local idx = cg.idx
     local key = {string.byte(msgpack.encode({}), 1, -1)}
-    local iter_type = "iter-all"
+    local iter_type = "all"
     local res = wasm.call(cg.m, "t-count", idx, iter_type, key)
 
     t.assert(res[1])

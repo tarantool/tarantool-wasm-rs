@@ -1,176 +1,204 @@
-#include "adder.h"
-#include <stdio.h>
+#include "bindings/adder.h"
+
 #include <stdlib.h>
 #include <string.h>
 
-bool exports_adder_t_new(adder_list_u8_t *data, adder_box_tuple_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_new(data, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_new(adder_msgpack_value_t *data, adder_box_tuple_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_new(data, ret, err);
 }
 
-int32_t exports_adder_t_ref(adder_box_tuple_t *t) {
-    return tarantool_tarantool_box_tuple_ref(t);
+void exports_adder_t_retain(adder_box_tuple_t *t) {
+    tarantool_tarantool_box_tuple_retain(t);
 }
 
-void exports_adder_t_unref(adder_box_tuple_t *t) {
-    return tarantool_tarantool_box_tuple_unref(t);
+void exports_adder_t_release(adder_box_tuple_t *t) {
+    tarantool_tarantool_box_tuple_release(t);
 }
 
 uint32_t exports_adder_t_field_count(adder_box_tuple_t *t) {
     return tarantool_tarantool_box_tuple_field_count(t);
 }
 
-uint64_t exports_adder_t_bsize(adder_box_tuple_t *t) {
-    return tarantool_tarantool_box_tuple_bsize(t);
+uint64_t exports_adder_t_byte_size(adder_box_tuple_t *t) {
+    return tarantool_tarantool_box_tuple_byte_size(t);
 }
 
-bool exports_adder_t_to_buf(adder_box_tuple_t *t, adder_list_u8_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_to_buf(t, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_to_bytes(adder_box_tuple_t *t, adder_msgpack_value_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_to_bytes(t, ret, err);
 }
 
 void exports_adder_t_format(adder_box_tuple_t *t, adder_tuple_format_t *ret) {
-    return tarantool_tarantool_box_tuple_format(t, ret);
+    tarantool_tarantool_box_tuple_format(t, ret);
 }
 
-bool exports_adder_t_field(adder_box_tuple_t *t, uint32_t idx, adder_tuple_field_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_field(t, idx, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_field(adder_box_tuple_t *t, uint32_t idx, adder_option_tuple_field_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_field(t, idx, ret, err);
 }
 
-bool exports_adder_t_field_by_path(adder_box_tuple_t *t, adder_string_t *path, int32_t index_base, adder_tuple_field_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_field_by_path(t, path, index_base, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_field_by_path(adder_box_tuple_t *t, adder_string_t *path, adder_option_tuple_field_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_field_by_path(t, path, ret, err);
 }
 
-bool exports_adder_t_update(adder_box_tuple_t *t, adder_list_u8_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_update(t, expr, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_update(adder_box_tuple_t *t, adder_msgpack_value_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_update(t, expr, ret, err);
 }
 
-bool exports_adder_t_upsert(adder_box_tuple_t *t, adder_list_u8_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_box_tuple_upsert(t, expr, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+bool exports_adder_t_upsert(adder_box_tuple_t *t, adder_msgpack_value_t *expr, adder_box_tuple_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_upsert(t, expr, ret, err);
 }
 
-bool exports_adder_t_validate(adder_box_tuple_t *t, adder_tuple_format_t *format) {
-    return tarantool_tarantool_box_tuple_validate(t, format);
+bool exports_adder_t_validate(adder_box_tuple_t *t, adder_tuple_format_t *format, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_validate(t, format, err);
 }
 
 int32_t exports_adder_t_compare(adder_key_def_t *key_def, adder_box_tuple_t *left, adder_box_tuple_t *right) {
     return tarantool_tarantool_box_tuple_compare(key_def, left, right);
 }
 
-int32_t exports_adder_t_compare_with_key(adder_box_tuple_t *tuple, adder_list_u8_t *key, adder_key_def_t *key_def) {
-    return tarantool_tarantool_box_tuple_compare_with_key(tuple, key, key_def);
+bool exports_adder_t_compare_with_key(adder_box_tuple_t *tuple, adder_msgpack_value_t *key, adder_key_def_t *key_def, int32_t *ret, adder_box_error_t *err) {
+    return tarantool_tarantool_box_tuple_compare_with_key(tuple, key, key_def, ret, err);
 }
 
 bool exports_adder_t_key_def_new(adder_list_key_part_t *parts, adder_key_def_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_key_def_new((tarantool_tarantool_key_def_list_key_part_t *)parts, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+    return tarantool_tarantool_key_def_new(
+        (tarantool_tarantool_key_def_list_key_part_t *)parts,
+        ret,
+        err);
 }
 
 void exports_adder_t_tuple_format_default(adder_tuple_format_t *ret) {
-    return tarantool_tarantool_tuple_format_default(ret);
+    tarantool_tarantool_tuple_format_default(ret);
 }
 
 bool exports_adder_t_tuple_format_new(adder_list_key_def_t *key_defs, adder_tuple_format_t *ret, adder_box_error_t *err) {
-    return tarantool_tarantool_tuple_format_new(key_defs, ret, (tarantool_tarantool_box_tuple_box_error_t *) err);
+    return tarantool_tarantool_tuple_format_new(
+        (tarantool_tarantool_tuple_format_list_key_def_t *)key_defs,
+        ret,
+        err);
 }
 
-bool exports_adder_t_decode_from_raw_ptr(uint64_t ptr, adder_list_u8_t *ret, adder_box_error_t *err) {
-    return exports_adder_t_decode_from_raw_ptr(ptr, ret, err);
+static bool append_bytes(uint8_t *buffer, size_t capacity, size_t *offset, const uint8_t *data, size_t len) {
+    if (len > capacity - *offset) {
+        return false;
+    }
+    memcpy(buffer + *offset, data, len);
+    *offset += len;
+    return true;
 }
 
-/*
-MessagePack is encoded manually because C lacks native JSON support.
-Using tarantool_msgpack_encode would require constructing a JSON string,
-which is complex and error-prone in C. Manual encoding avoids this overhead.
-*/
-bool exports_adder_t_iter_test_all(adder_box_tuple_t *t, adder_list_u8_t *ret, adder_box_error_t *err) {
+static bool append_u32(uint8_t *buffer, size_t capacity, size_t *offset, uint32_t value) {
+    if (value <= 0x7f) {
+        uint8_t encoded = (uint8_t)value;
+        return append_bytes(buffer, capacity, offset, &encoded, 1);
+    }
+    uint8_t encoded[5] = {
+        0xce,
+        (uint8_t)(value >> 24),
+        (uint8_t)(value >> 16),
+        (uint8_t)(value >> 8),
+        (uint8_t)value,
+    };
+    return append_bytes(buffer, capacity, offset, encoded, sizeof(encoded));
+}
 
-    tarantool_tarantool_box_tuple_own_tuple_iterator_t iter;
-    tarantool_tarantool_box_tuple_box_error_t iter_err;
+static bool append_field(
+    uint8_t *buffer,
+    size_t capacity,
+    size_t *offset,
+    adder_option_tuple_field_t *field) {
+    if (!field->is_some) {
+        return false;
+    }
+    return append_bytes(buffer, capacity, offset, field->val.ptr, field->val.len);
+}
 
-    if (!tarantool_tarantool_box_tuple_static_tuple_iterator_new_tuple_iterator(t, &iter, &iter_err)) {
-        *err = iter_err;
+bool exports_adder_t_iter_test_all(adder_box_tuple_t *t, adder_msgpack_value_t *ret, adder_box_error_t *err) {
+    tarantool_tarantool_box_tuple_own_iterator_t owned;
+    if (!tarantool_tarantool_box_tuple_static_iterator_new(t, &owned, err)) {
+        return false;
+    }
+    tarantool_tarantool_box_tuple_borrow_iterator_t iterator = {
+        .__handle = owned.__handle,
+    };
+
+    size_t capacity = (size_t)tarantool_tarantool_box_tuple_byte_size(t) * 3
+        + (size_t)tarantool_tarantool_box_tuple_field_count(t) * 12 + 128;
+    uint8_t *buffer = malloc(capacity);
+    if (buffer == NULL) {
+        tarantool_tarantool_box_tuple_iterator_drop_own(owned);
         return false;
     }
 
-    tarantool_tarantool_box_tuple_borrow_tuple_iterator_t biter =
-        tarantool_tarantool_box_tuple_borrow_tuple_iterator(iter);
-
-    uint8_t buf[4096];
-    size_t offset = 0;
-
-    // msgpack array header (we'll fix size later)
-    buf[offset++] = 0x90; // empty array for now
-
-    uint32_t count = 0;
+    size_t offset = 5;
+    uint32_t item_count = 0;
+    bool ok = true;
 
     for (;;) {
-        uint32_t pos = tarantool_tarantool_box_tuple_method_tuple_iterator_position(biter);
-        tarantool_tarantool_box_tuple_tuple_field_t field;
-        tarantool_tarantool_box_tuple_box_error_t field_err;
-
-        if (!tarantool_tarantool_box_tuple_method_tuple_iterator_next(biter, &field, &field_err)) {
+        uint32_t position = tarantool_tarantool_box_tuple_method_iterator_position(iterator);
+        adder_option_tuple_field_t field = {0};
+        if (!tarantool_tarantool_box_tuple_method_iterator_next(iterator, &field, err)) {
+            ok = false;
             break;
         }
-        if (field.ptr == 0)
+        if (!field.is_some) {
             break;
-
-        // [pos, field] as fixarray 2
-        if (offset + 1 + 5 + 9 > sizeof(buf)) break; // safety
-        buf[offset++] = 0x92;                    // array of 2
-        buf[offset++] = 0xcc; buf[offset++] = pos; // uint8
-        buf[offset++] = 0xcf; // uint64
-        for (int i = 7; i >= 0; i--)
-            buf[offset++] = (field.ptr >> (i * 8)) & 0xFF;
-        count++;
+        }
+        uint8_t pair = 0x92;
+        ok = append_bytes(buffer, capacity, &offset, &pair, 1)
+            && append_u32(buffer, capacity, &offset, position)
+            && append_field(buffer, capacity, &offset, &field);
+        adder_option_tuple_field_free(&field);
+        if (!ok) {
+            break;
+        }
+        item_count++;
     }
 
-    // rewind & next
-    tarantool_tarantool_box_tuple_method_tuple_iterator_rewind(biter);
-    uint32_t rpos = tarantool_tarantool_box_tuple_method_tuple_iterator_position(biter);
-    tarantool_tarantool_box_tuple_tuple_field_t rfield;
-    tarantool_tarantool_box_tuple_box_error_t rerr;
-    tarantool_tarantool_box_tuple_method_tuple_iterator_next(biter, &rfield, &rerr);
+    if (ok) {
+        tarantool_tarantool_box_tuple_method_iterator_rewind(iterator);
+        uint32_t position = tarantool_tarantool_box_tuple_method_iterator_position(iterator);
+        adder_option_tuple_field_t field = {0};
+        ok = tarantool_tarantool_box_tuple_method_iterator_next(iterator, &field, err);
+        if (ok) {
+            const uint8_t prefix[] = {0x93, 0xa6, 'r', 'e', 'w', 'i', 'n', 'd'};
+            ok = append_bytes(buffer, capacity, &offset, prefix, sizeof(prefix))
+                && append_u32(buffer, capacity, &offset, position)
+                && append_field(buffer, capacity, &offset, &field);
+            adder_option_tuple_field_free(&field);
+            if (ok) {
+                item_count++;
+            }
+        }
+    }
 
-    buf[offset++] = 0x93; // array of 3: "rewind", rpos, rfield
-    buf[offset++] = 0xa6; memcpy(&buf[offset], "rewind", 6); offset += 6;
-    buf[offset++] = 0xcc; buf[offset++] = rpos;
-    buf[offset++] = 0xcf;
-    for (int i = 7; i >= 0; i--)
-        buf[offset++] = (rfield.ptr >> (i * 8)) & 0xFF;
-    count++;
+    if (ok) {
+        adder_option_tuple_field_t field = {0};
+        ok = tarantool_tarantool_box_tuple_method_iterator_seek(iterator, 1, &field, err);
+        if (ok) {
+            uint32_t position = tarantool_tarantool_box_tuple_method_iterator_position(iterator);
+            const uint8_t prefix[] = {0x93, 0xa4, 's', 'e', 'e', 'k'};
+            ok = append_bytes(buffer, capacity, &offset, prefix, sizeof(prefix))
+                && append_u32(buffer, capacity, &offset, position)
+                && append_field(buffer, capacity, &offset, &field);
+            adder_option_tuple_field_free(&field);
+            if (ok) {
+                item_count++;
+            }
+        }
+    }
 
-    // seek(1)
-    tarantool_tarantool_box_tuple_tuple_field_t sfield;
-    tarantool_tarantool_box_tuple_box_error_t serr;
-    tarantool_tarantool_box_tuple_method_tuple_iterator_seek(biter, 1, &sfield, &serr);
-    uint32_t spos = tarantool_tarantool_box_tuple_method_tuple_iterator_position(biter);
-
-    buf[offset++] = 0x93; // array of 3: "seek", spos, sfield
-    buf[offset++] = 0xa4; memcpy(&buf[offset], "seek", 4); offset += 4;
-    buf[offset++] = 0xcc; buf[offset++] = spos;
-    buf[offset++] = 0xcf;
-    for (int i = 7; i >= 0; i--)
-        buf[offset++] = (sfield.ptr >> (i * 8)) & 0xFF;
-    count++;
-
-    // Fix top-level array length
-    if (count <= 15)
-        buf[0] = 0x90 + count;
-    else if (count <= 0xffff) {
-        memmove(&buf[3], &buf[1], offset - 1);
-        buf[0] = 0xdc;
-        buf[1] = (count >> 8) & 0xff;
-        buf[2] = count & 0xff;
-        offset += 2;
-    } else {
-        // unlikely
+    tarantool_tarantool_box_tuple_iterator_drop_own(owned);
+    if (!ok) {
+        free(buffer);
         return false;
     }
 
-    // Wrap as list<u8>
-    adder_list_u8_t raw;
-    raw.ptr = malloc(offset);
-    if (!raw.ptr) return false;
-    memcpy(raw.ptr, buf, offset);
-    raw.len = offset;
-    *ret = raw;
+    buffer[0] = 0xdd;
+    buffer[1] = (uint8_t)(item_count >> 24);
+    buffer[2] = (uint8_t)(item_count >> 16);
+    buffer[3] = (uint8_t)(item_count >> 8);
+    buffer[4] = (uint8_t)item_count;
+    ret->ptr = buffer;
+    ret->len = offset;
     return true;
 }

@@ -1,54 +1,70 @@
-import { new as boxTupleNew, ref, unref, fieldCount, bsize, toBuf, format, field, fieldByPath, update, upsert, validate, compare, compareWithKey, TupleIterator } from 'tarantool:tarantool/box-tuple@0.1.2';
-import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.1.2';
-import { new as tupleFormatNew, default as tupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.1.2';
-import { encode, decodeFromRawPtr } from 'tarantool:tarantool/msgpack@0.1.2';
+import {
+    new as boxTupleNew,
+    retain,
+    release,
+    fieldCount,
+    byteSize,
+    toBytes,
+    format,
+    field,
+    fieldByPath,
+    update,
+    upsert,
+    validate,
+    compare,
+    compareWithKey,
+    Iterator,
+} from 'tarantool:tarantool/box-tuple@0.2.0';
+import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.2.0';
+import { new as tupleFormatNew, default as tupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.2.0';
+import { fromJson, toJson } from 'tarantool:tarantool/msgpack@0.2.0';
 
 export function tNew(data) {
     return boxTupleNew(data)
 }
 
-export function tRef(t) {
-    return ref(t)
+export function tRetain(tuple) {
+    retain(tuple)
 }
 
-export function tUnref(t) {
-    return unref(t)
+export function tRelease(tuple) {
+    release(tuple)
 }
 
-export function tFieldCount(t) {
-    return fieldCount(t)
+export function tFieldCount(tuple) {
+    return fieldCount(tuple)
 }
 
-export function tBsize(t) {
-    return bsize(t)
+export function tByteSize(tuple) {
+    return byteSize(tuple)
 }
 
-export function tToBuf(t) {
-    return toBuf(t)
+export function tToBytes(tuple) {
+    return toBytes(tuple)
 }
 
-export function tFormat(t) {
-    return format(t)
+export function tFormat(tuple) {
+    return format(tuple)
 }
 
-export function tField(t, idx) {
-    return field(t, idx)
+export function tField(tuple, index) {
+    return field(tuple, index)
 }
 
-export function tFieldByPath(t, path, indexBase) {
-    return fieldByPath(t, path, indexBase)
+export function tFieldByPath(tuple, path) {
+    return fieldByPath(tuple, path)
 }
 
-export function tUpdate(t, expr) {
-    return update(t, expr)
+export function tUpdate(tuple, expression) {
+    return update(tuple, expression)
 }
 
-export function tUpsert(t, expr) {
-    return upsert(t, expr)
+export function tUpsert(tuple, expression) {
+    return upsert(tuple, expression)
 }
 
-export function tValidate(t, format) {
-    return validate(t, format)
+export function tValidate(tuple, tupleFormat) {
+    return validate(tuple, tupleFormat)
 }
 
 export function tCompare(keyDef, left, right) {
@@ -68,42 +84,35 @@ export function tTupleFormatDefault() {
 }
 
 export function tTupleFormatNew(keyDefs) {
-    console.log("Eeeeee1")
     return tupleFormatNew(keyDefs)
 }
 
-export function tDecodeFromRawPtr(ptr) {
-    return decodeFromRawPtr(ptr)
+function decoded(value) {
+    return JSON.parse(toJson(value))
 }
-  
-export function tIterTestAll(t) {
-    const iter = TupleIterator.newTupleIterator(t)
 
+export function tIterTestAll(tuple) {
+    const iterator = Iterator.new(tuple)
     const result = []
+    try {
+        while (true) {
+            const position = iterator.position()
+            const value = iterator.next()
+            if (value === undefined) {
+                break
+            }
+            result.push([position, decoded(value)])
+        }
 
-    // Iterate through all fields
-    while (true) {
-        const pos = iter.position()
-        const field = iter.next()
-        if (field.ptr == 0)
-            break
-        result.push([pos, field.ptr.toString()])
+        iterator.rewind()
+        const rewindPosition = iterator.position()
+        const rewindValue = iterator.next()
+        result.push(['rewind', rewindPosition, decoded(rewindValue)])
+
+        const seekValue = iterator.seek(1)
+        result.push(['seek', iterator.position(), decoded(seekValue)])
+    } finally {
+        iterator[Symbol.dispose]()
     }
-
-    // Rewind and take next field again
-    iter.rewind()
-    const rewind_pos = iter.position()
-    const rewind_field = iter.next()
-    result.push(['rewind', rewind_pos, rewind_field.ptr.toString()])
-
-    // Seek to 1
-    const seek_field = iter.seek(1)
-    const seek_pos = iter.position()
-    result.push(['seek', seek_pos, seek_field.ptr.toString()])
-
-    const jsonString = JSON.stringify(result);
-    const jsonBytes = new TextEncoder().encode(jsonString);
-    const encodedMsgPack = encode(jsonBytes);
-    return encodedMsgPack;
+    return fromJson(JSON.stringify(result))
 }
-    

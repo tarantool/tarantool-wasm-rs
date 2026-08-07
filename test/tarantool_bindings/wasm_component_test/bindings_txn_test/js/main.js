@@ -1,59 +1,42 @@
 import {
-    txn,
-    txnId,
-    txnIsolation,
-    txnMakeSync,
-    txnSetIsolation,
+    id,
+    isolation,
+    makeSynchronous,
+    setIsolation,
     begin,
     commit,
-    rollback
-} from 'tarantool:tarantool/txn@0.1.2';
+    rollback,
+} from 'tarantool:tarantool/transaction@0.2.0';
+import { write } from 'tarantool:tarantool/log@0.2.0';
 
-import { sayInfo } from 'tarantool:tarantool/say@0.1.2';
-
-const isolationToStr = {
-    'txn-isolation-default': 'TXN_ISOLATION_DEFAULT',
-    'txn-isolation-best-effort': 'TXN_ISOLATION_BEST_EFFORT',
-    'txn-isolation-read-committed': 'TXN_ISOLATION_READ_COMMITTED',
-    'txn-isolation-read-confirmed': 'TXN_ISOLATION_READ_CONFIRMED',
-    'txn-isolation-linearizable': 'TXN_ISOLATION_LINEARIZABLE',
-};
-
-function boolStr(value) {
-    return value ? 'True' : 'False';
+function info(message) {
+    write('info', message, undefined)
 }
 
 export const run = {
-    run: async function() {
-        sayInfo(`txn() before begin: ${boolStr(txn())}`);
+    run: function() {
+        info(`transaction id before begin: ${id() ?? 'none'}`)
 
-        await begin();
-        sayInfo("txn.begin()");
+        begin()
+        info('transaction.begin()')
+        info(`transaction id first: ${id() ?? 'none'}`)
+        info(`transaction isolation: ${isolation() ?? 'none'}`)
 
-        const id1 = txnId();
-        const iso1 = txnIsolation();
-        sayInfo(`txn_id first: ${id1}`);
-        sayInfo(`txn_isolation: ${isolationToStr[iso1] ?? `UNKNOWN(${iso1})`}`);
+        makeSynchronous()
+        info('transaction.make_synchronous()')
 
-        txnMakeSync();
-        sayInfo("txn_make_sync()");
+        setIsolation('best-effort')
+        info('transaction.set_isolation()')
+        info(`transaction isolation after set: ${isolation() ?? 'none'}`)
 
-        await txnSetIsolation('txn-isolation-best-effort');
-        const iso2 = txnIsolation();
-        sayInfo(`txn_isolation after set: ${isolationToStr[iso2] ?? `UNKNOWN(${iso2})`}`);
+        commit()
+        info('transaction.commit()')
 
-        await commit();
-        sayInfo("txn.commit()");
-
-        await begin();
-        sayInfo("txn.begin() second");
-        
-        const id2 = txnId();
-        sayInfo(`txn_id second: ${id2}`);
-
-        await rollback();
-        sayInfo("txn.rollback()");
-
-        sayInfo(`txn() after rollback: ${boolStr(txn())}`);
-    }
-};
+        begin()
+        info('transaction.begin() second')
+        info(`transaction id second: ${id() ?? 'none'}`)
+        rollback()
+        info('transaction.rollback()')
+        info(`transaction id after rollback: ${id() ?? 'none'}`)
+    },
+}

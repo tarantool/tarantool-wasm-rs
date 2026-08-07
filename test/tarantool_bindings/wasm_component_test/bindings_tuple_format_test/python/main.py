@@ -11,10 +11,10 @@ class WitWorld:
         return tuple_format.new(key_defs)
 
     def t_ref(self, tf: types.TupleFormat) -> None:
-        tuple_format.ref(tf)
+        tuple_format.retain(tf)
 
     def t_unref(self, tf: types.TupleFormat) -> None:
-        tuple_format.unref(tf)
+        tuple_format.release(tf)
 
     def t_key_def_new(self, parts: List[types.KeyPart]) -> types.KeyDef:
        return key_def.new(parts)

@@ -4,8 +4,8 @@ use wasmtime_wasi_tls::p2::LinkOptions;
 use crate::bindings::{
     docs::adder::{lua_callback, zlib},
     tarantool::tarantool::{
-        box_tuple, error, index, key_def, metrics, msgpack, say, sequence, session, ttbox,
-        tuple_format, txn, types,
+        box_tuple, database, error, index, key_def, log, metrics, msgpack, sequence, session,
+        transaction, tuple_format, types,
     },
 };
 
@@ -39,12 +39,13 @@ pub(super) fn build_runtime_linker(engine: &Engine) -> Linker<SyncWasmStates> {
 
     let _ = wasmtime_wasi_tls::p2::add_to_linker(&mut linker, &opts);
 
-    let _ = ttbox::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = say::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = database::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = log::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = session::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = msgpack::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
-    let _ = txn::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ =
+        transaction::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = types::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = index::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = sequence::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);

@@ -1,2 +1,2 @@
-componentize-py==0.21.0
+componentize-py==0.25.0
 msgpack==1.0.3

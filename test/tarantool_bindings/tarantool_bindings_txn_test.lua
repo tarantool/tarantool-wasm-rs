@@ -34,17 +34,18 @@ g.after_all(function()
 end)
 
 local expected_lines = {
-    "unknown say%.rs:%d+ I> txn%(%).*before begin: False",
-    "main/%d+/main say%.rs:%d+ I> txn%.begin%(%)*",
-    "main/%d+/main say%.rs:%d+ I> txn_id first: %d+",
-    "main/%d+/main say%.rs:%d+ I> txn_isolation: TXN_ISOLATION_READ_CONFIRMED",
-    "main/%d+/main say%.rs:%d+ I> txn_make_sync%(%)*",
-    "main/%d+/main say%.rs:%d+ I> txn_isolation after set: TXN_ISOLATION_BEST_EFFORT",
-    "unknown say%.rs:%d+ I> txn%.commit%(%)*",
-    "main/%d+/main say%.rs:%d+ I> txn%.begin%(%)* second",
-    "main/%d+/main say%.rs:%d+ I> txn_id second: %d+",
-    "unknown say%.rs:%d+ I> txn%.rollback%(%)*",
-    "unknown say%.rs:%d+ I> txn%(%).*after rollback: False",
+    "unknown say%.rs:%d+ I> transaction id before begin: none",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction%.begin%(%)",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction id first: %d+",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction isolation: read%-confirmed",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction%.make_synchronous%(%)",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction%.set_isolation%(%)",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction isolation after set: best%-effort",
+    "unknown say%.rs:%d+ I> transaction%.commit%(%)",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction%.begin%(%) second",
+    "main/%d+/%w+ say%.rs:%d+ I> transaction id second: %d+",
+    "unknown say%.rs:%d+ I> transaction%.rollback%(%)",
+    "unknown say%.rs:%d+ I> transaction id after rollback: none",
 }
 
 local function normalize_lines(log)

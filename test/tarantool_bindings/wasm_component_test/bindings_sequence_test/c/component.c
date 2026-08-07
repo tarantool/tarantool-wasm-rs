@@ -1,4 +1,4 @@
-#include "adder.h"
+#include "bindings/adder.h"
 
 bool exports_adder_t_next(adder_sequence_t *seq, int64_t *ret, adder_box_error_t *err) {
     return tarantool_tarantool_sequence_next((tarantool_tarantool_sequence_sequence_t *)seq, ret, (tarantool_tarantool_sequence_box_error_t *)err);

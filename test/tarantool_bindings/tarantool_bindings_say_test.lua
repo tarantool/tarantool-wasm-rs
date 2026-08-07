@@ -30,14 +30,13 @@ g.before_all(function(cg)
 end)
 
 local function log(cg, ctx)
-    wasm.call(cg.m, "t-say", "s-info", "hello from t_say", ctx)
+    wasm.call(cg.m, "t-say", "info", "hello from t_say", ctx)
     wasm.call(cg.m, "t-say-error", "an error occurred", ctx)
     wasm.call(cg.m, "t-say-crit", "critical message", ctx)
     wasm.call(cg.m, "t-say-warn", "warning message", ctx)
     wasm.call(cg.m, "t-say-info", "info message", ctx)
     wasm.call(cg.m, "t-say-verbose", "verbose output", ctx)
     wasm.call(cg.m, "t-say-debug", "debug output", ctx)
-    wasm.call(cg.m, "t-say-syserror", "sys error occurred", ctx)
 end
 
 local function wait_for_log(get_new_log, marker)
@@ -54,7 +53,7 @@ g.test_say_interfaces = function(cg)
     local ok, res = pcall(log, cg)
     t.assert(ok)
 
-    local content = wait_for_log(get_new_log, "!> sys error occurred")
+    local content = wait_for_log(get_new_log, "D> debug output")
 
     t.assert_str_contains(content, "I> hello from t_say")
     t.assert_str_contains(content, "E> an error occurred")
@@ -63,18 +62,17 @@ g.test_say_interfaces = function(cg)
     t.assert_str_contains(content, "I> info message")
     t.assert_str_contains(content, "V> verbose output")
     t.assert_str_contains(content, "D> debug output")
-    t.assert_str_contains(content, "!> sys error occurred")
 end
 
 g.test_say_interfaces_with_context = function(cg)
     local get_new_log = read_new_log()
-    local ctx = { filename = "some_file.lua", line = 42 }
+    local ctx = { file = "some_file.lua", line = 42 }
     local ok, res = pcall(log, cg, ctx)
     t.assert(ok)
 
     local content = wait_for_log(
         get_new_log,
-        "some_file.lua:42 !> sys error occurred"
+        "some_file.lua:42 D> debug output"
     )
 
     t.assert_str_contains(content, "some_file.lua:42 I> hello from t_say")
@@ -84,5 +82,4 @@ g.test_say_interfaces_with_context = function(cg)
     t.assert_str_contains(content, "some_file.lua:42 I> info message")
     t.assert_str_contains(content, "some_file.lua:42 V> verbose output")
     t.assert_str_contains(content, "some_file.lua:42 D> debug output")
-    t.assert_str_contains(content, "some_file.lua:42 !> sys error occurred")
 end

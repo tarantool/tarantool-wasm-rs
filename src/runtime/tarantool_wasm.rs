@@ -94,7 +94,7 @@ pub(crate) use self::{
         tt_wasm_instance_drop_resource_detached, tt_wasm_session_call_function_with_ownership,
         tt_wasm_session_call_functions_with_ownership, WasmInstanceTarget,
     },
-    store::{SyncWasmStates, WasmStates},
+    store::SyncWasmStates,
 };
 pub use self::{
     execution::{tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_run_module},

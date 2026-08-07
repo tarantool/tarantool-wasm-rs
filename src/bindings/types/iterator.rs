@@ -6,21 +6,21 @@ pub fn convert_iterator_type(t: IteratorType) -> Result<tarantool::index::Iterat
     use tarantool::index::IteratorType as Native;
 
     Ok(match t {
-        IteratorType::IterEq => Native::Eq,
-        IteratorType::IterReq => Native::Req,
-        IteratorType::IterAll => Native::All,
-        IteratorType::IterLt => Native::LT,
-        IteratorType::IterLe => Native::LE,
-        IteratorType::IterGe => Native::GE,
-        IteratorType::IterGt => Native::GT,
-        IteratorType::IterBitsAllSet => Native::BitsAllSet,
-        IteratorType::IterBitsAnySet => Native::BitsAnySet,
-        IteratorType::IterBitsAllNotSet => Native::BitsAllNotSet,
-        IteratorType::IterOverlaps => Native::Overlaps,
-        IteratorType::IterNeighbor => Native::Neighbor,
+        IteratorType::Equal => Native::Eq,
+        IteratorType::ReverseEqual => Native::Req,
+        IteratorType::All => Native::All,
+        IteratorType::LessThan => Native::LT,
+        IteratorType::LessThanOrEqual => Native::LE,
+        IteratorType::GreaterThanOrEqual => Native::GE,
+        IteratorType::GreaterThan => Native::GT,
+        IteratorType::BitsAllSet => Native::BitsAllSet,
+        IteratorType::BitsAnySet => Native::BitsAnySet,
+        IteratorType::BitsAllNotSet => Native::BitsAllNotSet,
+        IteratorType::Overlaps => Native::Overlaps,
+        IteratorType::Neighbor => Native::Neighbor,
         // need for patch https://github.com/picodata/tarantool-module/blob/e4c78b9b0e59ef45ab6e8a7023aa192b28e330c0/tarantool/src/index.rs#L57
         // https://github.com/tarantool/tarantool/pull/10028
-        IteratorType::IterNp | IteratorType::IterPp => {
+        IteratorType::NextPrefix | IteratorType::PreviousPrefix => {
             return Err(BoxError::new(
                 TarantoolErrorCode::IteratorType as u32,
                 "IteratorType",

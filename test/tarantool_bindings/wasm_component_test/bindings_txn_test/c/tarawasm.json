@@ -1,7 +1,10 @@
 {
+  "language": "c",
   "world": "adder",
-  "lang": "c",
-  "wit_path": "wit",
-  "src_file": "component.c",
-  "wasm_file": "docs:adder@0.1.0.wasm"
+  "wit": {
+    "path": "wit",
+    "package": "docs:adder@0.1.0"
+  },
+  "source": "component.c",
+  "output": "adder.wasm"
 }

@@ -11,7 +11,7 @@ impl sequence::Host for SyncWasmStates {
             .execute(move || {
                 debug_assert_tx_thread();
                 let mut res: i64 = 0;
-                let rc = unsafe { ffi::r#box::box_sequence_next(seq.id as u32, &mut res) };
+                let rc = unsafe { ffi::r#box::box_sequence_next(seq.id, &mut res) };
 
                 match rc {
                     0 => Ok(res),
@@ -26,7 +26,7 @@ impl sequence::Host for SyncWasmStates {
             .execute(move || {
                 debug_assert_tx_thread();
                 let mut res: i64 = 0;
-                let rc = unsafe { ffi::r#box::box_sequence_current(seq.id as u32, &mut res) };
+                let rc = unsafe { ffi::r#box::box_sequence_current(seq.id, &mut res) };
                 match rc {
                     0 => Ok(res),
                     _ => Err(handle_tarantool_error()),
@@ -39,7 +39,7 @@ impl sequence::Host for SyncWasmStates {
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let rc = unsafe { ffi::r#box::box_sequence_set(seq.id as u32, value) };
+                let rc = unsafe { ffi::r#box::box_sequence_set(seq.id, value) };
 
                 match rc {
                     0 => Ok(()),
@@ -53,7 +53,7 @@ impl sequence::Host for SyncWasmStates {
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let rc = unsafe { ffi::r#box::box_sequence_reset(seq.id as u32) };
+                let rc = unsafe { ffi::r#box::box_sequence_reset(seq.id) };
 
                 match rc {
                     0 => Ok(()),

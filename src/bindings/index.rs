@@ -1,4 +1,5 @@
-use crate::bindings::helpers::{debug_assert_tx_thread, validate_array};
+use crate::bindings::error::map_tarantool_error;
+use crate::bindings::helpers::{debug_assert_tx_thread, unknown_error, validate_array};
 use crate::bindings::tarantool::tarantool::index;
 use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, IteratorType};
 use crate::bindings::types::convert_iterator_type;
@@ -9,179 +10,132 @@ use crate::runtime::tx::run_on_tx_detached;
 use tarantool::index::{Index as TarantoolIndex, IndexId};
 use tarantool::space::SpaceId;
 use tarantool::tuple::Tuple as TarantoolTuple;
-
-use crate::bindings::error::map_tarantool_error;
-use tarantool::error::TarantoolErrorCode;
-
 use wasmtime::component::Resource;
 
-impl index::Host for SyncWasmStates {
-    async fn len(&mut self, index: Index) -> Result<i64, BoxError> {
-        self.executor()
-            .execute(move || {
-                debug_assert_tx_thread();
-                let ind = unsafe {
-                    TarantoolIndex::from_ids_unchecked(
-                        index.space_id as SpaceId,
-                        index.id as IndexId,
-                    )
-                };
-                ind.len().map(|len| len as i64).map_err(map_tarantool_error)
-            })
-            .await
-    }
+fn native_index(index: Index) -> TarantoolIndex {
+    unsafe { TarantoolIndex::from_ids_unchecked(index.space_id as SpaceId, index.id as IndexId) }
+}
 
-    async fn bsize(&mut self, index: Index) -> Result<i64, BoxError> {
+fn tuple_into_ptr(tuple: TarantoolTuple) -> u64 {
+    let ptr = tuple.as_ptr() as u64;
+    std::mem::forget(tuple);
+    ptr
+}
+
+fn optional_tuple_ptr(tuple: Option<TarantoolTuple>) -> Option<u64> {
+    tuple.map(tuple_into_ptr)
+}
+
+impl index::Host for SyncWasmStates {
+    async fn tuple_count(&mut self, index: Index) -> Result<u64, BoxError> {
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let ind = unsafe {
-                    TarantoolIndex::from_ids_unchecked(
-                        index.space_id as SpaceId,
-                        index.id as IndexId,
-                    )
-                };
-                ind.bsize()
-                    .map(|bsize| bsize as i64)
+                native_index(index)
+                    .len()
+                    .map(|len| len as u64)
                     .map_err(map_tarantool_error)
             })
             .await
     }
 
-    async fn random(&mut self, index: Index, rnd: u32) -> Result<BoxTuple, BoxError> {
+    async fn memory_size(&mut self, index: Index) -> Result<u64, BoxError> {
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let ind = unsafe {
-                    TarantoolIndex::from_ids_unchecked(
-                        index.space_id as SpaceId,
-                        index.id as IndexId,
-                    )
-                };
-                match ind.random(rnd) {
-                    Ok(Some(t)) => Ok(BoxTuple {
-                        ptr: t.as_ptr() as u64,
-                    }),
-                    Ok(None) => Err(BoxError::new(
-                        TarantoolErrorCode::TupleNotFound as u32,
-                        "Tuple not found or Index::random returned nothing",
-                    )),
-                    Err(e) => Err(map_tarantool_error(e)),
-                }
+                native_index(index)
+                    .bsize()
+                    .map(|size| size as u64)
+                    .map_err(map_tarantool_error)
             })
             .await
     }
 
-    async fn get(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
-        validate_array(&key)?;
-
-        self.executor()
+    async fn random(&mut self, index: Index, rnd: u32) -> Result<Option<BoxTuple>, BoxError> {
+        let ptr = self
+            .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let ind = unsafe {
-                    TarantoolIndex::from_ids_unchecked(
-                        index.space_id as SpaceId,
-                        index.id as IndexId,
-                    )
-                };
-                let tuple = unsafe { TarantoolTuple::from_slice(&key) };
-                match ind.get(&tuple) {
-                    Ok(Some(t)) => Ok(BoxTuple {
-                        ptr: t.as_ptr() as u64,
-                    }),
-                    Ok(None) => Err(BoxError::new(
-                        TarantoolErrorCode::TupleNotFound as u32,
-                        "Tuple not found or Index::get returned nothing",
-                    )),
-                    Err(e) => Err(map_tarantool_error(e)),
-                }
+                native_index(index)
+                    .random(rnd)
+                    .map(optional_tuple_ptr)
+                    .map_err(map_tarantool_error)
             })
-            .await
+            .await?;
+        ptr.map(|ptr| self.register_tuple(ptr)).transpose()
     }
 
-    async fn min(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
+    async fn get(&mut self, index: Index, key: Vec<u8>) -> Result<Option<BoxTuple>, BoxError> {
         validate_array(&key)?;
-
-        self.executor()
+        let ptr = self
+            .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let ind = unsafe {
-                    TarantoolIndex::from_ids_unchecked(
-                        index.space_id as SpaceId,
-                        index.id as IndexId,
-                    )
-                };
-                let tuple = unsafe { TarantoolTuple::from_slice(&key) };
-                match ind.min(&tuple) {
-                    Ok(Some(t)) => Ok(BoxTuple {
-                        ptr: t.as_ptr() as u64,
-                    }),
-                    Ok(None) => Err(BoxError::new(
-                        TarantoolErrorCode::TupleNotFound as u32,
-                        "Tuple not found or Index::min returned nothing",
-                    )),
-                    Err(e) => Err(map_tarantool_error(e)),
-                }
+                let key = unsafe { TarantoolTuple::from_slice(&key) };
+                native_index(index)
+                    .get(&key)
+                    .map(optional_tuple_ptr)
+                    .map_err(map_tarantool_error)
             })
-            .await
+            .await?;
+        ptr.map(|ptr| self.register_tuple(ptr)).transpose()
     }
 
-    async fn max(&mut self, index: Index, key: Vec<u8>) -> Result<BoxTuple, BoxError> {
+    async fn min(&mut self, index: Index, key: Vec<u8>) -> Result<Option<BoxTuple>, BoxError> {
         validate_array(&key)?;
-
-        self.executor()
+        let ptr = self
+            .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let ind = unsafe {
-                    TarantoolIndex::from_ids_unchecked(
-                        index.space_id as SpaceId,
-                        index.id as IndexId,
-                    )
-                };
-                let tuple = unsafe { TarantoolTuple::from_slice(&key) };
-                match ind.max(&tuple) {
-                    Ok(Some(t)) => Ok(BoxTuple {
-                        ptr: t.as_ptr() as u64,
-                    }),
-                    Ok(None) => Err(BoxError::new(
-                        TarantoolErrorCode::TupleNotFound as u32,
-                        "Tuple not found or Index::max returned nothing",
-                    )),
-                    Err(e) => Err(map_tarantool_error(e)),
-                }
+                let key = unsafe { TarantoolTuple::from_slice(&key) };
+                native_index(index)
+                    .min(&key)
+                    .map(optional_tuple_ptr)
+                    .map_err(map_tarantool_error)
             })
-            .await
+            .await?;
+        ptr.map(|ptr| self.register_tuple(ptr)).transpose()
+    }
+
+    async fn max(&mut self, index: Index, key: Vec<u8>) -> Result<Option<BoxTuple>, BoxError> {
+        validate_array(&key)?;
+        let ptr = self
+            .executor()
+            .execute(move || {
+                debug_assert_tx_thread();
+                let key = unsafe { TarantoolTuple::from_slice(&key) };
+                native_index(index)
+                    .max(&key)
+                    .map(optional_tuple_ptr)
+                    .map_err(map_tarantool_error)
+            })
+            .await?;
+        ptr.map(|ptr| self.register_tuple(ptr)).transpose()
     }
 
     async fn count(
         &mut self,
         index: Index,
-        iter_type: IteratorType,
+        mode: IteratorType,
         key: Vec<u8>,
-    ) -> Result<i64, BoxError> {
+    ) -> Result<u64, BoxError> {
         validate_array(&key)?;
-
-        let iter = convert_iterator_type(iter_type)?;
+        let mode = convert_iterator_type(mode)?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let ind = unsafe {
-                    TarantoolIndex::from_ids_unchecked(
-                        index.space_id as SpaceId,
-                        index.id as IndexId,
-                    )
-                };
-                let tuple = unsafe { TarantoolTuple::from_slice(&key) };
-                ind.count(iter, &tuple)
-                    .map(|count| count as i64)
+                let key = unsafe { TarantoolTuple::from_slice(&key) };
+                native_index(index)
+                    .count(mode, &key)
+                    .map(|count| count as u64)
                     .map_err(map_tarantool_error)
             })
             .await
     }
 }
 
-// SAFETY: the iterator is only transported as an opaque value. Every operation,
-// including destruction, is dispatched to and asserted to run on the TX thread.
+// SAFETY: the iterator is only transported as an opaque value. Every
+// operation, including destruction, is dispatched to the TX thread.
 unsafe impl Send for IndexIteratorImpl {}
 
 impl Drop for IndexIteratorImpl {
@@ -200,96 +154,86 @@ impl Drop for IndexIteratorImpl {
 
 #[derive(Clone, Copy)]
 struct SendPtr<T>(*mut T);
+
 impl<T> SendPtr<T> {
     fn get(self) -> *mut T {
         self.0
     }
 }
 
-// SAFETY: this wrapper only transports the pointer to the TX thread. Its
-// pointee is never accessed on a worker thread.
+// SAFETY: this wrapper only transports a pointer to the TX thread.
 unsafe impl<T> Send for SendPtr<T> {}
 
-impl index::HostIndexIterator for SyncWasmStates {
-    async fn new_iterator(
+impl index::HostIterator for SyncWasmStates {
+    async fn new(
         &mut self,
         index: Index,
-        iterator_type: IteratorType,
+        mode: IteratorType,
         key: Vec<u8>,
     ) -> Result<Resource<IndexIteratorImpl>, BoxError> {
-        let native_iter_type = convert_iterator_type(iterator_type)?;
+        validate_array(&key)?;
+        let mode = convert_iterator_type(mode)?;
         let iter = self
             .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let tuple = unsafe { tarantool::tuple::Tuple::from_slice(&key) };
-                let ind = unsafe {
-                    tarantool::index::Index::from_ids_unchecked(
-                        index.space_id as tarantool::space::SpaceId,
-                        index.id as tarantool::index::IndexId,
-                    )
-                };
-                ind.select(native_iter_type, &tuple)
+                let key = unsafe { TarantoolTuple::from_slice(&key) };
+                native_index(index)
+                    .select(mode, &key)
                     .map(|inner| IndexIteratorImpl { inner: Some(inner) })
                     .map_err(map_tarantool_error)
             })
             .await?;
+
         let mut guard = self
             .state
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let resource = guard.table.push(iter).map_err(|e| {
-            BoxError::new(
-                TarantoolErrorCode::Unknown as u32,
-                format!("Resource table error: {e}"),
-            )
-        })?;
-        Ok(resource)
+        guard
+            .table
+            .push(iter)
+            .map_err(|err| unknown_error(format!("resource table error: {err}")))
     }
 
-    async fn next(&mut self, self_: Resource<index::IndexIterator>) -> Result<BoxTuple, BoxError> {
+    async fn next(
+        &mut self,
+        self_: Resource<index::Iterator>,
+    ) -> Result<Option<BoxTuple>, BoxError> {
         let iter_ptr = {
             let mut guard = self
                 .state
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
-            let iter = guard.table.get_mut(&self_).map_err(|e| {
-                BoxError::new(
-                    TarantoolErrorCode::Unknown as u32,
-                    format!("Resource error: {e}"),
-                )
-            })?;
+            let iter = guard
+                .table
+                .get_mut(&self_)
+                .map_err(|err| unknown_error(format!("resource error: {err}")))?;
             SendPtr(iter as *mut IndexIteratorImpl)
         };
-        self.executor()
+        let ptr = self
+            .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                // SAFETY: host resource calls are serialized by Wasmtime and the
+                // SAFETY: Wasmtime serializes host resource calls and the
                 // resource table cannot be mutated while this call is pending.
                 let iter = unsafe { &mut *iter_ptr.get() };
-                let inner = iter
+                Ok(iter
                     .inner
                     .as_mut()
-                    .expect("live iterator has an inner value");
-                match inner.next() {
-                    Some(t) => Ok(BoxTuple {
-                        ptr: t.as_ptr() as u64,
-                    }),
-                    None => Err(BoxError::new(
-                        TarantoolErrorCode::Unknown as u32,
-                        "No more items",
-                    )),
-                }
+                    .expect("live iterator has an inner value")
+                    .next()
+                    .map(tuple_into_ptr))
             })
-            .await
+            .await?;
+        ptr.map(|ptr| self.register_tuple(ptr)).transpose()
     }
 
-    async fn drop(&mut self, self_: Resource<index::IndexIterator>) -> Result<(), wasmtime::Error> {
+    async fn drop(&mut self, self_: Resource<index::Iterator>) -> Result<(), wasmtime::Error> {
         let iter = {
-            let mut guard: std::sync::MutexGuard<'_, crate::runtime::tarantool_wasm::WasmStates> =
-                self.state
-                    .lock()
-                    .unwrap_or_else(|poison| poison.into_inner());
+            let mut guard = self
+                .state
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
             guard.table.delete(self_)?
         };
         self.executor()

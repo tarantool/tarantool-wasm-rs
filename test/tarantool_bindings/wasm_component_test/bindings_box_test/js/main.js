@@ -1,46 +1,60 @@
-import {schemaVersion, spaceByName, indexByName, insert, update, replace, upsert, delete as ttDelete, truncate} from 'tarantool:tarantool/ttbox@0.1.2';
-import { toBuf, unref } from 'tarantool:tarantool/box-tuple@0.1.2';
+import {
+    schemaVersion,
+    spaceByName,
+    indexByName,
+    insert,
+    update,
+    replace,
+    upsert,
+    delete as databaseDelete,
+    truncate,
+} from 'tarantool:tarantool/database@0.2.0';
+import { toBytes, release } from 'tarantool:tarantool/box-tuple@0.2.0';
+
+function tupleToBytes(tuple) {
+    try {
+        return toBytes(tuple)
+    } finally {
+        release(tuple)
+    }
+}
+
+function optionalTupleToBytes(tuple) {
+    return tuple === undefined || tuple === null ? undefined : tupleToBytes(tuple)
+}
 
 export function tSchemaVersion() {
-    return schemaVersion();
+    return schemaVersion()
 }
 
 export function tSpaceByName(name) {
-    return spaceByName(name);
+    return spaceByName(name)
 }
 
 export function tIndexByName(space, name) {
-    return indexByName(space, name);
+    return indexByName(space, name)
 }
 
-export function tInsert(space, tup) {
-    const tuple = insert(space, tup);
-    const buf = toBuf(tuple);
-    return buf;
+export function tInsert(space, value) {
+    return tupleToBytes(insert(space, value))
 }
 
-export function tUpdate(index, key, ops) {
-    const tuple = update(index, key, ops);
-    const buf = toBuf(tuple);
-    return buf;
+export function tUpdate(index, key, operations) {
+    return optionalTupleToBytes(update(index, key, operations))
 }
 
-export function tReplace(space, tup) {
-    const tuple = replace(space, tup);
-    const buf = toBuf(tuple);
-    return buf;
+export function tReplace(space, value) {
+    return tupleToBytes(replace(space, value))
 }
 
-export function tUpsert(index, tup, ops) {
-    upsert(index, tup, ops);
+export function tUpsert(index, value, operations) {
+    upsert(index, value, operations)
 }
 
 export function tDelete(index, key) {
-    const tuple = ttDelete(index, key);
-    const buf = toBuf(tuple);
-    return buf;
+    return optionalTupleToBytes(databaseDelete(index, key))
 }
 
 export function tTruncate(space) {
-    truncate(space);
+    truncate(space)
 }

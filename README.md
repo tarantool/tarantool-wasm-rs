@@ -127,12 +127,12 @@ tooling are available in the
 [`tarawasm` documentation](https://github.com/mandesero/tarawasm).
 
 To call Tarantool from a guest, import the interfaces you need from
-[`tarantool:tarantool@0.1.4`](https://github.com/mandesero/tarantool-wit).
+[`tarantool:tarantool@0.2.0`](https://github.com/mandesero/tarantool-wit).
 For example:
 
 ```wit
-import tarantool:tarantool/types@0.1.4;
-import tarantool:tarantool/ttbox@0.1.4;
+import tarantool:tarantool/types@0.2.0;
+import tarantool:tarantool/database@0.2.0;
 ```
 
 ### 3. Call the component from Lua

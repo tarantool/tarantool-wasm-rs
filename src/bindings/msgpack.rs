@@ -1,21 +1,17 @@
-//! Pure MessagePack/JSON conversion helpers. Except for the separately audited
-//! raw-pointer input, these functions operate only on guest-owned byte buffers
-//! and do not require Tarantool's TX thread.
+//! Pure MessagePack/JSON conversion helpers operating on guest-owned buffers.
 
 use crate::bindings::helpers::illegal_params;
 use crate::bindings::tarantool::tarantool::msgpack;
 use crate::bindings::tarantool::tarantool::types::BoxError;
+use crate::bindings::types::validate_msgpack_value;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
-use libc;
 use rmp_serde::{from_slice, to_vec};
-use rmpv::decode::read_value;
 use serde_json::Value;
-use std::io::Cursor;
 
 impl msgpack::Host for SyncWasmStates {
-    async fn encode(&mut self, data: Vec<u8>) -> Result<Vec<u8>, BoxError> {
-        let deserialized: Value = match serde_json::from_slice(&data) {
+    async fn from_json(&mut self, json: String) -> Result<Vec<u8>, BoxError> {
+        let deserialized: Value = match serde_json::from_str(&json) {
             Ok(val) => val,
             Err(e) => return Err(illegal_params(e.to_string())),
         };
@@ -26,39 +22,15 @@ impl msgpack::Host for SyncWasmStates {
         }
     }
 
-    async fn decode(&mut self, data: Vec<u8>) -> Result<Vec<u8>, BoxError> {
+    async fn to_json(&mut self, data: Vec<u8>) -> Result<String, BoxError> {
+        validate_msgpack_value(&data).map_err(illegal_params)?;
         let deserialized: Value = match from_slice(&data) {
             Ok(val) => val,
             Err(e) => return Err(illegal_params(e.to_string())),
         };
 
-        match serde_json::to_vec(&deserialized) {
-            Ok(json_bytes) => Ok(json_bytes),
-            Err(e) => Err(illegal_params(e.to_string())),
-        }
-    }
-
-    async fn decode_from_raw_ptr(&mut self, ptr: u64) -> Result<Vec<u8>, BoxError> {
-        if ptr == 0 {
-            return Err(illegal_params("Null pointer provided"));
-        }
-
-        let data_ptr = ptr as *const libc::c_char;
-        const MAX_MSGPACK_SIZE: usize = 65536;
-
-        // MsgPack doesn't have a terminator symbol, so we rely on rmpv to parse it
-        // First, wrap raw pointer in unsafe slice
-        // We must carefully handle this to avoid reading invalid memory.
-        let raw_slice =
-            unsafe { std::slice::from_raw_parts(data_ptr as *const u8, MAX_MSGPACK_SIZE) };
-        let mut cursor = Cursor::new(raw_slice);
-
-        match read_value(&mut cursor) {
-            Ok(value) => {
-                let json_bytes =
-                    serde_json::to_vec(&value).map_err(|e| illegal_params(e.to_string()))?;
-                Ok(json_bytes)
-            }
+        match serde_json::to_string(&deserialized) {
+            Ok(json) => Ok(json),
             Err(e) => Err(illegal_params(e.to_string())),
         }
     }

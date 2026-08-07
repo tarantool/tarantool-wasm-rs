@@ -1,12 +1,11 @@
 package main
 
 import (
-    "go.bytecodealliance.org/cm"
-    "adder-wasm-bindings/internal/docs/adder/adder"
-    kd "adder-wasm-bindings/internal/tarantool/tarantool/key-def"
-    boxTuple "adder-wasm-bindings/internal/tarantool/tarantool/box-tuple"
-    "adder-wasm-bindings/internal/tarantool/tarantool/msgpack"
-    "adder-wasm-bindings/internal/tarantool/tarantool/types"
+	"adder-wasm-bindings/internal/docs/adder/adder"
+	boxTuple "adder-wasm-bindings/internal/tarantool/tarantool/box-tuple"
+	kd "adder-wasm-bindings/internal/tarantool/tarantool/key-def"
+	"adder-wasm-bindings/internal/tarantool/tarantool/types"
+	"go.bytecodealliance.org/cm"
 )
 
 type BoxErrorShape = adder.BoxErrorShape
@@ -14,96 +13,43 @@ type BoxTuple = types.BoxTuple
 type BoxError = types.BoxError
 type KeyDef = types.KeyDef
 type KeyPart = types.KeyPart
+type MsgpackValue = types.MsgpackValue
 
-func init() {
-	adder.Exports.TTupleNew = func(data cm.List[uint8]) (result cm.Result[BoxErrorShape, BoxTuple, BoxError]) {
-        res := boxTuple.New(data)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, BoxTuple, BoxError], BoxErrorShape, BoxTuple, BoxError](*res.Err())
-    }
-
-	adder.Exports.TNew = func(parts cm.List[KeyPart]) (result cm.Result[BoxErrorShape, KeyDef, BoxError]) {
-        res := kd.New(parts)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.Err())
-    }
-
-	adder.Exports.TDup = func(keyDef KeyDef) (result cm.Result[BoxErrorShape, KeyDef, BoxError]) {
-        res := kd.Dup(keyDef)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.Err())
-    }
-
-	adder.Exports.TMerge = func(left KeyDef, right KeyDef) (result cm.Result[BoxErrorShape, KeyDef, BoxError]) {
-        res := kd.Merge(left, right)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, KeyDef, BoxError], BoxErrorShape, KeyDef, BoxError](*res.Err())
-    }
-
-	adder.Exports.TDelete = func(keyDef KeyDef) {
-        kd.Delete(keyDef)
-    }
-
-	adder.Exports.TDumpParts = func(keyDef KeyDef) (result cm.Result[BoxErrorShape, cm.List[KeyPart], BoxError]) {
-        res := kd.DumpParts(keyDef)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, cm.List[KeyPart], BoxError], BoxErrorShape, cm.List[KeyPart], BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, cm.List[KeyPart], BoxError], BoxErrorShape, cm.List[KeyPart], BoxError](*res.Err())
-    }
-
-	adder.Exports.TValidateKey = func(keyDef KeyDef, key cm.List[uint8]) (result cm.Result[BoxErrorShape, cm.Tuple[bool, uint32], BoxError]) {
-        res := kd.ValidateKey(keyDef, key)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, cm.Tuple[bool, uint32], BoxError], BoxErrorShape, cm.Tuple[bool, uint32], BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, cm.Tuple[bool, uint32], BoxError], BoxErrorShape, cm.Tuple[bool, uint32], BoxError](*res.Err())
-    }
-
-	adder.Exports.TValidateFullKey = func(keyDef KeyDef, key cm.List[uint8]) (result cm.Result[BoxErrorShape, cm.Tuple[bool, uint32], BoxError]) {
-        res := kd.ValidateFullKey(keyDef, key)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, cm.Tuple[bool, uint32], BoxError], BoxErrorShape, cm.Tuple[bool, uint32], BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, cm.Tuple[bool, uint32], BoxError], BoxErrorShape, cm.Tuple[bool, uint32], BoxError](*res.Err())
-    }
-
-	adder.Exports.TPartCount = func(keyDef KeyDef) (result cm.Result[BoxErrorShape, uint32, BoxError]) {
-        res := kd.PartCount(keyDef)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, uint32, BoxError], BoxErrorShape, uint32, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, uint32, BoxError], BoxErrorShape, uint32, BoxError](*res.Err())
-    }
-
-	adder.Exports.TExtractKey = func(keyDef KeyDef, tuple BoxTuple) (result cm.Result[BoxErrorShape, cm.List[uint8], BoxError]) {
-        res := kd.ExtractKey(keyDef, tuple)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxErrorShape, cm.List[uint8], BoxError], BoxErrorShape, cm.List[uint8], BoxError](*res.Err())
-    }
-
-	adder.Exports.TValidateTuple = func(keyDef KeyDef, tuple BoxTuple) (result bool) {
-        return kd.ValidateTuple(keyDef, tuple)
-    }
-
-	adder.Exports.DecodeFromRawPtr = func(ptr uint64) (result cm.List[uint8]) {
-        res := msgpack.DecodeFromRawPtr(ptr)
-        if res.IsOK() {
-            return *res.OK()
-        }
-        panic("DecodeFromRawPtr failed")
-    }
+func convertResult[FromShape, ToShape, Value, Err any](
+	result cm.Result[FromShape, Value, Err],
+) cm.Result[ToShape, Value, Err] {
+	if result.IsErr() {
+		return cm.Err[cm.Result[ToShape, Value, Err], ToShape, Value, Err](*result.Err())
+	}
+	return cm.OK[cm.Result[ToShape, Value, Err], ToShape, Value, Err](*result.OK())
 }
 
+func init() {
+	adder.Exports.TTupleNew = func(data MsgpackValue) cm.Result[BoxErrorShape, BoxTuple, BoxError] {
+		return convertResult[boxTuple.BoxErrorShape, BoxErrorShape, BoxTuple, BoxError](boxTuple.New(data))
+	}
+	adder.Exports.TNew = func(parts cm.List[KeyPart]) cm.Result[BoxErrorShape, KeyDef, BoxError] {
+		return convertResult[kd.BoxErrorShape, BoxErrorShape, KeyDef, BoxError](kd.New(parts))
+	}
+	adder.Exports.TDuplicate = func(keyDef KeyDef) cm.Result[BoxErrorShape, KeyDef, BoxError] {
+		return convertResult[kd.BoxErrorShape, BoxErrorShape, KeyDef, BoxError](kd.Duplicate(keyDef))
+	}
+	adder.Exports.TMerge = func(left, right KeyDef) cm.Result[BoxErrorShape, KeyDef, BoxError] {
+		return convertResult[kd.BoxErrorShape, BoxErrorShape, KeyDef, BoxError](kd.Merge(left, right))
+	}
+	adder.Exports.TRelease = kd.Release
+	adder.Exports.TDumpParts = func(keyDef KeyDef) cm.Result[BoxErrorShape, cm.List[KeyPart], BoxError] {
+		return convertResult[kd.BoxErrorShape, BoxErrorShape, cm.List[KeyPart], BoxError](kd.DumpParts(keyDef))
+	}
+	adder.Exports.TValidateKey = kd.ValidateKey
+	adder.Exports.TValidateFullKey = kd.ValidateFullKey
+	adder.Exports.TPartCount = func(keyDef KeyDef) cm.Result[BoxErrorShape, uint32, BoxError] {
+		return convertResult[kd.BoxErrorShape, BoxErrorShape, uint32, BoxError](kd.PartCount(keyDef))
+	}
+	adder.Exports.TExtractKey = func(keyDef KeyDef, tuple BoxTuple) cm.Result[BoxErrorShape, MsgpackValue, BoxError] {
+		return convertResult[kd.BoxErrorShape, BoxErrorShape, MsgpackValue, BoxError](kd.ExtractKey(keyDef, tuple))
+	}
+	adder.Exports.TValidateTuple = kd.ValidateTuple
+}
 
 func main() {}

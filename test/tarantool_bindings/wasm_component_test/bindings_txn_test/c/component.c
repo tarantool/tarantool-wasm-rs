@@ -1,78 +1,95 @@
-#include "adder.h"
+#include "bindings/adder.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include <inttypes.h>
 
-static void log_info(const char *msg) {
-    adder_string_t str = {
-        .ptr = (uint8_t *)msg,
-        .len = strlen(msg)
+static void log_info(const char *message) {
+    adder_string_t text = {
+        .ptr = (uint8_t *)message,
+        .len = strlen(message),
     };
-    tarantool_tarantool_say_say_info(&str, NULL);
+    tarantool_tarantool_log_write(
+        TARANTOOL_TARANTOOL_TYPES_LOG_LEVEL_INFO, &text, NULL);
 }
 
-static const char *isolation_to_str(tarantool_tarantool_txn_txn_isolation_level_t level) {
-    switch (level) {
-        case TARANTOOL_TARANTOOL_TYPES_TXN_ISOLATION_LEVEL_TXN_ISOLATION_DEFAULT:
-            return "TXN_ISOLATION_DEFAULT";
-        case TARANTOOL_TARANTOOL_TYPES_TXN_ISOLATION_LEVEL_TXN_ISOLATION_BEST_EFFORT:
-            return "TXN_ISOLATION_BEST_EFFORT";
-        case TARANTOOL_TARANTOOL_TYPES_TXN_ISOLATION_LEVEL_TXN_ISOLATION_READ_COMMITTED:
-            return "TXN_ISOLATION_READ_COMMITTED";
-        case TARANTOOL_TARANTOOL_TYPES_TXN_ISOLATION_LEVEL_TXN_ISOLATION_READ_CONFIRMED:
-            return "TXN_ISOLATION_READ_CONFIRMED";
-        case TARANTOOL_TARANTOOL_TYPES_TXN_ISOLATION_LEVEL_TXN_ISOLATION_LINEARIZABLE:
-            return "TXN_ISOLATION_LINEARIZABLE";
-        default:
-            return "UNKNOWN_ISOLATION";
+static const char *isolation_to_string(
+    tarantool_tarantool_transaction_transaction_isolation_t isolation) {
+    switch (isolation) {
+    case TARANTOOL_TARANTOOL_TYPES_TRANSACTION_ISOLATION_DEFAULT:
+        return "default";
+    case TARANTOOL_TARANTOOL_TYPES_TRANSACTION_ISOLATION_BEST_EFFORT:
+        return "best-effort";
+    case TARANTOOL_TARANTOOL_TYPES_TRANSACTION_ISOLATION_READ_COMMITTED:
+        return "read-committed";
+    case TARANTOOL_TARANTOOL_TYPES_TRANSACTION_ISOLATION_READ_CONFIRMED:
+        return "read-confirmed";
+    case TARANTOOL_TARANTOOL_TYPES_TRANSACTION_ISOLATION_LINEARIZABLE:
+        return "linearizable";
+    default:
+        return "unknown";
     }
 }
 
+static void log_id(const char *label) {
+    char message[128];
+    uint64_t id;
+    if (tarantool_tarantool_transaction_id(&id)) {
+        snprintf(message, sizeof(message), "%s: %" PRIu64, label, id);
+    } else {
+        snprintf(message, sizeof(message), "%s: none", label);
+    }
+    log_info(message);
+}
+
+static void log_isolation(const char *label) {
+    char message[128];
+    tarantool_tarantool_transaction_transaction_isolation_t isolation;
+    if (tarantool_tarantool_transaction_isolation(&isolation)) {
+        snprintf(message, sizeof(message), "%s: %s", label,
+                 isolation_to_string(isolation));
+    } else {
+        snprintf(message, sizeof(message), "%s: none", label);
+    }
+    log_info(message);
+}
+
 bool exports_wasi_cli_run_run(void) {
-    char buf[128];
-    tarantool_tarantool_txn_box_error_t err;
+    tarantool_tarantool_transaction_box_error_t error;
 
-    snprintf(buf, sizeof(buf), "txn() before begin: %s", tarantool_tarantool_txn_txn() ? "True" : "False");
-    log_info(buf);
+    log_id("transaction id before begin");
+    if (!tarantool_tarantool_transaction_begin(&error)) {
+        return false;
+    }
+    log_info("transaction.begin()");
+    log_id("transaction id first");
+    log_isolation("transaction isolation");
 
-    if (!tarantool_tarantool_txn_begin(&err)) return false;
-    log_info("txn.begin()");
+    tarantool_tarantool_transaction_make_synchronous();
+    log_info("transaction.make_synchronous()");
 
-    int64_t txn_id = tarantool_tarantool_txn_txn_id();
-    tarantool_tarantool_txn_txn_isolation_level_t isolation = tarantool_tarantool_txn_txn_isolation();
+    if (!tarantool_tarantool_transaction_set_isolation(
+            TARANTOOL_TARANTOOL_TYPES_TRANSACTION_ISOLATION_BEST_EFFORT,
+            &error)) {
+        return false;
+    }
+    log_info("transaction.set_isolation()");
+    log_isolation("transaction isolation after set");
 
-    snprintf(buf, sizeof(buf), "txn_id first: %" PRId64, txn_id);
-    log_info(buf);
+    if (!tarantool_tarantool_transaction_commit(&error)) {
+        return false;
+    }
+    log_info("transaction.commit()");
 
-    snprintf(buf, sizeof(buf), "txn_isolation: %s", isolation_to_str(isolation));
-    log_info(buf);
+    if (!tarantool_tarantool_transaction_begin(&error)) {
+        return false;
+    }
+    log_info("transaction.begin() second");
+    log_id("transaction id second");
 
-    tarantool_tarantool_txn_txn_make_sync();
-    log_info("txn_make_sync()");
-
-    tarantool_tarantool_txn_txn_set_isolation(
-        TARANTOOL_TARANTOOL_TYPES_TXN_ISOLATION_LEVEL_TXN_ISOLATION_BEST_EFFORT,
-        &err
-    );
-
-    isolation = tarantool_tarantool_txn_txn_isolation();
-    snprintf(buf, sizeof(buf), "txn_isolation after set: %s", isolation_to_str(isolation));
-    log_info(buf);
-
-    if (!tarantool_tarantool_txn_commit(&err)) return false;
-    log_info("txn.commit()");
-
-    if (!tarantool_tarantool_txn_begin(&err)) return false;
-    log_info("txn.begin() second");
-
-    snprintf(buf, sizeof(buf), "txn_id second: %" PRId64, txn_id);
-    log_info(buf);
-
-    if (!tarantool_tarantool_txn_rollback(&err)) return false;
-    log_info("txn.rollback()");
-
-    snprintf(buf, sizeof(buf), "txn() after rollback: %s", tarantool_tarantool_txn_txn() ? "True" : "False");
-    log_info(buf);
-
+    if (!tarantool_tarantool_transaction_rollback(&error)) {
+        return false;
+    }
+    log_info("transaction.rollback()");
+    log_id("transaction id after rollback");
     return true;
 }

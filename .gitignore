@@ -14,3 +14,11 @@ internal/
 *.log
 0000*
 test/**/wkg.lock
+test/**/.tarawasm/
+test/**/bindings/
+test/**/wit/deps/
+test/**/componentize_py_async_support/
+test/**/componentize_py_runtime.pyi
+test/**/componentize_py_types.py
+test/**/poll_loop.py
+python-interpreter/wit/deps/
