@@ -10,17 +10,13 @@ use tarantool::error::TarantoolErrorCode;
 impl session::Host for SyncWasmStates {
     async fn current(&mut self) -> Session {
         if let Some(session_id) = self.caller_session_id() {
-            return Session {
-                id: session_id as i64,
-            };
+            return Session { id: session_id };
         }
         self.executor()
             .execute(|| {
                 debug_assert_tx_thread();
                 let session_id = unsafe { ffi::session::box_session_id() };
-                Session {
-                    id: session_id as i64,
-                }
+                Session { id: session_id }
             })
             .await
     }
@@ -29,21 +25,29 @@ impl session::Host for SyncWasmStates {
         &mut self,
         session: Session,
         header: Vec<u8>,
-        body: Vec<u8>,
+        body: Option<Vec<u8>>,
     ) -> Result<(), BoxError> {
         validate_map(&header)?;
+        if let Some(body) = &body {
+            validate_map(body)?;
+        }
 
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
                 let header_start = header.as_ptr();
                 let header_end = unsafe { header_start.add(header.len()) };
-                let body_start = body.as_ptr();
-                let body_end = unsafe { body_start.add(body.len()) };
+                let (body_start, body_end) = match body.as_ref() {
+                    Some(body) => {
+                        let start = body.as_ptr();
+                        (start, unsafe { start.add(body.len()) })
+                    }
+                    None => (std::ptr::null(), std::ptr::null()),
+                };
 
                 let rc = unsafe {
                     ffi::session::box_iproto_send(
-                        session.id as u64,
+                        session.id,
                         header_start,
                         header_end,
                         body_start,

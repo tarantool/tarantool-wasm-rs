@@ -1,36 +1,21 @@
 package main
 
 import (
-    "go.bytecodealliance.org/cm"
-    "adder-wasm-bindings/internal/docs/adder/adder"
-    ss "adder-wasm-bindings/internal/tarantool/tarantool/session"
-    "adder-wasm-bindings/internal/tarantool/tarantool/types"
+	"adder-wasm-bindings/internal/docs/adder/adder"
+	ss "adder-wasm-bindings/internal/tarantool/tarantool/session"
+	"adder-wasm-bindings/internal/tarantool/tarantool/types"
+	"go.bytecodealliance.org/cm"
 )
 
-type BoxError = types.BoxError
 type Session = types.Session
+type MsgpackValue = types.MsgpackValue
 
 func init() {
-
-	adder.Exports.TCurrent = func() (result Session) {
-        return ss.Current()
-    }
-
-	adder.Exports.TBroadcast = func(key string, value string) (result cm.Result[BoxError, struct{}, BoxError]) {
-        res := ss.Broadcast(key, value)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxError, struct{}, BoxError], BoxError, struct{}, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxError, struct{}, BoxError], BoxError, struct{}, BoxError](*res.Err())
-    }
-
-	adder.Exports.TIprotoSend = func(session Session, header cm.List[uint8], body cm.List[uint8]) (result cm.Result[BoxError, struct{}, BoxError]) {
-        res := ss.IprotoSend(session, header, body)
-		if res.IsOK() {
-			return cm.OK[cm.Result[BoxError, struct{}, BoxError], BoxError, struct{}, BoxError](*res.OK())
-		}
-		return cm.Err[cm.Result[BoxError, struct{}, BoxError], BoxError, struct{}, BoxError](*res.Err())
-    }
+	adder.Exports.TCurrent = ss.Current
+	adder.Exports.TBroadcast = ss.Broadcast
+	adder.Exports.TIprotoSend = func(session Session, header MsgpackValue, body cm.Option[MsgpackValue]) cm.Result[types.BoxError, struct{}, types.BoxError] {
+		return ss.IprotoSend(session, header, body)
+	}
 }
 
 func main() {}

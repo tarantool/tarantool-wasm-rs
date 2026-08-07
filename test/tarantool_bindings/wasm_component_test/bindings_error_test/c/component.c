@@ -1,4 +1,4 @@
-#include "adder.h"
+#include "bindings/adder.h"
 
 void exports_adder_t_new(adder_error_code_t code, adder_string_t *message, adder_box_error_t *ret) {
     tarantool_tarantool_error_new(code, message, ret);

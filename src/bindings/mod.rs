@@ -9,12 +9,25 @@ use wasmtime::component::bindgen;
 
 bindgen!({
     world: "adder",
-    imports: { default: async },
+    imports: {
+        default: async,
+        "tarantool:tarantool/box-tuple.retain": async | trappable,
+        "tarantool:tarantool/box-tuple.release": async | trappable,
+        "tarantool:tarantool/box-tuple.field-count": async | trappable,
+        "tarantool:tarantool/box-tuple.byte-size": async | trappable,
+        "tarantool:tarantool/box-tuple.format": async | trappable,
+        "tarantool:tarantool/box-tuple.compare": async | trappable,
+        "tarantool:tarantool/box-tuple.[method]iterator.position": async | trappable,
+        "tarantool:tarantool/box-tuple.[method]iterator.rewind": async | trappable,
+        "tarantool:tarantool/key-def.release": async | trappable,
+        "tarantool:tarantool/tuple-format.retain": async | trappable,
+        "tarantool:tarantool/tuple-format.release": async | trappable,
+    },
     exports: { default: async },
     with: {
         "docs:adder/lua-callback.handler": LuaCallbackHandler,
-        "tarantool:tarantool/index.index-iterator": IndexIteratorImpl,
-        "tarantool:tarantool/box-tuple.tuple-iterator": TupleIteratorImpl,
+        "tarantool:tarantool/index.iterator": IndexIteratorImpl,
+        "tarantool:tarantool/box-tuple.iterator": TupleIteratorImpl,
     }
 });
 
@@ -32,9 +45,11 @@ pub struct IndexIteratorImpl {
 /// Wrapper around a raw pointer implementing the `tuple-iterator` interface.
 pub struct TupleIteratorImpl {
     iter: *mut ffi::types::BoxTupleIteratorT,
+    tuple: *mut ffi::types::BoxTupleT,
 }
 
 pub mod error;
+pub(crate) mod handles;
 pub mod helpers;
 pub mod index;
 pub mod key_def;

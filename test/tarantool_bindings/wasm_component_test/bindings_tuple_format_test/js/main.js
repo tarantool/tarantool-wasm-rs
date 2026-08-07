@@ -1,5 +1,5 @@
-import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.1.2';
-import { new as TupleFormatNew, ref, unref, default as TupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.1.2';
+import { new as keyDefNew } from 'tarantool:tarantool/key-def@0.2.0';
+import { new as TupleFormatNew, retain, release, default as TupleFormatDefault } from 'tarantool:tarantool/tuple-format@0.2.0';
 
 export function tDefault() {
     return TupleFormatDefault()
@@ -14,13 +14,9 @@ export function tNew(keyDefs) {
 }
 
 export function tRef(tf) {
-    ref(tf)
+    retain(tf)
 }
 
 export function tUnref(tf) {
-    unref(tf)
-}
-
-export function tDelete(keyDef) {
-    return deleteKeyDef(keyDef)
+    release(tf)
 }

@@ -1,40 +1,51 @@
-from wit_world.imports import types, txn, say
 from wit_world import exports
+from wit_world.imports import log, transaction, types
 
-d = {
-    types.TxnIsolationLevel.TXN_ISOLATION_DEFAULT: "TXN_ISOLATION_DEFAULT",
-    types.TxnIsolationLevel.TXN_ISOLATION_BEST_EFFORT: "TXN_ISOLATION_BEST_EFFORT",
-    types.TxnIsolationLevel.TXN_ISOLATION_READ_COMMITTED: "TXN_ISOLATION_READ_COMMITTED",
-    types.TxnIsolationLevel.TXN_ISOLATION_READ_CONFIRMED: "TXN_ISOLATION_READ_CONFIRMED",
-    types.TxnIsolationLevel.TXN_ISOLATION_LINEARIZABLE: "TXN_ISOLATION_LINEARIZABLE",
+
+ISOLATION_NAMES = {
+    types.TransactionIsolation.DEFAULT: "default",
+    types.TransactionIsolation.BEST_EFFORT: "best-effort",
+    types.TransactionIsolation.READ_COMMITTED: "read-committed",
+    types.TransactionIsolation.READ_CONFIRMED: "read-confirmed",
+    types.TransactionIsolation.LINEARIZABLE: "linearizable",
 }
+
+
+def info(message: str) -> None:
+    log.write(types.LogLevel.INFO, message, None)
+
+
+def format_transaction_id(transaction_id: int | None) -> str:
+    return "none" if transaction_id is None else str(transaction_id)
+
 
 class Run(exports.Run):
     def run(self) -> None:
-        say.say_info(f"txn() before begin: {txn.txn()}", None)
+        info(f"transaction id before begin: {format_transaction_id(transaction.id())}")
 
-        txn.begin()
-        say.say_info("txn.begin()", None)
+        transaction.begin()
+        info("transaction.begin()")
 
-        txn_id = txn.txn_id()
-        isolation = txn.txn_isolation()
-        say.say_info(f"txn_id first: {txn_id}", None)
-        say.say_info(f"txn_isolation: {d[isolation]}", None)
+        transaction_id = transaction.id()
+        isolation = transaction.isolation()
+        info(f"transaction id first: {transaction_id}")
+        info(f"transaction isolation: {ISOLATION_NAMES[isolation]}")
 
-        txn.txn_make_sync()
-        say.say_info("txn_make_sync()", None)
+        transaction.make_synchronous()
+        info("transaction.make_synchronous()")
 
-        txn.txn_set_isolation(types.TxnIsolationLevel.TXN_ISOLATION_BEST_EFFORT)
-        new_isolation = txn.txn_isolation()
-        say.say_info(f"txn_isolation after set: {d[new_isolation]}", None)
+        transaction.set_isolation(types.TransactionIsolation.BEST_EFFORT)
+        info("transaction.set_isolation()")
+        new_isolation = transaction.isolation()
+        info(f"transaction isolation after set: {ISOLATION_NAMES[new_isolation]}")
 
-        txn.commit()
-        say.say_info("txn.commit()", None)
+        transaction.commit()
+        info("transaction.commit()")
 
-        txn.begin()
-        say.say_info("txn.begin() second", None)
-        say.say_info(f"txn_id second: {txn_id}", None)
-        txn.rollback()
-        say.say_info("txn.rollback()", None)
+        transaction.begin()
+        info("transaction.begin() second")
+        info(f"transaction id second: {transaction.id()}")
+        transaction.rollback()
+        info("transaction.rollback()")
 
-        say.say_info(f"txn() after rollback: {txn.txn()}", None)
+        info(f"transaction id after rollback: {format_transaction_id(transaction.id())}")

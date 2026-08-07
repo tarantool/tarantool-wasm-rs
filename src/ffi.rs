@@ -186,6 +186,8 @@ pub mod tuple {
 
         pub fn box_tuple_bsize(tuple: *mut BoxTupleT) -> usize;
 
+        pub fn box_tuple_data(tuple: *mut BoxTupleT, bsize: *mut usize) -> *const u8;
+
         pub fn box_tuple_format(tuple: *mut BoxTupleT) -> *mut BoxTupleFormatT;
 
         pub fn box_tuple_field(tuple: *mut BoxTupleT, fieldno: u32) -> *const u8;

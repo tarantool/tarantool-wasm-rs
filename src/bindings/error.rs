@@ -33,7 +33,6 @@ pub fn map_tarantool_error(err: tnt_error::Error) -> BoxError {
 impl BoxError {
     pub fn new(code: u32, message: impl Into<String>) -> Self {
         let msg: String = message.into();
-        let code_t = ErrorCode::try_from(code).unwrap_or(ErrorCode::Unknown);
         let tmp = tarantool::error::BoxError::new(code, &msg);
         let error_type = tmp.error_type().to_string();
 
@@ -41,7 +40,7 @@ impl BoxError {
         let line = None;
 
         Self {
-            code: code_t,
+            code,
             message: msg,
             error_type,
             file,
@@ -62,7 +61,7 @@ impl BoxError {
 
 impl error::Host for SyncWasmStates {
     async fn new(&mut self, code: ErrorCode, message: String) -> BoxError {
-        BoxError::new(code.into(), message)
+        BoxError::new(code, message)
     }
 
     async fn new_with_location(
@@ -72,7 +71,7 @@ impl error::Host for SyncWasmStates {
         file: Option<String>,
         line: Option<u32>,
     ) -> BoxError {
-        let mut err = BoxError::new(code.into(), message);
+        let mut err = BoxError::new(code, message);
 
         if let Some(file) = file {
             err = err.with_file(file);
@@ -100,7 +99,7 @@ impl error::Host for SyncWasmStates {
                     (Some(file), Some(line)) => Some((file, line)),
                     _ => None,
                 };
-                tarantool::error::set_last_error(file_line, code.into(), &message_cstr);
+                tarantool::error::set_last_error(file_line, code, &message_cstr);
             })
             .await;
     }
@@ -136,7 +135,7 @@ impl error::Host for SyncWasmStates {
     }
 
     async fn to_string(&mut self, err: BoxError) -> String {
-        let mut output = format!("[{}] {}: {}", err.code as u32, err.error_type, err.message);
+        let mut output = format!("[{}] {}: {}", err.code, err.error_type, err.message);
 
         if let (Some(file), Some(line)) = (err.file.as_ref(), err.line) {
             output.push_str(&format!(" (at {file}:{line})"));

@@ -41,7 +41,6 @@ g.before_all(function(cg)
     cg.idx = {
         ["id"] = box.space.tester.index.primary.id,
         ["space-id"] = box.space.tester.id,
-        ["index-base"] = 0,
     }
     cg.sp = {
         id = box.space.tester.id
@@ -135,7 +134,6 @@ g.test_box_ops_negative = function(cg)
     local fake_index = {
         ["id"] = 9999,
         ["space-id"] = 9999,
-        ["index-base"] = 0,
     }
 
     -- t-insert with invalid msgpack

@@ -38,11 +38,11 @@ func init() {
     }
 
     adder.Exports.TRef = func(tf TupleFormat) {
-        tupleFormat.Ref(tf)
+        tupleFormat.Retain(tf)
     }
 
     adder.Exports.TUnref = func(tf TupleFormat) {
-        tupleFormat.Unref(tf)
+        tupleFormat.Release(tf)
     }
 }
 

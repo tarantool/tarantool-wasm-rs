@@ -1,4 +1,5 @@
 use super::*;
+use crate::bindings::handles::NativeHandles;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Configuration options controlling how a module is executed.
@@ -78,6 +79,7 @@ impl Default for WasmConfig {
 /// Mutable runtime state associated with an executing module.
 pub(crate) struct WasmStates {
     pub(crate) table: ResourceTable,
+    pub(crate) handles: NativeHandles,
     pub(crate) ctx: WasiCtx,
     pub(crate) http: WasiHttpCtx,
     pub(crate) tls: WasiTlsCtx,
@@ -173,6 +175,7 @@ impl WasmStates {
         let ctx = builder.build();
         Ok(Self {
             table,
+            handles: NativeHandles::new(),
             ctx,
             http: WasiHttpCtx::new(),
             tls: WasiTlsCtxBuilder::new().build(),

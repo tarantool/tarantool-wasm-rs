@@ -1,5 +1,7 @@
 use crate::bindings::error::handle_tarantool_error;
-use crate::bindings::helpers::{debug_assert_tx_thread, illegal_params, BoxRegionGuard};
+use crate::bindings::helpers::{
+    debug_assert_tx_thread, illegal_params, validate_array, BoxRegionGuard,
+};
 use crate::bindings::tarantool::tarantool::key_def;
 use crate::bindings::tarantool::tarantool::types::{
     BoxError, BoxTuple, Collation, FieldType, KeyDef, KeyPart, KeyPartFlags,
@@ -10,8 +12,6 @@ use crate::runtime::tarantool_wasm::SyncWasmStates;
 use std::ffi::CString;
 use std::mem::ManuallyDrop;
 use std::str::FromStr;
-
-use tarantool::error::TarantoolErrorCode;
 
 fn encode_key_part_flags(flags: &KeyPartFlags) -> u32 {
     let mut result = 0;
@@ -38,7 +38,8 @@ fn decode_key_part_flags(bits: u32) -> KeyPartFlags {
 
 impl key_def::Host for SyncWasmStates {
     async fn new(&mut self, parts: Vec<KeyPart>) -> Result<KeyDef, BoxError> {
-        self.executor()
+        let ptr = self
+            .executor()
             .execute(move || {
                 debug_assert_tx_thread();
                 let part_count = parts.len();
@@ -98,58 +99,66 @@ impl key_def::Host for SyncWasmStates {
                 if ptr.is_null() {
                     Err(handle_tarantool_error())
                 } else {
-                    Ok(KeyDef { ptr: ptr as u64 })
+                    Ok(ptr as u64)
                 }
             })
-            .await
+            .await?;
+        self.register_key_def(ptr)
     }
 
-    async fn delete(&mut self, key_def: KeyDef) {
+    async fn release(&mut self, key_def: KeyDef) -> wasmtime::Result<()> {
+        let ptr = self
+            .release_key_def_handle(key_def)
+            .map_err(|err| wasmtime::Error::msg(err.message))?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
                 unsafe {
-                    ffi::tuple::box_key_def_delete(key_def.ptr as *mut ffi::types::BoxKeyDefT);
+                    ffi::tuple::box_key_def_delete(ptr as *mut ffi::types::BoxKeyDefT);
                 }
             })
             .await;
+        Ok(())
     }
 
     async fn merge(&mut self, left: KeyDef, right: KeyDef) -> Result<KeyDef, BoxError> {
-        self.executor()
+        let left = self.key_def_ptr(left)?;
+        let right = self.key_def_ptr(right)?;
+        let ptr = self
+            .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let ptr = unsafe {
-                    ffi::tuple::box_key_def_merge(left.ptr as *const _, right.ptr as *const _)
-                };
+                let ptr =
+                    unsafe { ffi::tuple::box_key_def_merge(left as *const _, right as *const _) };
                 if ptr.is_null() {
                     Err(handle_tarantool_error())
                 } else {
-                    Ok(KeyDef { ptr: ptr as u64 })
+                    Ok(ptr as u64)
                 }
             })
-            .await
+            .await?;
+        self.register_key_def(ptr)
     }
 
-    async fn dup(&mut self, key_def: KeyDef) -> Result<KeyDef, BoxError> {
-        if key_def.ptr == 0 {
-            return Err(BoxError::new(
-                TarantoolErrorCode::Unknown as u32,
-                "Invalid key-def",
-            ));
-        }
-        self.executor()
+    async fn duplicate(&mut self, key_def: KeyDef) -> Result<KeyDef, BoxError> {
+        let key_def = self.key_def_ptr(key_def)?;
+        let ptr = self
+            .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let new_ptr = unsafe { ffi::tuple::box_key_def_dup(key_def.ptr as *const _) };
-                Ok(KeyDef {
-                    ptr: new_ptr as u64,
-                })
+                let new_ptr = unsafe { ffi::tuple::box_key_def_dup(key_def as *const _) };
+                if new_ptr.is_null() {
+                    Err(handle_tarantool_error())
+                } else {
+                    Ok(new_ptr as u64)
+                }
             })
-            .await
+            .await?;
+        self.register_key_def(ptr)
     }
 
     async fn dump_parts(&mut self, key_def: KeyDef) -> Result<Vec<KeyPart>, BoxError> {
+        let key_def = self.key_def_ptr(key_def)?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
@@ -157,7 +166,7 @@ impl key_def::Host for SyncWasmStates {
                 let mut part_count: u32 = 0;
                 let raw_ptr = unsafe {
                     ffi::tuple::box_key_def_dump_parts(
-                        key_def.ptr as *const _,
+                        key_def as *const _,
                         &mut part_count as *mut _,
                     )
                 };
@@ -237,11 +246,9 @@ impl key_def::Host for SyncWasmStates {
             .await
     }
 
-    async fn validate_key(
-        &mut self,
-        key_def: KeyDef,
-        key: Vec<u8>,
-    ) -> Result<(bool, u32), BoxError> {
+    async fn validate_key(&mut self, key_def: KeyDef, key: Vec<u8>) -> Result<(), BoxError> {
+        validate_array(&key)?;
+        let key_def = self.key_def_ptr(key_def)?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
@@ -249,13 +256,13 @@ impl key_def::Host for SyncWasmStates {
                 let mut key_size: u32 = 0;
                 let rc = unsafe {
                     ffi::tuple::box_key_def_validate_key(
-                        key_def.ptr as *const _,
+                        key_def as *const _,
                         key_ptr,
                         &mut key_size,
                     )
                 };
                 if rc == 0 {
-                    Ok((true, key_size))
+                    Ok(())
                 } else {
                     Err(handle_tarantool_error())
                 }
@@ -263,11 +270,9 @@ impl key_def::Host for SyncWasmStates {
             .await
     }
 
-    async fn validate_full_key(
-        &mut self,
-        key_def: KeyDef,
-        key: Vec<u8>,
-    ) -> Result<(bool, u32), BoxError> {
+    async fn validate_full_key(&mut self, key_def: KeyDef, key: Vec<u8>) -> Result<(), BoxError> {
+        validate_array(&key)?;
+        let key_def = self.key_def_ptr(key_def)?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
@@ -275,13 +280,13 @@ impl key_def::Host for SyncWasmStates {
                 let mut key_size: u32 = 0;
                 let rc = unsafe {
                     ffi::tuple::box_key_def_validate_full_key(
-                        key_def.ptr as *const _,
+                        key_def as *const _,
                         key_ptr,
                         &mut key_size,
                     )
                 };
                 if rc == 0 {
-                    Ok((true, key_size))
+                    Ok(())
                 } else {
                     Err(handle_tarantool_error())
                 }
@@ -290,16 +295,14 @@ impl key_def::Host for SyncWasmStates {
     }
 
     async fn part_count(&mut self, key_def: KeyDef) -> Result<u32, BoxError> {
+        let key_def = self.key_def_ptr(key_def)?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
                 let _region = BoxRegionGuard::new();
                 let mut count: u32 = 0;
                 let ptr = unsafe {
-                    ffi::tuple::box_key_def_dump_parts(
-                        key_def.ptr as *const _,
-                        &mut count as *mut _,
-                    )
+                    ffi::tuple::box_key_def_dump_parts(key_def as *const _, &mut count as *mut _)
                 };
                 if ptr.is_null() {
                     Err(handle_tarantool_error())
@@ -310,21 +313,27 @@ impl key_def::Host for SyncWasmStates {
             .await
     }
 
-    async fn validate_tuple(&mut self, key_def: KeyDef, tuple: BoxTuple) -> bool {
+    async fn validate_tuple(&mut self, key_def: KeyDef, tuple: BoxTuple) -> Result<(), BoxError> {
+        let key_def = self.key_def_ptr(key_def)?;
+        let tuple = self.tuple_ptr(tuple)?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                unsafe {
-                    ffi::tuple::box_key_def_validate_tuple(
-                        key_def.ptr as *mut _,
-                        tuple.ptr as *mut _,
-                    ) == 0
+                let rc = unsafe {
+                    ffi::tuple::box_key_def_validate_tuple(key_def as *mut _, tuple as *mut _)
+                };
+                if rc == 0 {
+                    Ok(())
+                } else {
+                    Err(handle_tarantool_error())
                 }
             })
             .await
     }
 
     async fn extract_key(&mut self, key_def: KeyDef, tuple: BoxTuple) -> Result<Vec<u8>, BoxError> {
+        let key_def = self.key_def_ptr(key_def)?;
+        let tuple = self.tuple_ptr(tuple)?;
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
@@ -332,8 +341,8 @@ impl key_def::Host for SyncWasmStates {
                 let mut size: u32 = 0;
                 let ptr = unsafe {
                     ffi::tuple::box_key_def_extract_key(
-                        key_def.ptr as *mut _,
-                        tuple.ptr as *mut _,
+                        key_def as *mut _,
+                        tuple as *mut _,
                         -1,
                         &mut size as *mut u32,
                     )

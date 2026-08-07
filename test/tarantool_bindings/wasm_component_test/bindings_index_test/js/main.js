@@ -1,28 +1,39 @@
-import { len, bsize, random, get, min, max, count } from 'tarantool:tarantool/index@0.1.2';
-import { toBuf } from 'tarantool:tarantool/box-tuple@0.1.2';
+import { tupleCount, memorySize, random, get, min, max, count } from 'tarantool:tarantool/index@0.2.0';
+import { toBytes, release } from 'tarantool:tarantool/box-tuple@0.2.0';
+
+function optionalTupleToBytes(tuple) {
+    if (tuple === undefined || tuple === null) {
+        return undefined
+    }
+    try {
+        return toBytes(tuple)
+    } finally {
+        release(tuple)
+    }
+}
 
 export function tLen(index) {
-    return len(index)
+    return tupleCount(index)
 }
 
 export function tBsize(index) {
-    return bsize(index)
+    return memorySize(index)
 }
 
 export function tRandom(index, rnd) {
-    return toBuf(random(index, rnd))
+    return optionalTupleToBytes(random(index, rnd))
 }
 
 export function tGet(index, key) {
-    return toBuf(get(index, key))
+    return optionalTupleToBytes(get(index, key))
 }
 
 export function tMin(index, key) {
-    return toBuf(min(index, key))
+    return optionalTupleToBytes(min(index, key))
 }
 
 export function tMax(index, key) {
-    return toBuf(max(index, key))
+    return optionalTupleToBytes(max(index, key))
 }
 
 export function tCount(index, iterType, key) {

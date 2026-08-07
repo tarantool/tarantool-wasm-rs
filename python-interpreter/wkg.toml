@@ -1,0 +1,2 @@
+[overrides]
+"wasi:tls" = { path = "../third-party/wasi-tls/wit" }

@@ -1,4 +1,4 @@
-import { current, broadcast, iprotoSend } from 'tarantool:tarantool/session@0.1.2';
+import { current, broadcast, iprotoSend } from 'tarantool:tarantool/session@0.2.0';
 
 export function tCurrent() {
     return current()

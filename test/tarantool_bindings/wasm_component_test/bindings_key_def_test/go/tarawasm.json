@@ -1,7 +1,10 @@
 {
+  "language": "go",
   "world": "adder",
-  "lang": "go",
-  "wit_path": "wit",
-  "src_file": "main.go",
-  "wasm_file": "docs:adder@0.1.0.wasm"
+  "wit": {
+    "path": "wit",
+    "package": "docs:adder@0.1.0"
+  },
+  "source": "main.go",
+  "output": "adder.wasm"
 }

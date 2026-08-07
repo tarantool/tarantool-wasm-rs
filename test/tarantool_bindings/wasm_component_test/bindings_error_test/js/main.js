@@ -1,4 +1,4 @@
-import { new as errorNew, newWithLocation, set, clear, last, toString } from 'tarantool:tarantool/error@0.1.2';
+import { new as errorNew, newWithLocation, set, clear, last, toString } from 'tarantool:tarantool/error@0.2.0';
 
 export function tNew(code, message) {
     return errorNew(code, message)

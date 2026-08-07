@@ -1,33 +1,23 @@
-import { say, sayError, sayCrit, sayWarn, sayInfo, sayVerbose, sayDebug, saySyserror } from 'tarantool:tarantool/say@0.1.2';
+import { write } from 'tarantool:tarantool/log@0.2.0';
 
-export function tSay(level, msg, ctx) {
-    say(level, msg, ctx)
+export function tSay(level, message, context) {
+    write(level, message, context)
 }
-
-export function tSayError(msg, ctx) {
-    sayError(msg, ctx)
+export function tSayError(message, context) {
+    write('error', message, context)
 }
-
-export function tSayCrit(msg, ctx) {
-    sayCrit(msg, ctx)
+export function tSayCrit(message, context) {
+    write('critical', message, context)
 }
-
-export function tSayWarn(msg, ctx) {
-    sayWarn(msg, ctx)
+export function tSayWarn(message, context) {
+    write('warning', message, context)
 }
-
-export function tSayInfo(msg, ctx) {
-    sayInfo(msg, ctx)
+export function tSayInfo(message, context) {
+    write('info', message, context)
 }
-
-export function tSayVerbose(msg, ctx) {
-    sayVerbose(msg, ctx)
+export function tSayVerbose(message, context) {
+    write('verbose', message, context)
 }
-
-export function tSayDebug(msg, ctx) {
-    sayDebug(msg, ctx)
-}
-
-export function tSaySyserror(msg, ctx) {
-    saySyserror(msg, ctx)
+export function tSayDebug(message, context) {
+    write('debug', message, context)
 }

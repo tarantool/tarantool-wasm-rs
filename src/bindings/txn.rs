@@ -1,48 +1,39 @@
 use crate::bindings::error::{handle_tarantool_error, map_tarantool_error};
 use crate::bindings::helpers::{debug_assert_tx_thread, illegal_params};
-use crate::bindings::tarantool::tarantool::txn;
-use crate::bindings::tarantool::tarantool::types::{BoxError, TxnIsolationLevel};
+use crate::bindings::tarantool::tarantool::transaction;
+use crate::bindings::tarantool::tarantool::types::{BoxError, TransactionIsolation};
 use crate::ffi;
 use crate::runtime::tarantool_wasm::SyncWasmStates;
 
-use tarantool::transaction;
+use tarantool::transaction as tnt_transaction;
 
-impl From<i32> for TxnIsolationLevel {
-    fn from(value: i32) -> Self {
-        match value {
-            1 => TxnIsolationLevel::TxnIsolationBestEffort,
-            2 => TxnIsolationLevel::TxnIsolationReadCommitted,
-            3 => TxnIsolationLevel::TxnIsolationReadConfirmed,
-            4 => TxnIsolationLevel::TxnIsolationLinearizable,
-            _ => TxnIsolationLevel::TxnIsolationDefault,
-        }
+fn isolation_from_i32(value: i32) -> Option<TransactionIsolation> {
+    match value {
+        0 => Some(TransactionIsolation::Default),
+        1 => Some(TransactionIsolation::BestEffort),
+        2 => Some(TransactionIsolation::ReadCommitted),
+        3 => Some(TransactionIsolation::ReadConfirmed),
+        4 => Some(TransactionIsolation::Linearizable),
+        _ => None,
     }
 }
 
-impl txn::Host for SyncWasmStates {
-    async fn txn_id(&mut self) -> i64 {
+impl transaction::Host for SyncWasmStates {
+    async fn id(&mut self) -> Option<u64> {
         self.executor()
             .execute(|| {
                 debug_assert_tx_thread();
-                unsafe { ffi::tnt::box_txn_id() }
+                let id = unsafe { ffi::tnt::box_txn_id() };
+                (id >= 0).then_some(id as u64)
             })
             .await
     }
 
-    async fn txn_isolation(&mut self) -> TxnIsolationLevel {
+    async fn isolation(&mut self) -> Option<TransactionIsolation> {
         self.executor()
             .execute(|| {
                 debug_assert_tx_thread();
-                TxnIsolationLevel::from(unsafe { ffi::tnt::box_txn_isolation() })
-            })
-            .await
-    }
-
-    async fn txn(&mut self) -> bool {
-        self.executor()
-            .execute(|| {
-                debug_assert_tx_thread();
-                transaction::is_in_transaction()
+                isolation_from_i32(unsafe { ffi::tnt::box_txn_isolation() })
             })
             .await
     }
@@ -56,14 +47,14 @@ impl txn::Host for SyncWasmStates {
         self.yield_now().await;
         self.begin_tx();
         debug_assert_tx_thread();
-        transaction::begin().map_err(|e| map_tarantool_error(e.into()))
+        tnt_transaction::begin().map_err(|e| map_tarantool_error(e.into()))
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
         self.executor()
             .execute(|| {
                 debug_assert_tx_thread();
-                transaction::commit().map_err(|e| map_tarantool_error(e.into()))
+                tnt_transaction::commit().map_err(|e| map_tarantool_error(e.into()))
             })
             .await?;
 
@@ -77,7 +68,7 @@ impl txn::Host for SyncWasmStates {
         self.executor()
             .execute(|| {
                 debug_assert_tx_thread();
-                transaction::rollback().map_err(|e| map_tarantool_error(e.into()))
+                tnt_transaction::rollback().map_err(|e| map_tarantool_error(e.into()))
             })
             .await?;
 
@@ -87,7 +78,7 @@ impl txn::Host for SyncWasmStates {
         Ok(())
     }
 
-    async fn txn_set_isolation(&mut self, isolation: TxnIsolationLevel) -> Result<(), BoxError> {
+    async fn set_isolation(&mut self, isolation: TransactionIsolation) -> Result<(), BoxError> {
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
@@ -100,7 +91,7 @@ impl txn::Host for SyncWasmStates {
             .await
     }
 
-    async fn txn_make_sync(&mut self) {
+    async fn make_synchronous(&mut self) {
         self.executor()
             .execute(|| {
                 debug_assert_tx_thread();

@@ -32,12 +32,12 @@ end)
 
 -- error_new
 g.test_error_new_without_context = function(cg)
-    local err = wasm.call(cg.m, "t-new", "timeout", "Connection timeout")
+    local err = wasm.call(cg.m, "t-new", 71, "Connection timeout")
 
     t.assert_equals(type(err), "table")
     t.assert_equals(err.message, "Connection timeout")
     t.assert_equals(err.type, nil)
-    t.assert_equals(err.code, "timeout")
+    t.assert_equals(err.code, 71)
     t.assert_equals(err.file, nil)
     t.assert_equals(err.line, nil)
 end
@@ -45,13 +45,13 @@ end
 g.test_error_new_with_context = function(cg)
     local err = wasm.call(
         cg.m, "t-new-with-location",
-        "timeout", "Connection timeout", "input.lua", 42
+        71, "Connection timeout", "input.lua", 42
     )
 
     t.assert_equals(type(err), "table")
     t.assert_equals(err.message, "Connection timeout")
     t.assert_equals(err.type, nil)
-    t.assert_equals(err.code, "timeout")
+    t.assert_equals(err.code, 71)
     t.assert_equals(err.file, "input.lua")
     t.assert_equals(err.line, 42)
 end
@@ -63,7 +63,7 @@ g.test_error_set_and_last = function(cg)
 
     local err = wasm.call(
         cg.m, "t-new-with-location",
-        "timeout", "Connection timeout", "input.lua", 42
+        71, "Connection timeout", "input.lua", 42
     )
     res = wasm.batch(cg.m, {
         {"t-set", err},
@@ -74,7 +74,7 @@ g.test_error_set_and_last = function(cg)
     local unpacked = res[2]
 
     t.assert_equals(unpacked.message, "Connection timeout")
-    t.assert_equals(unpacked.code, "timeout")
+    t.assert_equals(unpacked.code, 71)
     t.assert_equals(unpacked.type, nil)
     t.assert_equals(unpacked.file, "input.lua")
     t.assert_equals(unpacked.line, 42)
@@ -82,7 +82,7 @@ end
 
 g.test_error_set_replaces_embedded_nul = function(cg)
     local err = wasm.call(
-        cg.m, "t-new", "timeout", "before" .. string.char(0) .. "after"
+        cg.m, "t-new", 71, "before" .. string.char(0) .. "after"
     )
     local res = wasm.batch(cg.m, {
         {"t-set", err},
@@ -96,7 +96,7 @@ end
 g.test_error_clear = function(cg)
     local err = wasm.call(
         cg.m, "t-new-with-location",
-        "timeout", "Connection timeout", "input.lua", 42
+        71, "Connection timeout", "input.lua", 42
     )
     local res = wasm.batch(cg.m, {
         {"t-clear"},
@@ -118,7 +118,7 @@ end
 g.test_error_to_string = function(cg)
     local err = wasm.call(
         cg.m, "t-new-with-location",
-        "timeout", "Connection timeout", "input.lua", 42
+        71, "Connection timeout", "input.lua", 42
     )
     local err_string = wasm.call(cg.m, "t-to-string", err)
     t.assert_equals(
