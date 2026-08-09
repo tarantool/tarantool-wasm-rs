@@ -4,6 +4,8 @@
 //! structures are mostly opaque wrappers around their C counterparts and all
 //! functions are unsafe by definition.
 
+pub mod raw_read_view;
+
 pub mod types {
     //! Opaque representations of various Tarantool C structures.
     use libc;

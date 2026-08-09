@@ -2,7 +2,7 @@ use wasmtime::{component::Linker, Cache, Config, Engine};
 use wasmtime_wasi_tls::p2::LinkOptions;
 
 use crate::bindings::{
-    docs::adder::{lua_callback, zlib},
+    docs::adder::{build_info, lua_callback, read_view, zlib},
     tarantool::tarantool::{
         box_tuple, database, error, index, key_def, log, metrics, msgpack, sequence, session,
         transaction, tuple_format, types,
@@ -39,6 +39,8 @@ pub(super) fn build_runtime_linker(engine: &Engine) -> Linker<SyncWasmStates> {
 
     let _ = wasmtime_wasi_tls::p2::add_to_linker(&mut linker, &opts);
 
+    let _ = build_info::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+
     let _ = database::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = log::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = error::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
@@ -56,6 +58,7 @@ pub(super) fn build_runtime_linker(engine: &Engine) -> Linker<SyncWasmStates> {
     let _ = metrics::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ =
         lua_callback::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ = read_view::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     linker
 }

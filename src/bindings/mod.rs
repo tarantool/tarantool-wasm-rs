@@ -26,6 +26,8 @@ bindgen!({
     exports: { default: async },
     with: {
         "docs:adder/lua-callback.handler": LuaCallbackHandler,
+        "docs:adder/read-view.view": RawReadViewImpl,
+        "docs:adder/read-view.iterator": RawReadViewIteratorImpl,
         "tarantool:tarantool/index.iterator": IndexIteratorImpl,
         "tarantool:tarantool/box-tuple.iterator": TupleIteratorImpl,
     }
@@ -47,7 +49,16 @@ pub struct TupleIteratorImpl {
     iter: *mut ffi::types::BoxTupleIteratorT,
     tuple: *mut ffi::types::BoxTupleT,
 }
+/// Tarantool Enterprise raw read-view resource.
+pub struct RawReadViewImpl {
+    inner: std::sync::Arc<read_view::RawReadViewInner>,
+}
+/// Iterator resource that keeps its raw read view alive.
+pub struct RawReadViewIteratorImpl {
+    inner: Option<read_view::RawReadViewIteratorInner>,
+}
 
+pub mod build_info;
 pub mod error;
 pub(crate) mod handles;
 pub mod helpers;
@@ -56,6 +67,7 @@ pub mod key_def;
 pub mod lua_callback;
 pub mod metrics;
 pub mod msgpack;
+pub mod read_view;
 pub mod say;
 pub mod sequence;
 pub mod session;

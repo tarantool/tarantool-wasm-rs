@@ -3,6 +3,8 @@ package docs:adder@0.1.3;
 world adder {
   import zlib;
   import lua-callback;
+  import build-info;
+  import read-view;
 
   include tarantool:tarantool/guest@0.2.0;
 
@@ -42,6 +44,42 @@ world adder {
   export wasi:http/incoming-handler@0.2.3;
 
   export wasi:cli/run@0.2.3;
+}
+
+/// Identifies the Tarantool edition of the current host process.
+interface build-info {
+  enum edition {
+    community,
+    enterprise,
+  }
+
+  /// Uses the Enterprise raw read-view capability exported by the host.
+  current-edition: func() -> edition;
+}
+
+/// Experimental Tarantool Enterprise raw read-view API.
+///
+/// This interface is intentionally local to tarantool-wasm-rs while its
+/// lifecycle and portability constraints are evaluated.
+interface read-view {
+  use tarantool:tarantool/types@0.2.0.{box-error, iterator-type, msgpack-value};
+
+  resource iterator {
+    /// Returns a copied tuple encoded as a MessagePack array.
+    next: func() -> result<option<msgpack-value>, box-error>;
+  }
+
+  resource view {
+    /// Looks up a tuple in the snapshot by space and index ID.
+    get: func(space-id: u32, index-id: u32, key: msgpack-value) -> result<option<msgpack-value>, box-error>;
+    /// Creates an iterator over an index in the snapshot.
+    iterator: func(space-id: u32, index-id: u32, mode: iterator-type, key: msgpack-value) -> result<iterator, box-error>;
+    /// Counts tuples matching a key in an index in the snapshot.
+    count: func(space-id: u32, index-id: u32, mode: iterator-type, key: msgpack-value) -> result<u64, box-error>;
+  }
+
+  /// Opens a named consistent snapshot of the database.
+  open: func(name: string) -> result<view, box-error>;
 }
 
 interface zlib {

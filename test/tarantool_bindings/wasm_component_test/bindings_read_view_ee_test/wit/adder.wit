@@ -1,0 +1,36 @@
+package docs:adder@0.1.3;
+
+interface build-info {
+  enum edition {
+    community,
+    enterprise,
+  }
+
+  current-edition: func() -> edition;
+}
+
+interface read-view {
+  use tarantool:tarantool/types@0.2.0.{box-error, iterator-type, msgpack-value};
+
+  resource iterator {
+    next: func() -> result<option<msgpack-value>, box-error>;
+  }
+
+  resource view {
+    get: func(space-id: u32, index-id: u32, key: msgpack-value) -> result<option<msgpack-value>, box-error>;
+    iterator: func(space-id: u32, index-id: u32, mode: iterator-type, key: msgpack-value) -> result<iterator, box-error>;
+    count: func(space-id: u32, index-id: u32, mode: iterator-type, key: msgpack-value) -> result<u64, box-error>;
+  }
+
+  open: func(name: string) -> result<view, box-error>;
+}
+
+world adder {
+  import build-info;
+  import read-view;
+  import tarantool:tarantool/types@0.2.0;
+  import tarantool:tarantool/database@0.2.0;
+  import tarantool:tarantool/box-tuple@0.2.0;
+  import tarantool:tarantool/msgpack@0.2.0;
+  export wasi:cli/run@0.2.3;
+}
