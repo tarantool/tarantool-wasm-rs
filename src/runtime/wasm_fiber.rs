@@ -14,6 +14,7 @@ use tokio::{
 };
 use wasmtime::{component::InstancePre, Store};
 use wasmtime_wasi::p2::bindings::CommandPre;
+use wasmtime_wasi::I32Exit;
 
 use crate::runtime::{
     metrics,
@@ -23,6 +24,21 @@ use crate::runtime::{
 
 struct SigAltStackRestoreGuard {
     previous: Option<libc::stack_t>,
+}
+
+fn handle_command_result(result: wasmtime::Result<Result<(), ()>>) -> Result<()> {
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(())) => Err(anyhow!("WASI command returned failure")),
+        Err(err) => match err.downcast_ref::<I32Exit>() {
+            Some(I32Exit(0)) => Ok(()),
+            Some(I32Exit(status)) => Err(anyhow!("WASI command exited with status {status}")),
+            None => {
+                metrics::observe_trap(&err);
+                Err(err.into())
+            }
+        },
+    }
 }
 
 impl SigAltStackRestoreGuard {
@@ -90,10 +106,7 @@ impl WasmFiber {
             let run_result = command.wasi_cli_run().call_run(&mut store).await;
             metrics::observe_guest_execution(started.elapsed());
             metrics::observe_fuel(fuel_before, store.get_fuel().ok());
-            if let Err(err) = &run_result {
-                metrics::observe_trap(err);
-            }
-            let _ = run_result?;
+            handle_command_result(run_result)?;
             finalizer
                 .send(WasmFiberStatus::Finished)
                 .await

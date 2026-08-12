@@ -1,4 +1,4 @@
-#include "adder.h"
+#include "bindings/adder.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -6,6 +6,10 @@
 #include <unistd.h>
 
 bool exports_wasi_cli_run_run(void) {
+    const char *exit_code = getenv("EXIT_CODE");
+    if (exit_code != NULL) {
+        exit(atoi(exit_code));
+    }
     if (getenv("TRAP") != NULL) {
         __builtin_trap();
     }

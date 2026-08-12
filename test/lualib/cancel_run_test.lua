@@ -120,3 +120,25 @@ g.test_join_propagates_guest_trap = function()
     t.assert_str_contains(tostring(err), "wasm")
     t.assert(wasm.drop(m))
 end
+
+g.test_join_accepts_zero_exit = function()
+    local m = wasm.load(wasm_path, {
+        env = { EXIT_CODE = "0" },
+    })
+    local handle = wasm.run(m)
+    t.assert(wasm.join(handle))
+    t.assert(wasm.drop(m))
+end
+
+g.test_join_reports_nonzero_exit = function()
+    local m = wasm.load(wasm_path, {
+        env = { EXIT_CODE = "7" },
+    })
+    local handle = wasm.run(m)
+    local ok, err = pcall(wasm.join, handle)
+    t.assert_not(ok)
+    -- The Preview 1 command adapter maps every non-zero proc_exit status to
+    -- wasi:cli/exit failure, represented by Wasmtime as I32Exit(1).
+    t.assert_str_contains(tostring(err), "WASI command exited with status 1")
+    t.assert(wasm.drop(m))
+end
