@@ -11,10 +11,7 @@ impl WasmRunHandle {
     }
 
     pub(crate) fn cancel(&self) -> Result<()> {
-        let _ = self
-            .entry
-            .cancel_tx
-            .blocking_send(WasmFiberStatus::Canceled);
+        self.entry.cancel_tx.request();
         Ok(())
     }
 
@@ -84,7 +81,7 @@ impl From<(Option<String>, String, Vec<RmpvValue>)> for CallJob {
 }
 
 pub(super) struct WasmRunEntry {
-    pub(super) cancel_tx: mpsc::Sender<WasmFiberStatus>,
+    pub(super) cancel_tx: WasmFiberCanceler,
     pub(super) join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
 }
 
@@ -184,7 +181,7 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
         }
     };
     if let Err(err) = lifecycle::ensure_running() {
-        let _ = cancel_tx.blocking_send(WasmFiberStatus::Canceled);
+        cancel_tx.request();
         let _ = join_handle_via_coio(handle);
         return Err(err);
     }

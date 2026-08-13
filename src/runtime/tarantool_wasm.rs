@@ -8,6 +8,7 @@ mod execution;
 mod exports;
 mod interpreter;
 mod linker;
+mod pipe;
 mod reentrancy;
 mod registry;
 pub(crate) mod resources;
@@ -58,7 +59,7 @@ use crate::runtime::{
     lifecycle::{self, RuntimeLifecycle},
     metrics,
     tx::{begin_shutdown, drain_stopping_queue},
-    wasm_fiber::{WasmFiber, WasmFiberStatus},
+    wasm_fiber::{WasmFiber, WasmFiberCanceler, WasmFiberStatus},
 };
 
 use self::{
@@ -87,6 +88,7 @@ use self::{
 pub use self::session::{tt_wasm_session_call_function, tt_wasm_session_call_functions};
 pub(crate) use self::{
     execution::WasmRunHandle,
+    pipe::WasmPipeProcess,
     reentrancy::install_call_chain,
     session::{
         tt_wasm_bind_instance, tt_wasm_close_instance_detached,
@@ -99,6 +101,7 @@ pub(crate) use self::{
 pub use self::{
     execution::{tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_run_module},
     interpreter::{tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_interpreter_key},
+    pipe::{tt_wasm_pipe_spawn, PipeStream, DEFAULT_PIPE_CAPACITY, MAX_PIPE_CAPACITY},
     registry::{
         tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module,
         tt_wasm_precompile_component, tt_wasm_stats, ExportInfo,

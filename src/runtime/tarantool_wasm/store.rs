@@ -93,10 +93,27 @@ pub(crate) struct WasmStates {
 
 impl WasmStates {
     pub fn new(config: WasmConfig) -> Result<Self> {
+        Self::new_inner(config, None)
+    }
+
+    pub(crate) fn new_with_pipe(
+        config: WasmConfig,
+        streams: super::pipe::PipeWasiStreams,
+    ) -> Result<Self> {
+        Self::new_inner(config, Some(streams))
+    }
+
+    fn new_inner(
+        config: WasmConfig,
+        streams: Option<super::pipe::PipeWasiStreams>,
+    ) -> Result<Self> {
         let table = ResourceTable::new();
         let mut builder = WasiCtxBuilder::new();
+        let has_pipe_streams = streams.is_some();
 
-        if let Some(path) = &config.stdin {
+        if let Some(streams) = streams {
+            streams.install(&mut builder);
+        } else if let Some(path) = &config.stdin {
             let bytes = std::fs::read(path)
                 .with_context(|| format!("failed to read stdin from `{path}`"))?;
             builder.stdin(MemoryInputPipe::new(bytes));
@@ -104,28 +121,30 @@ impl WasmStates {
             builder.inherit_stdin();
         }
 
-        if let Some(path) = &config.stdout {
-            let file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(path)
-                .with_context(|| format!("failed to open stdout file `{path}`"))?;
-            builder.stdout(OutputFile::new(file));
-        } else if config.inherit_stdout {
-            builder.inherit_stdout();
-        }
+        if !has_pipe_streams {
+            if let Some(path) = &config.stdout {
+                let file = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(path)
+                    .with_context(|| format!("failed to open stdout file `{path}`"))?;
+                builder.stdout(OutputFile::new(file));
+            } else if config.inherit_stdout {
+                builder.inherit_stdout();
+            }
 
-        if let Some(path) = &config.stderr {
-            let file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(path)
-                .with_context(|| format!("failed to open stderr file `{path}`"))?;
-            builder.stderr(OutputFile::new(file));
-        } else if config.inherit_stderr {
-            builder.inherit_stderr();
+            if let Some(path) = &config.stderr {
+                let file = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(path)
+                    .with_context(|| format!("failed to open stderr file `{path}`"))?;
+                builder.stderr(OutputFile::new(file));
+            } else if config.inherit_stderr {
+                builder.inherit_stderr();
+            }
         }
         if config.inherit_env {
             builder.inherit_env();
@@ -277,13 +296,30 @@ impl ResourceLimiter for TrackingStoreLimits {
 
 impl SyncWasmStates {
     pub(crate) fn new(config: WasmConfig) -> Result<Self> {
+        Self::new_inner(config, None)
+    }
+
+    pub(crate) fn new_with_pipe(
+        config: WasmConfig,
+        streams: super::pipe::PipeWasiStreams,
+    ) -> Result<Self> {
+        Self::new_inner(config, Some(streams))
+    }
+
+    fn new_inner(
+        config: WasmConfig,
+        streams: Option<super::pipe::PipeWasiStreams>,
+    ) -> Result<Self> {
         let mut builder = StoreLimitsBuilder::new();
         if let Some(limit) = config.memory_limit {
             builder = builder.memory_size(limit);
         }
         let limits = TrackingStoreLimits::new(builder.build());
         Ok(SyncWasmStates {
-            state: Mutex::new(WasmStates::new(config)?),
+            state: Mutex::new(match streams {
+                Some(streams) => WasmStates::new_with_pipe(config, streams)?,
+                None => WasmStates::new(config)?,
+            }),
             limits,
         })
     }

@@ -46,6 +46,16 @@ local run_module = wasm.load(run_component, {
 _G.shutdown_run = wasm.run(run_module)
 report_setup('background run started')
 
+_G.shutdown_pipe = wasm.pipe.spawn(run_module, nil, {capacity = 64})
+report_setup('live pipe started')
+
+do
+    local orphan = wasm.pipe.spawn(run_module, nil, {capacity = 64})
+    assert(orphan:is_alive())
+end
+collectgarbage('collect')
+report_setup('orphan pipe collected')
+
 _G.shutdown_interpreter = wasm.load(idle_component, {
     interpreter = true,
 })

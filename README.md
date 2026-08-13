@@ -42,6 +42,7 @@ flowchart LR
 | `wasm.open_session` / `session_call` | One store and instance until the session is closed | Stateful components and guest resources reused across calls |
 | Interpreter mode | One warmed instance per component path | Large Python or other interpreter components |
 | `wasm.run` | One instance for a background `wasi:cli/run` task | Long-running logic and guest-managed Tarantool transactions |
+| `wasm.pipe.spawn` | One command instance with managed stdin/stdout/stderr | Interactive binary protocols over WASI stdio |
 
 Compiled components are cached independently of instances. Loading unchanged
 bytes from the same path avoids recompilation, but does not preserve guest
@@ -201,6 +202,61 @@ usable. A resource belongs to one component instance and cannot be passed to
 another. Proxies for the same shared interpreter can exchange resources. Call
 `resource:drop()` for deterministic cleanup; Lua garbage collection is a
 fallback.
+
+### Exchange streaming data with a command component
+
+`wasm.pipe.spawn` creates a fresh `wasi:cli/run` instance and installs bounded
+binary pipes before the guest starts. It does not attach to an instance already
+started with `wasm.run`.
+
+```lua
+local wasm = require('wasm')
+local module = wasm.load('./server.wasm', {
+    args = {'server', '--stdio'},
+    inherit_stdin = false,
+    inherit_stdout = false,
+    inherit_stderr = false,
+})
+
+local process = wasm.pipe.spawn(module, nil, {capacity = 64 * 1024})
+assert(process:write('\0binary request', {timeout_ms = 1000}))
+assert(process:close_stdin())
+
+while true do
+    local stream, data, eof = process:read_any({
+        max_bytes = 64 * 1024,
+        timeout_ms = 1000,
+    })
+    if stream == nil then
+        assert(eof)
+        break
+    end
+    consume(stream, data, eof)
+end
+
+assert(process:join({timeout_ms = 5000}))
+assert(process:close())
+assert(wasm.drop(module))
+```
+
+`write` accepts one atomic chunk no larger than `capacity`. If its deadline
+expires, zero bytes from that chunk are accepted. `read` selects either stdout
+or stderr; `read_any` multiplexes both streams and prevents a guest from
+deadlocking when one bounded output fills. Reads return arbitrary chunks rather
+than application records. EOF is reported only after the corresponding queue
+has been drained.
+
+`join` waits for the command result but never drains output or closes stdin.
+Drain stdout and stderr concurrently, normally with `read_any`, before waiting
+for completion. `cancel` requests termination while preserving bytes already
+committed to host output queues. `close` performs deterministic cancellation,
+join and resource cleanup; garbage collection is a nonblocking fallback.
+
+The pipe endpoints replace stdio inherited from the module's load config.
+Passing explicit `stdin`, `stdout`, `stderr`, or `inherit_*` stdio fields in the
+spawn override is rejected. Capacity is a bound for each shared queue, not an
+absolute memory bound: every guest output handle can additionally stage up to
+8 KiB while following the WASI `check-write`/`write` permit protocol.
 
 ### Call a registered Lua function from a guest
 

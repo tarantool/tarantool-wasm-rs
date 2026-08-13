@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use anyhow::Result;
 use mlua::prelude::*;
@@ -19,9 +20,10 @@ use crate::runtime::tarantool_wasm::{
     tt_wasm_close_session, tt_wasm_drop_module, tt_wasm_export_names,
     tt_wasm_instance_call_function_with_ownership, tt_wasm_interpreter_call,
     tt_wasm_interpreter_exec, tt_wasm_interpreter_key, tt_wasm_load_module, tt_wasm_open_session,
-    tt_wasm_precompile_component, tt_wasm_run_module, tt_wasm_session_call_function_with_ownership,
-    tt_wasm_session_call_functions_with_ownership, tt_wasm_stats, WasmInstanceTarget,
-    WasmRunHandle,
+    tt_wasm_pipe_spawn, tt_wasm_precompile_component, tt_wasm_run_module,
+    tt_wasm_session_call_function_with_ownership, tt_wasm_session_call_functions_with_ownership,
+    tt_wasm_stats, PipeStream, WasmInstanceTarget, WasmPipeProcess, WasmRunHandle,
+    DEFAULT_PIPE_CAPACITY, MAX_PIPE_CAPACITY,
 };
 
 use super::args::{
@@ -50,6 +52,125 @@ impl WasmJoinHandle {
 
     fn take_join_handle(&mut self) -> Result<JoinHandle<Result<()>>> {
         self.0.take_join_handle()
+    }
+}
+
+struct LuaPipeProcess(WasmPipeProcess);
+
+impl Drop for LuaPipeProcess {
+    fn drop(&mut self) {
+        self.0.abandon();
+    }
+}
+
+fn pipe_timeout(options: Option<&LuaTable>) -> LuaResult<Option<Duration>> {
+    let timeout_ms = options
+        .map(|options| options.get::<Option<u64>>("timeout_ms"))
+        .transpose()?
+        .flatten();
+    if timeout_ms == Some(0) {
+        return Err(LuaError::runtime("timeout_ms must be greater than zero"));
+    }
+    Ok(timeout_ms.map(Duration::from_millis))
+}
+
+fn pipe_max_bytes(options: Option<&LuaTable>) -> LuaResult<usize> {
+    let max_bytes = options
+        .map(|options| options.get::<Option<usize>>("max_bytes"))
+        .transpose()?
+        .flatten()
+        .unwrap_or(DEFAULT_PIPE_CAPACITY);
+    if !(1..=MAX_PIPE_CAPACITY).contains(&max_bytes) {
+        return Err(LuaError::runtime(format!(
+            "max_bytes must be between 1 and {MAX_PIPE_CAPACITY}"
+        )));
+    }
+    Ok(max_bytes)
+}
+
+fn pipe_coio<T, F>(operation: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    debug_assert_tx_thread();
+    let mut result = Err(anyhow::anyhow!("pipe operation did not complete"));
+    tarantool::coio::coio_call(
+        &mut |operation: Box<F>| {
+            result = operation();
+            0
+        },
+        operation,
+    );
+    result
+}
+
+impl LuaUserData for LuaPipeProcess {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method(
+            "write",
+            |_, this, (data, options): (LuaString, Option<LuaTable>)| {
+                let timeout = pipe_timeout(options.as_ref())?;
+                let process = this.0.clone();
+                let data = data.as_bytes().to_vec();
+                pipe_coio(move || process.write(data, timeout)).map_err(LuaError::runtime)?;
+                Ok(true)
+            },
+        );
+        methods.add_method("read", |lua, this, options: Option<LuaTable>| {
+            let stream = match options
+                .as_ref()
+                .map(|options| options.get::<Option<String>>("stream"))
+                .transpose()?
+                .flatten()
+                .as_deref()
+            {
+                None | Some("stdout") => PipeStream::Stdout,
+                Some("stderr") => PipeStream::Stderr,
+                Some(value) => {
+                    return Err(LuaError::runtime(format!("invalid pipe stream `{value}`")))
+                }
+            };
+            let max_bytes = pipe_max_bytes(options.as_ref())?;
+            let timeout = pipe_timeout(options.as_ref())?;
+            let process = this.0.clone();
+            let (data, eof) = pipe_coio(move || process.read(stream, max_bytes, timeout))
+                .map_err(LuaError::runtime)?;
+            Ok((lua.create_string(&data)?, eof))
+        });
+        methods.add_method("read_any", |lua, this, options: Option<LuaTable>| {
+            let max_bytes = pipe_max_bytes(options.as_ref())?;
+            let timeout = pipe_timeout(options.as_ref())?;
+            let process = this.0.clone();
+            let (stream, data, eof) = pipe_coio(move || process.read_any(max_bytes, timeout))
+                .map_err(LuaError::runtime)?;
+            let stream = stream.map(|stream| match stream {
+                PipeStream::Stdout => "stdout",
+                PipeStream::Stderr => "stderr",
+            });
+            Ok((stream, lua.create_string(&data)?, eof))
+        });
+        methods.add_method("close_stdin", |_, this, ()| {
+            this.0.close_stdin();
+            Ok(true)
+        });
+        methods.add_method("cancel", |_, this, ()| {
+            this.0.cancel();
+            Ok(true)
+        });
+        methods.add_method("join", |_, this, options: Option<LuaTable>| {
+            let timeout = pipe_timeout(options.as_ref())?;
+            let process = this.0.clone();
+            pipe_coio(move || process.join(timeout)).map_err(LuaError::runtime)?;
+            Ok(true)
+        });
+        methods.add_method("close", |_, this, options: Option<LuaTable>| {
+            let timeout = pipe_timeout(options.as_ref())?;
+            let process = this.0.clone();
+            pipe_coio(move || process.close(timeout)).map_err(LuaError::runtime)?;
+            Ok(true)
+        });
+        methods.add_method("is_alive", |_, this, ()| Ok(this.0.is_alive()));
     }
 }
 
@@ -211,6 +332,53 @@ fn run(lua: &Lua, args: LuaMultiValue) -> LuaResult<WasmJoinHandle> {
     };
     tt_wasm_run_module(module_uid, cfg)
         .map(WasmJoinHandle)
+        .map_err(LuaError::runtime)
+}
+
+fn pipe_spawn(lua: &Lua, args: LuaMultiValue) -> LuaResult<LuaPipeProcess> {
+    let mut iter = args.into_iter();
+    let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
+    let cfg = match iter.next() {
+        Some(value) if !matches!(value, LuaValue::Nil) => {
+            let table = LuaTable::from_lua(value, lua)?;
+            for key in [
+                "stdin",
+                "stdout",
+                "stderr",
+                "inherit_stdin",
+                "inherit_stdout",
+                "inherit_stderr",
+            ] {
+                if !matches!(table.get::<LuaValue>(key)?, LuaValue::Nil) {
+                    return Err(LuaError::runtime(format!(
+                        "pipe spawn config must not set `{key}`"
+                    )));
+                }
+            }
+            Some(parse_config_table(Some(table))?)
+        }
+        _ => None,
+    };
+    let options = match iter.next() {
+        Some(value) if !matches!(value, LuaValue::Nil) => Some(LuaTable::from_lua(value, lua)?),
+        _ => None,
+    };
+    if iter.next().is_some() {
+        return Err(LuaError::runtime("too many arguments to wasm.pipe.spawn"));
+    }
+    let capacity = options
+        .as_ref()
+        .map(|options| options.get::<Option<usize>>("capacity"))
+        .transpose()?
+        .flatten()
+        .unwrap_or(DEFAULT_PIPE_CAPACITY);
+    if !(1..=MAX_PIPE_CAPACITY).contains(&capacity) {
+        return Err(LuaError::runtime(format!(
+            "pipe capacity must be between 1 and {MAX_PIPE_CAPACITY} bytes"
+        )));
+    }
+    tt_wasm_pipe_spawn(module_uid, cfg, capacity)
+        .map(LuaPipeProcess)
         .map_err(LuaError::runtime)
 }
 
@@ -687,6 +855,9 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("stats", lua.create_function(stats)?)?;
     module.set("precompile", lua.create_function(precompile)?)?;
     module.set("run", lua.create_function(run)?)?;
+    let pipe = lua.create_table()?;
+    pipe.set("spawn", lua.create_function(pipe_spawn)?)?;
+    module.set("pipe", pipe)?;
     module.set("open_session", lua.create_function(open_session)?)?;
     module.set("join", lua.create_function(join)?)?;
     module.set("cancel", lua.create_function(cancel)?)?;

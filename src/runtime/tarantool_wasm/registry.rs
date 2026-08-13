@@ -1,3 +1,4 @@
+use super::pipe::PipeRegistryEntry;
 use super::*;
 
 #[derive(Clone)]
@@ -71,6 +72,7 @@ pub(super) struct RuntimeState {
     pub shared_interpreters: RwLock<HashMap<String, Arc<SharedInterpreterEntry>>>,
     pub sessions: RwLock<HashMap<String, Arc<WasmSession>>>,
     pub runs: RwLock<HashMap<u64, Arc<WasmRunEntry>>>,
+    pub pipes: RwLock<HashMap<u64, PipeRegistryEntry>>,
     pub next_uid: AtomicU64,
     pub next_session_uid: AtomicU64,
     pub next_run_uid: AtomicU64,
@@ -90,6 +92,7 @@ impl RuntimeState {
         let shared_interpreters = RwLock::new(HashMap::new());
         let sessions = RwLock::new(HashMap::new());
         let runs = RwLock::new(HashMap::new());
+        let pipes = RwLock::new(HashMap::new());
         let linker_ref = Arc::new(linker);
         let fuel_linker_ref = Arc::new(fuel_linker);
 
@@ -110,6 +113,7 @@ impl RuntimeState {
             shared_interpreters,
             sessions,
             runs,
+            pipes,
             next_uid: AtomicU64::new(0),
             next_session_uid: AtomicU64::new(0),
             next_run_uid: AtomicU64::new(0),
@@ -235,11 +239,13 @@ pub struct RuntimeStats {
 }
 
 pub fn tt_wasm_stats() -> RuntimeStats {
+    super::pipe::reap_finished_pipes();
     RuntimeStats {
         metrics: metrics::snapshot(),
         modules: runtime_state.modules.read().unwrap().len() as u64,
         sessions: runtime_state.sessions.read().unwrap().len() as u64,
-        runs: runtime_state.runs.read().unwrap().len() as u64,
+        runs: (runtime_state.runs.read().unwrap().len() + runtime_state.pipes.read().unwrap().len())
+            as u64,
         interpreters: runtime_state.shared_interpreters.read().unwrap().len() as u64,
     }
 }
