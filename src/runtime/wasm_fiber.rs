@@ -3,6 +3,10 @@ use std::{
     mem,
     pin::Pin,
     ptr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     task::Poll,
 };
 
@@ -71,11 +75,33 @@ pub(crate) enum WasmFiberStatus {
     Canceled,
 }
 
+#[derive(Clone)]
+pub(crate) struct WasmFiberCanceler {
+    sender: mpsc::Sender<WasmFiberStatus>,
+    requested: Arc<AtomicBool>,
+}
+
+impl WasmFiberCanceler {
+    pub(crate) fn request(&self) {
+        self.requested.store(true, Ordering::Release);
+        let _ = self.sender.try_send(WasmFiberStatus::Canceled);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(sender: mpsc::Sender<WasmFiberStatus>) -> Self {
+        Self {
+            sender,
+            requested: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
 pub(crate) struct WasmFiber {
     rt: tokio::runtime::Runtime,
     awaiter: mpsc::Receiver<WasmFiberStatus>,
     handle: Option<JoinHandle<Result<()>>>,
-    canceler: mpsc::Sender<WasmFiberStatus>,
+    canceler: WasmFiberCanceler,
+    cancel_requested: Arc<AtomicBool>,
 }
 
 impl WasmFiber {
@@ -90,7 +116,11 @@ impl WasmFiber {
             .build()
             .unwrap();
         let (sender, awaiter) = mpsc::channel(1);
-        let canceler = sender.clone();
+        let cancel_requested = Arc::new(AtomicBool::new(false));
+        let canceler = WasmFiberCanceler {
+            sender: sender.clone(),
+            requested: Arc::clone(&cancel_requested),
+        };
         let finalizer = sender.clone();
         store.data().state.lock().unwrap().yielder = Some(sender);
         let command_pre = CommandPre::new(instance_pre)?;
@@ -118,11 +148,16 @@ impl WasmFiber {
             awaiter,
             handle: Some(handle),
             canceler,
+            cancel_requested,
         })
     }
 
-    pub(crate) fn canceler(&self) -> mpsc::Sender<WasmFiberStatus> {
+    pub(crate) fn canceler(&self) -> WasmFiberCanceler {
         self.canceler.clone()
+    }
+
+    fn cancellation_requested(&self) -> bool {
+        self.cancel_requested.load(Ordering::Acquire)
     }
 
     fn cancel_task(&mut self) {
@@ -186,33 +221,74 @@ impl WasmFiber {
         Ok((fiber, status))
     }
 
-    pub(crate) fn block_on(mut self) -> Result<()> {
+    pub(crate) fn block_on(self) -> Result<()> {
+        self.block_on_status().map(|_| ())
+    }
+
+    pub(crate) fn block_on_status(mut self) -> Result<WasmFiberStatus> {
         loop {
-            match self.resume()? {
+            if self.cancellation_requested() {
+                self.cancel_task();
+                return Ok(WasmFiberStatus::Canceled);
+            }
+            let status = self.resume()?;
+            if self.cancellation_requested() {
+                self.cancel_task();
+                return Ok(WasmFiberStatus::Canceled);
+            }
+            match status {
                 WasmFiberStatus::Suspended => {
                     let (fiber, status) = self.resume_on_tx()?;
                     self = fiber;
+                    if self.cancellation_requested() {
+                        self.cancel_task();
+                        return Ok(WasmFiberStatus::Canceled);
+                    }
                     match status {
                         WasmFiberStatus::Suspended => {
                             continue;
                         }
                         WasmFiberStatus::Finished => {
-                            return Ok(());
+                            return Ok(WasmFiberStatus::Finished);
                         }
                         WasmFiberStatus::Canceled => {
                             self.cancel_task();
-                            return Ok(());
+                            return Ok(WasmFiberStatus::Canceled);
                         }
                     }
                 }
                 WasmFiberStatus::Finished => {
-                    return Ok(());
+                    return Ok(WasmFiberStatus::Finished);
                 }
                 WasmFiberStatus::Canceled => {
                     self.cancel_task();
-                    return Ok(());
+                    return Ok(WasmFiberStatus::Canceled);
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_latch_survives_a_full_status_channel() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        sender.blocking_send(WasmFiberStatus::Suspended).unwrap();
+        let requested = Arc::new(AtomicBool::new(false));
+        let canceler = WasmFiberCanceler {
+            sender,
+            requested: Arc::clone(&requested),
+        };
+
+        canceler.request();
+
+        assert!(requested.load(Ordering::Acquire));
+        assert!(matches!(
+            receiver.blocking_recv(),
+            Some(WasmFiberStatus::Suspended)
+        ));
     }
 }

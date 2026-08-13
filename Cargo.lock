@@ -1983,6 +1983,8 @@ version = "0.1.0"
 dependencies = [
  "adler",
  "anyhow",
+ "async-trait",
+ "bytes",
  "crc32fast",
  "flate2",
  "lazy_static",

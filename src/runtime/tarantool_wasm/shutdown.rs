@@ -29,6 +29,13 @@ pub(super) fn shutdown_runtime() -> Result<()> {
         drain_stopping_queue();
         fiber::sleep(Duration::from_millis(1));
     };
+    let pipes = loop {
+        if let Ok(pipes) = runtime_state.pipes.try_read() {
+            break pipes.values().cloned().collect::<Vec<_>>();
+        }
+        drain_stopping_queue();
+        fiber::sleep(Duration::from_millis(1));
+    };
 
     for (_, session) in &sessions {
         let (done_tx, _done_rx) = std_mpsc::channel();
@@ -39,7 +46,10 @@ pub(super) fn shutdown_runtime() -> Result<()> {
         let _ = interpreter.cmd_tx.send(InterpreterCommand::Close(done_tx));
     }
     for (_, run) in &runs {
-        let _ = run.cancel_tx.try_send(WasmFiberStatus::Canceled);
+        run.cancel_tx.request();
+    }
+    for pipe in &pipes {
+        pipe.cancel();
     }
 
     while lifecycle::active_workers() != 0 {
@@ -70,6 +80,12 @@ pub(super) fn shutdown_runtime() -> Result<()> {
             &mut errors,
         );
     }
+    for pipe in pipes {
+        if let Err(err) = pipe.wait_join_for_cleanup() {
+            errors.push(format!("pipe process failed: {err}"));
+        }
+    }
+    runtime_state.pipes.write().unwrap().clear();
 
     runtime_state.modules.write().unwrap().clear();
     runtime_state.components.write().unwrap().clear();
