@@ -107,6 +107,9 @@ g.test_large_payload_round_trip = function(cg)
 def echo(value):
     return value
 
+def echo_pair(first, second):
+    return first + second
+
 def binary():
     return bytes([0, 255, 1, 254])
 
@@ -122,6 +125,26 @@ def nested_binary():
 
     local payload = string.rep('x', 1024 * 1024)
     t.assert_equals(wasm.interpreter_call(m, 'echo', payload), payload)
+
+    local threshold_payload = string.rep('t', 64 * 1024)
+    t.assert_equals(
+        wasm.interpreter_call(m, 'echo', threshold_payload),
+        threshold_payload
+    )
+    local below_threshold = string.rep('b', 64 * 1024 - 1)
+    t.assert_equals(
+        wasm.interpreter_call(m, 'echo', below_threshold),
+        below_threshold
+    )
+    t.assert_equals(
+        wasm.interpreter_call(m, 'echo_pair', payload, payload),
+        payload .. payload
+    )
+
+    local invalid_utf8 = string.rep(string.char(255), 64 * 1024)
+    local ok, err = pcall(wasm.interpreter_call, m, 'echo', invalid_utf8)
+    t.assert_equals(ok, false)
+    t.assert_str_contains(tostring(err), 'invalid utf-8')
 
     local binary = string.char(0, 255, 1, 254)
     t.assert_equals(wasm.interpreter_call(m, 'binary'), binary)

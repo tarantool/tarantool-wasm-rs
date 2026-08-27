@@ -470,13 +470,12 @@ pub fn tt_wasm_interpreter_exec(module_uid: String, code: String) -> Result<()> 
 pub fn tt_wasm_interpreter_call(
     module_uid: String,
     func: String,
-    args: Vec<RmpvValue>,
+    args_msgpack: Vec<u8>,
 ) -> Result<Vec<u8>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let entry = interpreter_entry_for_module(&module_uid)?;
     let call_chain = entry.ensure_not_reentrant()?;
-    let args_msgpack = rmpv_to_msgpack_bytes(&RmpvValue::Array(args))?;
     let (result_tx, result_rx) = std_mpsc::channel();
 
     entry
