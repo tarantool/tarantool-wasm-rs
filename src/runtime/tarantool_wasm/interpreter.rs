@@ -471,7 +471,7 @@ pub fn tt_wasm_interpreter_call(
     module_uid: String,
     func: String,
     args: Vec<RmpvValue>,
-) -> Result<RmpvValue> {
+) -> Result<Vec<u8>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let entry = interpreter_entry_for_module(&module_uid)?;
@@ -490,8 +490,7 @@ pub fn tt_wasm_interpreter_call(
         })
         .map_err(|_| anyhow!("interpreter for module `{module_uid}` is closed"))?;
 
-    let raw = recv_result_via_coio(result_rx)?;
-    msgpack_bytes_to_rmpv(&raw)
+    recv_result_via_coio(result_rx)
 }
 
 pub(crate) fn tt_wasm_interpreter_call_export_with_ownership(
