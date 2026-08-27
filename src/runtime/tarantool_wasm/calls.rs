@@ -1,7 +1,8 @@
+use std::sync::RwLock;
 use std::time::Instant;
-use std::{collections::HashMap, sync::RwLock};
 
 use anyhow::{anyhow, Result};
+use hashbrown::{Equivalent, HashMap};
 use rmpv::Value as RmpvValue;
 use wasmtime::{
     component::{Component, ComponentExportIndex, Instance, InstancePre, Val},
@@ -17,14 +18,30 @@ use super::{
 };
 use super::{CallJob, ExportCacheKey, SyncWasmStates};
 
+#[derive(Hash)]
+struct ExportCacheKeyRef<'a> {
+    interface: Option<&'a str>,
+    func: &'a str,
+}
+
+impl Equivalent<ExportCacheKey> for ExportCacheKeyRef<'_> {
+    fn equivalent(&self, key: &ExportCacheKey) -> bool {
+        self.interface == key.interface.as_deref() && self.func == key.func
+    }
+}
+
+pub(super) type ExportCache = RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>;
+
 pub(super) fn resolve_call_export_index(
     component: &Component,
-    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    export_cache: &ExportCache,
     job: &CallJob,
 ) -> Result<ComponentExportIndex> {
-    let key = job.cache_key();
-
-    if let Some(index) = export_cache.read().unwrap().get(&key).copied() {
+    let borrowed_key = ExportCacheKeyRef {
+        interface: job.interface.as_deref(),
+        func: &job.func,
+    };
+    if let Some(index) = export_cache.read().unwrap().get(&borrowed_key).copied() {
         metrics::observe_export_cache_hit();
         return Ok(index);
     }
@@ -50,6 +67,7 @@ pub(super) fn resolve_call_export_index(
             .ok_or_else(|| anyhow!("function `{}` not found at top level", job.func))?
     };
 
+    let key = job.cache_key();
     let mut cache = export_cache.write().unwrap();
     Ok(*cache.entry(key).or_insert(resolved))
 }
@@ -69,7 +87,7 @@ pub(super) async fn execute_call_job(
     store: &mut Store<SyncWasmStates>,
     instance_pre: &InstancePre<SyncWasmStates>,
     component: &Component,
-    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    export_cache: &ExportCache,
     job: &CallJob,
 ) -> Result<RmpvValue> {
     let started = Instant::now();
@@ -83,7 +101,7 @@ pub(super) async fn execute_call_job_on_instance(
     store: &mut Store<SyncWasmStates>,
     instance: &Instance,
     component: &Component,
-    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    export_cache: &ExportCache,
     job: &CallJob,
 ) -> Result<RmpvValue> {
     let state = store.data_mut();
@@ -142,7 +160,7 @@ pub(super) async fn execute_session_call_job_on_instance(
     store: &mut Store<SyncWasmStates>,
     instance: &Instance,
     component: &Component,
-    export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    export_cache: &ExportCache,
     resources: &mut SessionResources,
     job: &CallJob,
 ) -> Result<SessionCallResult> {
@@ -207,4 +225,65 @@ pub(super) async fn execute_session_call_job_on_instance(
     }
     .inspect_err(|_| metrics::observe_conversion_error("resource_results"))?;
     Ok(SessionCallResult { value, consumed })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExportCacheKey, ExportCacheKeyRef};
+    use hashbrown::HashMap;
+
+    #[test]
+    fn borrowed_export_keys_match_owned_cache_entries() {
+        let mut cache = HashMap::new();
+        cache.insert(
+            ExportCacheKey {
+                interface: None,
+                func: "echo".to_string(),
+            },
+            1_u32,
+        );
+        cache.insert(
+            ExportCacheKey {
+                interface: Some("example:first/api@1.0.0".to_string()),
+                func: "echo".to_string(),
+            },
+            2_u32,
+        );
+        cache.insert(
+            ExportCacheKey {
+                interface: Some("example:second/api@1.0.0".to_string()),
+                func: "echo".to_string(),
+            },
+            3_u32,
+        );
+
+        assert_eq!(
+            cache.get(&ExportCacheKeyRef {
+                interface: None,
+                func: "echo",
+            }),
+            Some(&1)
+        );
+        assert_eq!(
+            cache.get(&ExportCacheKeyRef {
+                interface: Some("example:first/api@1.0.0"),
+                func: "echo",
+            }),
+            Some(&2)
+        );
+        assert_eq!(
+            cache.get(&ExportCacheKeyRef {
+                interface: Some("example:second/api@1.0.0"),
+                func: "echo",
+            }),
+            Some(&3)
+        );
+        assert_eq!(
+            cache.get(&ExportCacheKeyRef {
+                interface: Some("example:missing/api@1.0.0"),
+                func: "echo",
+            }),
+            None
+        );
+    }
 }
