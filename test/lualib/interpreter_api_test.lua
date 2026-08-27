@@ -101,6 +101,17 @@ def fail():
     t.assert_equals(wasm.interpreter_call(m, 'next_value'), 2)
 end
 
+g.test_large_payload_round_trip = function(cg)
+    local m = load_interpreter(cg)
+    t.assert_equals(wasm.interpreter_exec(m, [[
+def echo(value):
+    return value
+]]), true)
+
+    local payload = string.rep('x', 1024 * 1024)
+    t.assert_equals(wasm.interpreter_call(m, 'echo', payload), payload)
+end
+
 g.test_rejects_different_config_for_shared_path = function(cg)
     load_interpreter(cg)
 

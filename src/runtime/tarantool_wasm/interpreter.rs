@@ -90,32 +90,6 @@ fn decode_exec_response(value: RmpvValue) -> Result<()> {
     }
 }
 
-fn decode_call_response(value: RmpvValue) -> Result<Vec<u8>> {
-    let payload = match decode_result_tuple(&value, "call")? {
-        Some(payload) => payload,
-        None => value,
-    };
-    rmpv_to_u8_vec(payload, "call")
-}
-
-fn rmpv_to_u8_vec(value: RmpvValue, op: &str) -> Result<Vec<u8>> {
-    let items = value
-        .as_array()
-        .ok_or_else(|| anyhow!("`{op}` success payload must be list<u8>"))?;
-
-    let mut out = Vec::with_capacity(items.len());
-    for item in items {
-        let byte = item
-            .as_u64()
-            .ok_or_else(|| anyhow!("`{op}` success payload must contain only integers"))?;
-        if byte > u8::MAX as u64 {
-            return Err(anyhow!("`{op}` payload byte out of range: {byte}"));
-        }
-        out.push(byte as u8);
-    }
-    Ok(out)
-}
-
 struct InterpreterJobCtx<'a> {
     store: &'a mut Store<SyncWasmStates>,
     rt: &'a tokio::runtime::Runtime,
@@ -156,30 +130,33 @@ fn run_interpreter_call_job(
     caller_session_id: u64,
     call_chain: CallChain,
 ) -> Result<Result<Vec<u8>>> {
-    let args_array = args_msgpack
-        .iter()
-        .map(|b| RmpvValue::from(*b as u64))
-        .collect::<Vec<_>>();
-
     reset_store_fuel(ctx.store, ctx.with_fuel, ctx.config);
-    let response = ctx.rt.block_on(async {
-        let job = CallJob::new(
-            None,
-            "call".to_string(),
-            vec![RmpvValue::from(func), RmpvValue::Array(args_array)],
-        )
-        .with_caller_session_id(caller_session_id)
-        .with_call_chain(call_chain);
-        execute_call_job_on_instance(
-            ctx.store,
-            ctx.instance,
-            ctx.component,
-            ctx.export_cache,
-            &job,
-        )
-        .await
-    })?;
-    Ok(decode_call_response(response))
+    let state = ctx.store.data_mut();
+    state.set_caller_session_id(Some(caller_session_id));
+    state.enter_call(call_chain)?;
+
+    let call_job = CallJob::new(None, "call".to_string(), Vec::new());
+    let call_index = resolve_call_export_index(ctx.component, ctx.export_cache, &call_job)?;
+    let call = ctx
+        .instance
+        .get_typed_func::<(String, Vec<u8>), (Result<Vec<u8>, String>,)>(
+            &mut *ctx.store,
+            call_index,
+        )?;
+
+    let fuel_before = ctx.store.get_fuel().ok();
+    let started = std::time::Instant::now();
+    let call_result = ctx
+        .rt
+        .block_on(call.call_async(&mut *ctx.store, (func, args_msgpack)));
+    metrics::observe_guest_execution(started.elapsed());
+    metrics::observe_fuel(fuel_before, ctx.store.get_fuel().ok());
+    if let Err(err) = &call_result {
+        metrics::observe_trap(err);
+    }
+
+    let (result,) = call_result?;
+    Ok(result.map_err(|err| anyhow!("interpreter `call` failed: {err}")))
 }
 
 struct InterpreterInstanceCtx<'a> {

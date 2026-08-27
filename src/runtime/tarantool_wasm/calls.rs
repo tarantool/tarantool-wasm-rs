@@ -17,7 +17,7 @@ use super::{
 };
 use super::{CallJob, ExportCacheKey, SyncWasmStates};
 
-fn resolve_call_export_index(
+pub(super) fn resolve_call_export_index(
     component: &Component,
     export_cache: &RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
     job: &CallJob,
