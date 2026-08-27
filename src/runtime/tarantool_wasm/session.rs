@@ -70,7 +70,7 @@ pub(super) fn run_session_worker(
     prepared: PreparedComponent,
     config: WasmConfig,
     with_fuel: bool,
-    export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    export_cache: Arc<ExportCache>,
     ready_tx: std_mpsc::Sender<Result<()>>,
     cmd_rx: std_mpsc::Receiver<SessionCommand>,
 ) -> Result<()> {

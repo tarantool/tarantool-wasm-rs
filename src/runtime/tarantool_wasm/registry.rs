@@ -7,7 +7,7 @@ pub(super) struct LoadedModule {
     pub(super) instance_pre: InstancePre<SyncWasmStates>,
     pub(super) config: WasmConfig,
     pub(super) fuel: bool,
-    pub(super) export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    pub(super) export_cache: Arc<ExportCache>,
     pub(super) mode: ModuleMode,
 }
 
@@ -276,7 +276,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 let prepared = load_component(&canonical_path, use_fuel, config.precompiled)?;
                 let component = prepared.component;
                 let instance_pre = prepared.instance_pre;
-                let export_cache = Arc::new(RwLock::new(HashMap::new()));
+                let export_cache = Arc::new(ExportCache::default());
                 let (cmd_tx, cmd_rx) = std_mpsc::channel();
                 let (ready_tx, ready_rx) = std_mpsc::channel();
 
@@ -344,7 +344,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
             instance_pre: prepared.instance_pre,
             config,
             fuel: use_fuel,
-            export_cache: Arc::new(RwLock::new(HashMap::new())),
+            export_cache: Arc::new(ExportCache::default()),
             mode: ModuleMode::Regular,
         }
     };

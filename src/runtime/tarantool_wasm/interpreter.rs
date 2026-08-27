@@ -6,7 +6,7 @@ pub(crate) struct SharedInterpreterEntry {
     pub(super) instance_pre: InstancePre<SyncWasmStates>,
     pub(super) config: WasmConfig,
     pub(super) fuel: bool,
-    pub(super) export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    pub(super) export_cache: Arc<ExportCache>,
     pub(super) cmd_tx: std_mpsc::Sender<InterpreterCommand>,
     pub(super) join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
     pub(super) refcount: AtomicU64,
@@ -95,7 +95,7 @@ struct InterpreterJobCtx<'a> {
     rt: &'a tokio::runtime::Runtime,
     instance: &'a Instance,
     component: &'a Component,
-    export_cache: &'a RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>,
+    export_cache: &'a ExportCache,
     with_fuel: bool,
     config: &'a WasmConfig,
 }
@@ -200,7 +200,7 @@ pub(super) fn run_interpreter_worker(
     prepared: PreparedComponent,
     config: WasmConfig,
     with_fuel: bool,
-    export_cache: Arc<RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>>,
+    export_cache: Arc<ExportCache>,
     ready_tx: std_mpsc::Sender<Result<()>>,
     cmd_rx: std_mpsc::Receiver<InterpreterCommand>,
 ) -> Result<()> {
