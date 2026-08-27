@@ -54,7 +54,7 @@ use wasmtime_wasi_tls::{WasiTlsCtx, WasiTlsCtxBuilder, WasiTlsCtxView, WasiTlsVi
 
 use crate::ffi;
 use crate::runtime::{
-    convert::{msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes},
+    convert::rmpv_to_msgpack_bytes,
     executor::{Executor, TxMode},
     lifecycle::{self, RuntimeLifecycle},
     metrics,

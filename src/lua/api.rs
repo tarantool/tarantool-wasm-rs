@@ -13,7 +13,7 @@ use super::resource::{
     LuaWasmResource,
 };
 use crate::bindings::lua_callback::callback_registry_key;
-use crate::runtime::convert::{from_rmpv, to_rmpv};
+use crate::runtime::convert::{from_rmpv, msgpack_bytes_to_rmpv, to_rmpv};
 use crate::runtime::metrics::TimingSnapshot;
 use crate::runtime::tarantool_wasm::{
     debug_assert_tx_thread, tt_wasm_bind_instance, tt_wasm_call_function, tt_wasm_call_functions,
@@ -492,6 +492,26 @@ fn interpreter_exec(_: &Lua, args: LuaMultiValue) -> LuaResult<bool> {
     Ok(true)
 }
 
+const DIRECT_MSGPACK_DECODE_MIN_BYTES: usize = 64 * 1024;
+
+fn msgpack_string_payload(bytes: &[u8]) -> Option<&[u8]> {
+    let (&marker, rest) = bytes.split_first()?;
+    let (header_len, payload_len): (usize, usize) = match marker {
+        0xa0..=0xbf => (1, usize::from(marker & 0x1f)),
+        0xc4 | 0xd9 => (2, usize::from(*rest.first()?)),
+        0xc5 | 0xda => (
+            3,
+            usize::from(u16::from_be_bytes(rest.get(..2)?.try_into().ok()?)),
+        ),
+        0xc6 | 0xdb => (
+            5,
+            usize::try_from(u32::from_be_bytes(rest.get(..4)?.try_into().ok()?)).ok()?,
+        ),
+        _ => return None,
+    };
+    (bytes.len() == header_len.checked_add(payload_len)?).then(|| &bytes[header_len..])
+}
+
 /// Call a function in a module loaded with `{ interpreter = true }`.
 fn interpreter_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
     let mut iter = args.into_iter();
@@ -503,8 +523,14 @@ fn interpreter_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         .map(|v| to_rmpv(lua, v))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let result_val =
+    let result_msgpack =
         tt_wasm_interpreter_call(module_uid, func, rmp_args).map_err(mlua::Error::external)?;
+    if result_msgpack.len() >= DIRECT_MSGPACK_DECODE_MIN_BYTES {
+        if let Some(payload) = msgpack_string_payload(&result_msgpack) {
+            return lua.create_string(payload).map(Value::String);
+        }
+    }
+    let result_val = msgpack_bytes_to_rmpv(&result_msgpack).map_err(mlua::Error::external)?;
     from_rmpv(lua, &result_val)
 }
 
@@ -877,4 +903,58 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
         lua.create_function(unregister_callback)?,
     )?;
     Ok(module)
+}
+
+#[cfg(test)]
+mod msgpack_string_payload_tests {
+    use super::*;
+
+    fn encoded(marker: u8, length: &[u8], payload_len: usize) -> Vec<u8> {
+        let encoded_len = 1 + length.len() + payload_len;
+        let mut bytes = Vec::with_capacity(encoded_len);
+        bytes.push(marker);
+        bytes.extend_from_slice(length);
+        bytes.resize(encoded_len, b'x');
+        bytes
+    }
+
+    #[test]
+    fn accepts_exact_direct_decode_threshold() {
+        let bytes = encoded(0xc5, &u16::to_be_bytes(65_533), 65_533);
+        assert_eq!(bytes.len(), DIRECT_MSGPACK_DECODE_MIN_BYTES);
+        assert_eq!(
+            msgpack_string_payload(&bytes).map(<[u8]>::len),
+            Some(65_533)
+        );
+    }
+
+    #[test]
+    fn accepts_str_and_bin_length_transitions() {
+        for (marker, length) in [(0xc5, 65_535_u32), (0xda, 65_535)] {
+            let bytes = encoded(marker, &(length as u16).to_be_bytes(), length as usize);
+            assert_eq!(
+                msgpack_string_payload(&bytes).map(<[u8]>::len),
+                Some(65_535)
+            );
+        }
+        for marker in [0xc6, 0xdb] {
+            let bytes = encoded(marker, &u32::to_be_bytes(65_536), 65_536);
+            assert_eq!(
+                msgpack_string_payload(&bytes).map(<[u8]>::len),
+                Some(65_536)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_truncated_or_trailing_data() {
+        for bytes in [
+            &[0xc5, 0][..],
+            &[0xc4, 2, b'x'][..],
+            &[0xa1, b'x', b'y'][..],
+            &[0xc6, 0, 1, 0, 0][..],
+        ] {
+            assert_eq!(msgpack_string_payload(bytes), None);
+        }
+    }
 }

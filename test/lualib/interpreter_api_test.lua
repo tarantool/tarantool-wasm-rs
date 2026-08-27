@@ -106,10 +106,39 @@ g.test_large_payload_round_trip = function(cg)
     t.assert_equals(wasm.interpreter_exec(m, [[
 def echo(value):
     return value
+
+def binary():
+    return bytes([0, 255, 1, 254])
+
+def binary_at_threshold():
+    return bytes([0, 255]) * 32766 + bytes([0])
+
+def binary_large():
+    return bytes([0, 255]) * 32768
+
+def nested_binary():
+    return [bytes([0, 255]) * 40000]
 ]]), true)
 
     local payload = string.rep('x', 1024 * 1024)
     t.assert_equals(wasm.interpreter_call(m, 'echo', payload), payload)
+
+    local binary = string.char(0, 255, 1, 254)
+    t.assert_equals(wasm.interpreter_call(m, 'binary'), binary)
+
+    local pair = string.char(0, 255)
+    t.assert_equals(
+        wasm.interpreter_call(m, 'binary_at_threshold'),
+        string.rep(pair, 32766) .. string.char(0)
+    )
+    t.assert_equals(
+        wasm.interpreter_call(m, 'binary_large'),
+        string.rep(pair, 32768)
+    )
+    t.assert_equals(
+        wasm.interpreter_call(m, 'nested_binary'),
+        {string.rep(pair, 40000)}
+    )
 end
 
 g.test_rejects_different_config_for_shared_path = function(cg)
@@ -216,6 +245,12 @@ def make_dt():
 def make_naive_dt():
     return datetime.datetime(2024, 5, 6, 7, 8, 9)
 
+def make_large_dt():
+    return {
+        "padding": "x" * 65536,
+        "value": datetime.datetime(2024, 5, 6, 7, 8, 9, tzinfo=datetime.timezone.utc),
+    }
+
 def caller_session_id():
     return session.current().id
 ]]
@@ -249,6 +284,12 @@ def caller_session_id():
     t.assert_equals(naive_dt.month, 5)
     t.assert_equals(naive_dt.day, 6)
     t.assert_equals(naive_dt.tzoffset, 0)
+
+    local large_dt = wasm.interpreter_call(m, 'make_large_dt')
+    t.assert_equals(#large_dt.padding, 65536)
+    t.assert_equals(large_dt.value.year, 2024)
+    t.assert_equals(large_dt.value.month, 5)
+    t.assert_equals(large_dt.value.day, 6)
 
     t.assert_equals(wasm.interpreter_call(m, 'caller_session_id'), box.session.id())
 end
