@@ -23,7 +23,7 @@ use std::{
     net::IpAddr,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc as std_mpsc, Arc, Mutex, RwLock,
     },
     thread::{self, JoinHandle, ThreadId},
@@ -57,7 +57,7 @@ use crate::runtime::{
     executor::{Executor, TxMode},
     lifecycle::{self, RuntimeLifecycle},
     metrics,
-    tx::{begin_shutdown, drain_stopping_queue},
+    tx::{begin_shutdown, drain_stopping_queue, run_on_tx_detached},
     wasm_fiber::{WasmFiber, WasmFiberCanceler, WasmFiberStatus},
 };
 
@@ -88,8 +88,21 @@ use self::{
 
 #[allow(unused_imports)]
 pub use self::session::{tt_wasm_session_call_function, tt_wasm_session_call_functions};
+pub use self::{
+    execution::tt_wasm_run_module,
+    interpreter::{tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_interpreter_key},
+    pipe::{tt_wasm_pipe_spawn, PipeStream, DEFAULT_PIPE_CAPACITY, MAX_PIPE_CAPACITY},
+    registry::{
+        tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module,
+        tt_wasm_precompile_component, tt_wasm_stats, ExportInfo,
+    },
+    session::{tt_wasm_close_session, tt_wasm_open_session},
+    store::WasmConfig,
+};
 pub(crate) use self::{
-    execution::WasmRunHandle,
+    execution::{
+        start_wasm_call_function, start_wasm_call_functions, WasmCallHandle, WasmRunHandle,
+    },
     pipe::WasmPipeProcess,
     reentrancy::install_call_chain,
     session::{
@@ -99,17 +112,6 @@ pub(crate) use self::{
         tt_wasm_session_call_functions_with_ownership, WasmInstanceTarget,
     },
     store::SyncWasmStates,
-};
-pub use self::{
-    execution::{tt_wasm_call_function, tt_wasm_call_functions, tt_wasm_run_module},
-    interpreter::{tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_interpreter_key},
-    pipe::{tt_wasm_pipe_spawn, PipeStream, DEFAULT_PIPE_CAPACITY, MAX_PIPE_CAPACITY},
-    registry::{
-        tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_load_module,
-        tt_wasm_precompile_component, tt_wasm_stats, ExportInfo,
-    },
-    session::{tt_wasm_close_session, tt_wasm_open_session},
-    store::WasmConfig,
 };
 
 lazy_static! {
