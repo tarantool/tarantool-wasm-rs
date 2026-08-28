@@ -1,11 +1,10 @@
-use std::any::Any;
-use std::sync::Arc;
-use std::thread::JoinHandle;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
 use mlua::prelude::*;
 use mlua::Value;
+use rmpv::Value as RmpvValue;
 use tarantool::coio::coio_call;
 
 use super::resource::{
@@ -16,13 +15,13 @@ use crate::bindings::lua_callback::callback_registry_key;
 use crate::runtime::convert::{from_rmpv, msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes, to_rmpv};
 use crate::runtime::metrics::TimingSnapshot;
 use crate::runtime::tarantool_wasm::{
-    debug_assert_tx_thread, tt_wasm_bind_instance, tt_wasm_call_function, tt_wasm_call_functions,
-    tt_wasm_close_session, tt_wasm_drop_module, tt_wasm_export_names,
+    debug_assert_tx_thread, start_wasm_call_function, start_wasm_call_functions,
+    tt_wasm_bind_instance, tt_wasm_close_session, tt_wasm_drop_module, tt_wasm_export_names,
     tt_wasm_instance_call_function_with_ownership, tt_wasm_interpreter_call,
     tt_wasm_interpreter_exec, tt_wasm_interpreter_key, tt_wasm_load_module, tt_wasm_open_session,
     tt_wasm_pipe_spawn, tt_wasm_precompile_component, tt_wasm_run_module,
     tt_wasm_session_call_function_with_ownership, tt_wasm_session_call_functions_with_ownership,
-    tt_wasm_stats, PipeStream, WasmInstanceTarget, WasmPipeProcess, WasmRunHandle,
+    tt_wasm_stats, PipeStream, WasmCallHandle, WasmInstanceTarget, WasmPipeProcess, WasmRunHandle,
     DEFAULT_PIPE_CAPACITY, MAX_PIPE_CAPACITY,
 };
 
@@ -36,23 +35,110 @@ use super::config::parse_config_table;
 struct WasmJoinHandle(WasmRunHandle);
 
 impl LuaUserData for WasmJoinHandle {}
+
 impl FromLua for WasmJoinHandle {
-    fn from_lua(value: Value, _lua: &'_ Lua) -> std::result::Result<WasmJoinHandle, mlua::Error> {
+    fn from_lua(value: Value, _lua: &'_ Lua) -> std::result::Result<Self, mlua::Error> {
         value
             .as_userdata()
-            .ok_or(LuaError::runtime("argument is not a join handle"))?
+            .ok_or_else(|| LuaError::runtime("argument is not a join handle"))?
             .take()
     }
 }
 
-impl WasmJoinHandle {
-    fn cancel(&self) -> Result<()> {
-        self.0.cancel()
-    }
+struct LuaCallState {
+    handle: Option<WasmCallHandle<RmpvValue>>,
+    result: Option<Result<RmpvValue>>,
+}
 
-    fn take_join_handle(&mut self) -> Result<JoinHandle<Result<()>>> {
-        self.0.take_join_handle()
+struct LuaCallHandle(Mutex<LuaCallState>);
+
+impl LuaUserData for LuaCallHandle {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("wait", |_, this, ()| {
+            let handle = this
+                .0
+                .lock()
+                .map_err(|_| LuaError::runtime("call state lock poisoned"))?
+                .handle
+                .take()
+                .ok_or_else(|| LuaError::runtime("call result already awaited"))?;
+            let result = wait_for_call(handle);
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("call state lock poisoned"))?
+                .result = Some(result);
+            Ok(true)
+        });
+        methods.add_method("take", |lua, this, ()| {
+            let result = this
+                .0
+                .lock()
+                .map_err(|_| LuaError::runtime("call state lock poisoned"))?
+                .result
+                .take()
+                .ok_or_else(|| LuaError::runtime("call result is not ready"))?
+                .map_err(LuaError::runtime)?;
+            from_rmpv(lua, &result)
+        });
     }
+}
+
+struct LuaBatchState {
+    handle: Option<WasmCallHandle<Vec<RmpvValue>>>,
+    result: Option<Result<Vec<RmpvValue>>>,
+}
+
+struct LuaBatchHandle(Mutex<LuaBatchState>);
+
+impl LuaUserData for LuaBatchHandle {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("wait", |_, this, ()| {
+            let handle = this
+                .0
+                .lock()
+                .map_err(|_| LuaError::runtime("batch state lock poisoned"))?
+                .handle
+                .take()
+                .ok_or_else(|| LuaError::runtime("batch result already awaited"))?;
+            let result = wait_for_call(handle);
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("batch state lock poisoned"))?
+                .result = Some(result);
+            Ok(true)
+        });
+        methods.add_method("take", |lua, this, ()| {
+            let values = this
+                .0
+                .lock()
+                .map_err(|_| LuaError::runtime("batch state lock poisoned"))?
+                .result
+                .take()
+                .ok_or_else(|| LuaError::runtime("batch result is not ready"))?
+                .map_err(LuaError::runtime)?;
+            let results = lua.create_table()?;
+            for (index, value) in values.into_iter().enumerate() {
+                results.set(index + 1, from_rmpv(lua, &value)?)?;
+            }
+            Ok(LuaValue::Table(results))
+        });
+    }
+}
+
+fn wait_for_call<T: Send + 'static>(handle: WasmCallHandle<T>) -> Result<T> {
+    debug_assert_tx_thread();
+    if handle.is_finished() {
+        return handle.join();
+    }
+    let mut result = Err(anyhow::anyhow!("failed to join WASM call worker"));
+    coio_call(
+        &mut |handle: Box<WasmCallHandle<T>>| {
+            result = handle.join();
+            0
+        },
+        handle,
+    );
+    result
 }
 
 struct LuaPipeProcess(WasmPipeProcess);
@@ -171,26 +257,6 @@ impl LuaUserData for LuaPipeProcess {
             Ok(true)
         });
         methods.add_method("is_alive", |_, this, ()| Ok(this.0.is_alive()));
-    }
-}
-
-fn panic_payload_to_string(payload: Box<dyn Any + Send + 'static>) -> String {
-    if let Some(msg) = payload.downcast_ref::<&str>() {
-        return (*msg).to_string();
-    }
-    if let Some(msg) = payload.downcast_ref::<String>() {
-        return msg.clone();
-    }
-    "unknown panic payload".to_string()
-}
-
-fn join_result_to_anyhow(result: std::thread::Result<Result<()>>) -> Result<()> {
-    match result {
-        Ok(inner) => inner,
-        Err(payload) => Err(anyhow::anyhow!(
-            "worker thread panicked: {}",
-            panic_payload_to_string(payload)
-        )),
     }
 }
 
@@ -335,6 +401,20 @@ fn run(lua: &Lua, args: LuaMultiValue) -> LuaResult<WasmJoinHandle> {
         .map_err(LuaError::runtime)
 }
 
+fn finish_run(_: &Lua, mut handle: WasmJoinHandle) -> LuaResult<bool> {
+    handle.0.join().map_err(LuaError::runtime)?;
+    Ok(true)
+}
+
+fn run_is_finished(_: &Lua, handle: LuaUserDataRef<WasmJoinHandle>) -> LuaResult<bool> {
+    handle.0.ready_or_subscribe().map_err(LuaError::runtime)
+}
+
+fn request_run_cancel(_: &Lua, handle: LuaUserDataRef<WasmJoinHandle>) -> LuaResult<bool> {
+    handle.0.cancel().map_err(LuaError::runtime)?;
+    Ok(true)
+}
+
 fn pipe_spawn(lua: &Lua, args: LuaMultiValue) -> LuaResult<LuaPipeProcess> {
     let mut iter = args.into_iter();
     let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
@@ -401,51 +481,12 @@ fn open_session(lua: &Lua, args: LuaMultiValue) -> LuaResult<String> {
     tt_wasm_open_session(module_uid, cfg).map_err(LuaError::runtime)
 }
 
-/// Wait for a background task represented by [`WasmJoinHandle`].
-fn join(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
-    debug_assert_tx_thread();
-    let mut handle = handle;
-    let mut result: Result<()> = Ok(());
-    let join_handle = handle.take_join_handle().map_err(LuaError::runtime)?;
-    coio_call(
-        &mut |handle: Box<JoinHandle<Result<()>>>| {
-            result = join_result_to_anyhow(handle.join());
-            0
-        },
-        join_handle,
-    );
-    match result {
-        Ok(()) => Ok(true),
-        Err(err) => Err(LuaError::runtime(err)),
-    }
-}
-
-/// Cancel execution of a background task represented by [`WasmJoinHandle`].
-fn cancel(_: &Lua, handle: WasmJoinHandle) -> LuaResult<bool> {
-    debug_assert_tx_thread();
-    let mut handle = handle;
-    handle.cancel().map_err(LuaError::runtime)?;
-    let mut result: Result<()> = Ok(());
-    let join_handle = handle.take_join_handle().map_err(LuaError::runtime)?;
-    coio_call(
-        &mut |handle: Box<JoinHandle<Result<()>>>| {
-            result = join_result_to_anyhow(handle.join());
-            0
-        },
-        join_handle,
-    );
-    match result {
-        Ok(()) => Ok(true),
-        Err(err) => Err(LuaError::runtime(err)),
-    }
-}
-
 /// Call a function exported by a loaded module.
 ///
 /// The first argument is the module identifier, the second is the function
 /// name (optionally prefixed with `"interface::"`). Remaining values are
 /// passed as arguments.
-fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+fn call_start(lua: &Lua, args: LuaMultiValue) -> LuaResult<LuaCallHandle> {
     let mut iter = args.into_iter();
 
     let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
@@ -457,29 +498,82 @@ fn call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         .map(|v| to_rmpv(lua, v))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let result_val = tt_wasm_call_function(module_uid, interface, func, rmp_args)
-        .map_err(mlua::Error::external)?;
-
-    let lua_val = from_rmpv(lua, &result_val)?;
-    Ok(lua_val)
+    start_wasm_call_function(module_uid, interface, func, rmp_args)
+        .map(|handle| {
+            LuaCallHandle(Mutex::new(LuaCallState {
+                handle: Some(handle),
+                result: None,
+            }))
+        })
+        .map_err(mlua::Error::external)
 }
 
 /// Execute multiple function calls in a single roundtrip to the WASM runtime.
-fn batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+fn batch_start(lua: &Lua, args: LuaMultiValue) -> LuaResult<LuaBatchHandle> {
     let mut iter = args.into_iter();
     let module_uid = parse_required_string(iter.next(), "expected module_uid as string")?;
     let calls_tbl = parse_calls_table(iter.next())?;
     let calls = parse_batch_calls(lua, calls_tbl)?;
 
-    let result_vals = tt_wasm_call_functions(module_uid, calls).map_err(mlua::Error::external)?;
+    start_wasm_call_functions(module_uid, calls)
+        .map(|handle| {
+            LuaBatchHandle(Mutex::new(LuaBatchState {
+                handle: Some(handle),
+                result: None,
+            }))
+        })
+        .map_err(mlua::Error::external)
+}
 
-    let results_tbl = lua.create_table()?;
-    for (i, val) in result_vals.into_iter().enumerate() {
-        let lua_val = from_rmpv(lua, &val)?;
-        results_tbl.set(i + 1, lua_val)?;
-    }
+fn create_async_execution_functions(
+    lua: &Lua,
+) -> LuaResult<(LuaFunction, LuaFunction, LuaFunction, LuaFunction)> {
+    let call_start = lua.create_function(call_start)?;
+    let batch_start = lua.create_function(batch_start)?;
+    let finish_run = lua.create_function(finish_run)?;
+    let run_is_finished = lua.create_function(run_is_finished)?;
+    let request_run_cancel = lua.create_function(request_run_cancel)?;
+    lua.load(
+        r#"
+        local call_start, batch_start, finish_run, run_is_finished,
+            request_run_cancel = ...
+        local fiber = require('fiber')
 
-    Ok(LuaValue::Table(results_tbl))
+        local function await(handle)
+            handle:wait()
+            return handle:take()
+        end
+
+        local function call(...)
+            return await(call_start(...))
+        end
+
+        local function batch(...)
+            return await(batch_start(...))
+        end
+
+        local function join(handle)
+            while not run_is_finished(handle) do
+                fiber.yield()
+            end
+            return finish_run(handle)
+        end
+
+        local function cancel(handle)
+            request_run_cancel(handle)
+            return join(handle)
+        end
+
+        return call, batch, join, cancel
+        "#,
+    )
+    .call((
+        call_start,
+        batch_start,
+        finish_run,
+        run_is_finished,
+        request_run_cancel,
+    ))
 }
 
 /// Execute source code in a module loaded with `{ interpreter = true }`.
@@ -897,6 +991,7 @@ fn unregister_callback(lua: &Lua, name: String) -> LuaResult<bool> {
 
 pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let module = lua.create_table()?;
+    let (call, batch, join, cancel) = create_async_execution_functions(lua)?;
     let (serialized_interpreter_exec, serialized_interpreter_call) =
         create_interpreter_functions(lua)?;
     let bind = create_bind_function(
@@ -912,10 +1007,10 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     pipe.set("spawn", lua.create_function(pipe_spawn)?)?;
     module.set("pipe", pipe)?;
     module.set("open_session", lua.create_function(open_session)?)?;
-    module.set("join", lua.create_function(join)?)?;
-    module.set("cancel", lua.create_function(cancel)?)?;
-    module.set("call", lua.create_function(call)?)?;
-    module.set("batch", lua.create_function(batch)?)?;
+    module.set("join", join)?;
+    module.set("cancel", cancel)?;
+    module.set("call", call)?;
+    module.set("batch", batch)?;
     module.set("interpreter_exec", serialized_interpreter_exec)?;
     module.set("interpreter_call", serialized_interpreter_call)?;
     module.set("session_call", lua.create_function(session_call)?)?;

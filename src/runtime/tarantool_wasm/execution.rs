@@ -15,6 +15,17 @@ impl WasmRunHandle {
         Ok(())
     }
 
+    pub(crate) fn ready_or_subscribe(&self) -> Result<bool> {
+        self.entry.completion.ready_or_subscribe()
+    }
+
+    pub(crate) fn join(&mut self) -> Result<()> {
+        let handle = self.take_join_handle()?;
+        handle
+            .join()
+            .unwrap_or_else(|_| Err(anyhow!("thread panicked")))
+    }
+
     pub(crate) fn take_join_handle(&mut self) -> Result<JoinHandle<Result<()>>> {
         runtime_state.runs.write().unwrap().remove(&self.run_id);
         self.entry
@@ -23,6 +34,84 @@ impl WasmRunHandle {
             .unwrap()
             .take()
             .ok_or_else(|| anyhow!("join handle already taken"))
+    }
+}
+
+pub(crate) struct WasmCallHandle<T> {
+    join_handle: Option<JoinHandle<Result<T>>>,
+}
+
+impl<T> WasmCallHandle<T> {
+    fn new(join_handle: JoinHandle<Result<T>>) -> Self {
+        Self {
+            join_handle: Some(join_handle),
+        }
+    }
+
+    pub(crate) fn is_finished(&self) -> bool {
+        self.join_handle
+            .as_ref()
+            .is_none_or(JoinHandle::is_finished)
+    }
+
+    pub(crate) fn join(self) -> Result<T> {
+        let handle = self.into_join_handle()?;
+        handle
+            .join()
+            .unwrap_or_else(|_| Err(anyhow!("thread panicked")))
+    }
+
+    fn into_join_handle(mut self) -> Result<JoinHandle<Result<T>>> {
+        self.join_handle
+            .take()
+            .ok_or_else(|| anyhow!("call result already taken"))
+    }
+}
+
+pub(super) struct WorkerCompletion {
+    finished: AtomicBool,
+    waiter: Mutex<Option<fiber::FiberId>>,
+}
+
+impl WorkerCompletion {
+    fn new() -> Self {
+        Self {
+            finished: AtomicBool::new(false),
+            waiter: Mutex::new(None),
+        }
+    }
+
+    fn ready_or_subscribe(&self) -> Result<bool> {
+        debug_assert_tx_thread();
+        let mut waiter = self.waiter.lock().unwrap();
+        if self.finished.load(Ordering::Acquire) {
+            return Ok(true);
+        }
+        let current = fiber::id();
+        match *waiter {
+            None => *waiter = Some(current),
+            Some(existing) if existing == current => {}
+            Some(_) => return Err(anyhow!("worker result is already awaited by another fiber")),
+        }
+        Ok(false)
+    }
+
+    fn finish(&self) {
+        self.finished.store(true, Ordering::Release);
+        let waiter = self.waiter.lock().unwrap().take();
+        if let Some(waiter) = waiter {
+            run_on_tx_detached(move || {
+                let _ = fiber::wakeup(waiter);
+            });
+        }
+    }
+}
+
+struct CompletionNotifier(Arc<WorkerCompletion>);
+
+impl Drop for CompletionNotifier {
+    fn drop(&mut self) {
+        self.0.finish();
     }
 }
 
@@ -83,6 +172,7 @@ impl From<(Option<String>, String, Vec<RmpvValue>)> for CallJob {
 pub(super) struct WasmRunEntry {
     pub(super) cancel_tx: WasmFiberCanceler,
     pub(super) join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
+    completion: Arc<WorkerCompletion>,
 }
 
 pub(super) fn recv_result_via_coio<T: Send + 'static>(
@@ -138,7 +228,10 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
     }
     let fuel = loaded.fuel;
     let (canceler_tx, canceler_rx) = std_mpsc::channel();
+    let completion = Arc::new(WorkerCompletion::new());
+    let worker_completion = Arc::clone(&completion);
     let handle = spawn_tt_thread("wasm".to_string(), move || {
+        let _completion = CompletionNotifier(worker_completion);
         let engine = if fuel {
             &runtime_state.fuel_engine
         } else {
@@ -189,6 +282,7 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
     let entry = Arc::new(WasmRunEntry {
         cancel_tx,
         join_handle: Mutex::new(Some(handle)),
+        completion,
     });
     runtime_state
         .runs
@@ -198,13 +292,13 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
     Ok(WasmRunHandle::new(run_id, entry))
 }
 
-/// Call a single exported function of a module.
-pub fn tt_wasm_call_function(
+/// Start a single exported function call without waiting on the Tarantool thread.
+pub(crate) fn start_wasm_call_function(
     module_uid: String,
     interface: Option<String>,
     func: String,
     args: Vec<RmpvValue>,
-) -> Result<RmpvValue> {
+) -> Result<WasmCallHandle<RmpvValue>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let call_chain = current_call_chain();
@@ -260,30 +354,14 @@ pub fn tt_wasm_call_function(
         })
     })?;
 
-    let mut result: Result<RmpvValue> = Ok(RmpvValue::Nil);
-
-    debug_assert_tx_thread();
-    coio_call(
-        &mut |h: Box<JoinHandle<Result<RmpvValue>>>| {
-            result = h
-                .join()
-                .unwrap_or_else(|_| Err(anyhow::anyhow!("thread panicked")));
-            0
-        },
-        handle,
-    );
-
-    result
+    Ok(WasmCallHandle::new(handle))
 }
 
-/// Call multiple exported functions of a module in sequence on one worker thread.
-///
-/// Each call uses a fresh store and component instance. Use a session batch when
-/// guest state must persist between calls.
-pub fn tt_wasm_call_functions(
+/// Start a batch of exported calls on one worker thread.
+pub(crate) fn start_wasm_call_functions(
     module_uid: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
-) -> Result<Vec<RmpvValue>> {
+) -> Result<WasmCallHandle<Vec<RmpvValue>>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let call_chain = current_call_chain();
@@ -349,17 +427,5 @@ pub fn tt_wasm_call_functions(
         })
     })?;
 
-    let mut result: Result<Vec<RmpvValue>> = Ok(Vec::new());
-
-    debug_assert_tx_thread();
-    coio_call(
-        &mut |h: Box<JoinHandle<Result<Vec<RmpvValue>>>>| {
-            result = h
-                .join()
-                .unwrap_or_else(|_| Err(anyhow::anyhow!("thread panicked")));
-            0
-        },
-        handle,
-    );
-    result
+    Ok(WasmCallHandle::new(handle))
 }
