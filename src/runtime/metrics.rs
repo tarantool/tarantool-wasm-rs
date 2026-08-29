@@ -63,8 +63,14 @@ impl TimingMetric {
 
 struct Metrics {
     compilation: TimingMetric,
+    worker_start: TimingMetric,
+    runtime_setup: TimingMetric,
+    store_setup: TimingMetric,
     instantiation: TimingMetric,
+    argument_lowering: TimingMetric,
     guest_execution: TimingMetric,
+    result_lifting: TimingMetric,
+    worker_wait: TimingMetric,
     tx_wait: TimingMetric,
     lua_callback: TimingMetric,
     component_cache_hits: AtomicU64,
@@ -83,8 +89,14 @@ impl Metrics {
     fn new() -> Self {
         Self {
             compilation: TimingMetric::new(),
+            worker_start: TimingMetric::new(),
+            runtime_setup: TimingMetric::new(),
+            store_setup: TimingMetric::new(),
             instantiation: TimingMetric::new(),
+            argument_lowering: TimingMetric::new(),
             guest_execution: TimingMetric::new(),
+            result_lifting: TimingMetric::new(),
+            worker_wait: TimingMetric::new(),
             tx_wait: TimingMetric::new(),
             lua_callback: TimingMetric::new(),
             component_cache_hits: AtomicU64::new(0),
@@ -109,12 +121,36 @@ pub(crate) fn observe_compilation(duration: Duration) {
     METRICS.compilation.observe(duration);
 }
 
+pub(crate) fn observe_worker_start(duration: Duration) {
+    METRICS.worker_start.observe(duration);
+}
+
+pub(crate) fn observe_runtime_setup(duration: Duration) {
+    METRICS.runtime_setup.observe(duration);
+}
+
+pub(crate) fn observe_store_setup(duration: Duration) {
+    METRICS.store_setup.observe(duration);
+}
+
 pub(crate) fn observe_instantiation(duration: Duration) {
     METRICS.instantiation.observe(duration);
 }
 
+pub(crate) fn observe_argument_lowering(duration: Duration) {
+    METRICS.argument_lowering.observe(duration);
+}
+
 pub(crate) fn observe_guest_execution(duration: Duration) {
     METRICS.guest_execution.observe(duration);
+}
+
+pub(crate) fn observe_result_lifting(duration: Duration) {
+    METRICS.result_lifting.observe(duration);
+}
+
+pub(crate) fn observe_worker_wait(duration: Duration) {
+    METRICS.worker_wait.observe(duration);
 }
 
 pub(crate) fn observe_tx_wait(duration: Duration) {
@@ -226,8 +262,14 @@ pub(crate) fn remove_memory_bytes(bytes: usize) {
 #[derive(Debug)]
 pub(crate) struct MetricsSnapshot {
     pub compilation: TimingSnapshot,
+    pub worker_start: TimingSnapshot,
+    pub runtime_setup: TimingSnapshot,
+    pub store_setup: TimingSnapshot,
     pub instantiation: TimingSnapshot,
+    pub argument_lowering: TimingSnapshot,
     pub guest_execution: TimingSnapshot,
+    pub result_lifting: TimingSnapshot,
+    pub worker_wait: TimingSnapshot,
     pub tx_wait: TimingSnapshot,
     pub lua_callback: TimingSnapshot,
     pub component_cache: CacheSnapshot,
@@ -242,8 +284,14 @@ pub(crate) struct MetricsSnapshot {
 pub(crate) fn snapshot() -> MetricsSnapshot {
     MetricsSnapshot {
         compilation: METRICS.compilation.snapshot(),
+        worker_start: METRICS.worker_start.snapshot(),
+        runtime_setup: METRICS.runtime_setup.snapshot(),
+        store_setup: METRICS.store_setup.snapshot(),
         instantiation: METRICS.instantiation.snapshot(),
+        argument_lowering: METRICS.argument_lowering.snapshot(),
         guest_execution: METRICS.guest_execution.snapshot(),
+        result_lifting: METRICS.result_lifting.snapshot(),
+        worker_wait: METRICS.worker_wait.snapshot(),
         tx_wait: METRICS.tx_wait.snapshot(),
         lua_callback: METRICS.lua_callback.snapshot(),
         component_cache: CacheSnapshot {

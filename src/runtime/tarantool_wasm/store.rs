@@ -427,16 +427,21 @@ pub(super) fn init_store(
     config: &WasmConfig,
     with_fuel: bool,
 ) -> Result<Store<SyncWasmStates>> {
-    let wasi_view = SyncWasmStates::new(config.clone())?;
-    let mut store = Store::new(engine, wasi_view);
-    store.limiter(|state| &mut state.limits);
-    if with_fuel {
-        let limit = config.max_instructions.unwrap_or(u64::MAX);
-        let _ = store.set_fuel(limit);
-    }
-    store.set_epoch_deadline(1);
-    store.epoch_deadline_trap();
-    Ok(store)
+    let started = std::time::Instant::now();
+    let result = (|| {
+        let wasi_view = SyncWasmStates::new(config.clone())?;
+        let mut store = Store::new(engine, wasi_view);
+        store.limiter(|state| &mut state.limits);
+        if with_fuel {
+            let limit = config.max_instructions.unwrap_or(u64::MAX);
+            let _ = store.set_fuel(limit);
+        }
+        store.set_epoch_deadline(1);
+        store.epoch_deadline_trap();
+        Ok(store)
+    })();
+    metrics::observe_store_setup(started.elapsed());
+    result
 }
 
 pub(super) fn reset_store_fuel(

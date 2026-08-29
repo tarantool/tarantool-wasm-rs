@@ -213,11 +213,13 @@ pub(super) fn run_interpreter_worker(
     } else {
         &runtime_state.engine
     };
+    let runtime_started = std::time::Instant::now();
     let rt = Builder::new_current_thread()
         .enable_time()
         .enable_io()
         .build()
         .unwrap();
+    metrics::observe_runtime_setup(runtime_started.elapsed());
 
     let instance_ctx = InterpreterInstanceCtx {
         path_key: &path_key,
