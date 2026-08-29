@@ -87,7 +87,9 @@ session, and shared interpreter. `store_setup` covers creation and
 configuration of the Wasmtime store used by those execution modes.
 
 `instantiation` covers creation of a Wasmtime component instance for one-shot
-calls, sessions, shared interpreters, and `wasi:cli/run`.
+calls, sessions, shared interpreters, and `wasi:cli/run`. With the pooling
+allocator enabled, this includes acquiring and initializing an allocator slot;
+returning the slot when its store is dropped happens outside this span.
 `argument_lowering` measures conversion from the runtime value representation
 to component-model values, including resource handling for persistent
 instances. `guest_execution` covers only the exported guest function or
@@ -138,4 +140,5 @@ by active Wasmtime stores. Failed growth attempts are rolled back.
 `memory.peak_bytes` is the largest observed process-wide current value and
 does not decrease when a store is dropped. These values cover WebAssembly
 linear memory, not native compiler code, runtime bookkeeping, tables, or the
-Tarantool process RSS.
+Tarantool process RSS. They also exclude virtual-address reservations and any
+resident pages retained by idle Wasmtime allocator slots.

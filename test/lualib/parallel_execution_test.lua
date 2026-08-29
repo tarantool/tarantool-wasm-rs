@@ -57,6 +57,19 @@ g.test_concurrent_calls_keep_request_results = function()
     t.assert(wasm.drop(module_uid))
 end
 
+g.test_stateless_pool_slots_are_recycled = function()
+    local module_uid = wasm.load(export_component)
+
+    -- The allocator has a finite number of slots per engine: 1,000 on 64-bit
+    -- targets and 100 on 32-bit targets. Sequential calls must return each
+    -- instance to the pool instead of exhausting it.
+    for call = 1, 1100 do
+        t.assert_equals(tonumber(wasm.call(module_uid, 't-u32', call)), call)
+    end
+
+    t.assert(wasm.drop(module_uid))
+end
+
 g.test_concurrent_batches_keep_request_results = function()
     local module_uid = wasm.load(export_component)
     local workers = 16

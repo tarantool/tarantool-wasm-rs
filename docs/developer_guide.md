@@ -63,7 +63,7 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 - `inherit_network` (default: `true`) – allow the module to access host networking.
 - `allow_ip_name_lookup` (default: `true`) – enable DNS lookups.
 - `allow_tcp` / `allow_udp` (default: `true`) – enable TCP/UDP sockets.
-- `memory_limit` (default: none) – maximum size of WebAssembly linear memory in bytes.
+- `memory_limit` (default: none) – maximum size of WebAssembly linear memory in bytes, subject to the engine-level pooling bound described below.
 - `max_instructions` (default: none) – maximum fuel (approximate instruction count) the module may consume.
 - `interpreter` (default: `false`) – enable shared interpreter singleton mode for the module path.
 - `precompiled` (default: `false`) – deserialize a trusted native artifact
@@ -75,6 +75,14 @@ The library exposes a Lua module named `wasm` which is built from `src/lib.rs`. 
 
 Defaults are applied only when a field is absent. Invalid field types, malformed IP addresses, unknown permission values,
 and inaccessible stream or preopened-directory paths are rejected with a Lua error.
+
+The Wasmtime pooling allocator adds fixed engine-level limits independently of
+the per-module options above. Each core module may define at most one linear
+memory and one table, a table may contain at most 20,000 elements, component
+and core-instance metadata are each limited to 1 MiB, and a linear memory is
+limited to 4 GiB on 64-bit targets or 10 MiB on 32-bit targets. Omitting
+`memory_limit` removes the lower per-store limit but does not remove these
+allocator bounds. Components exceeding a bound fail during instantiation.
 
 Providing `stdin`, `stdout`, or `stderr` overrides the respective `inherit_*` option and redirects the module's streams to files.
 
