@@ -44,7 +44,7 @@ non-yielding finalizer back to TX. This is the safety condition for the narrow
 | Logging (`say`) | Tarantool creates an on-demand thread-local cord for a native thread, formats through a thread-local buffer, protects logger configuration with a mutex, and emits through the logger file descriptor. The binding passes owned Rust strings for the duration of each call and retains no borrowed pointer afterward. Logger reconfiguration and shutdown remain TX-owned lifecycle operations. |
 | MessagePack conversion | Pure Rust decoding/encoding over owned input and output buffers; it does not enter Tarantool or retain pointers into guest memory. |
 | zlib | Pure compression/decompression over owned input and output buffers; it does not enter Tarantool or retain pointers into guest memory. |
-| Wasmtime/WASI execution | Engine and component objects use their documented thread-safe ownership. Stateless workers reuse their OS thread and Tokio runtime, but each store and instance remains owned by one worker job and is not concurrently accessed. |
+| Wasmtime/WASI execution | Engine and component objects use their documented thread-safe ownership. Each engine owns a synchronized pooling allocator; allocator slots return to that same engine when a store is dropped. Stateless workers reuse their OS thread and Tokio runtime, but each store and instance remains owned by one worker job and is not concurrently accessed. |
 
 ## Shutdown
 

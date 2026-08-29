@@ -1,4 +1,6 @@
-use wasmtime::{component::Linker, Cache, Config, Engine};
+use wasmtime::{
+    component::Linker, Cache, Config, Engine, InstanceAllocationStrategy, PoolingAllocationConfig,
+};
 use wasmtime_wasi_tls::p2::LinkOptions;
 
 use crate::bindings::{
@@ -11,9 +13,43 @@ use crate::bindings::{
 
 use super::SyncWasmStates;
 
+const POOLING_ALLOCATOR_TOTAL_SLOTS: u32 = if cfg!(target_pointer_width = "64") {
+    1_000
+} else {
+    100
+};
+const POOLING_ALLOCATOR_MAX_INSTANCE_SIZE: usize = 1 << 20;
+const POOLING_ALLOCATOR_MAX_TABLES_PER_MODULE: u32 = 1;
+const POOLING_ALLOCATOR_TABLE_ELEMENTS: usize = 20_000;
+const POOLING_ALLOCATOR_MAX_MEMORIES_PER_MODULE: u32 = 1;
+
+#[cfg(target_pointer_width = "64")]
+const POOLING_ALLOCATOR_MAX_MEMORY_SIZE: usize = 1 << 32;
+#[cfg(target_pointer_width = "32")]
+const POOLING_ALLOCATOR_MAX_MEMORY_SIZE: usize = 10 << 20;
+
+fn pooling_allocation_strategy() -> InstanceAllocationStrategy {
+    let mut pooling = PoolingAllocationConfig::new();
+    pooling
+        .total_component_instances(POOLING_ALLOCATOR_TOTAL_SLOTS)
+        .total_core_instances(POOLING_ALLOCATOR_TOTAL_SLOTS)
+        .total_memories(POOLING_ALLOCATOR_TOTAL_SLOTS)
+        .total_tables(POOLING_ALLOCATOR_TOTAL_SLOTS)
+        .total_stacks(POOLING_ALLOCATOR_TOTAL_SLOTS)
+        .total_gc_heaps(POOLING_ALLOCATOR_TOTAL_SLOTS)
+        .max_component_instance_size(POOLING_ALLOCATOR_MAX_INSTANCE_SIZE)
+        .max_core_instance_size(POOLING_ALLOCATOR_MAX_INSTANCE_SIZE)
+        .max_tables_per_module(POOLING_ALLOCATOR_MAX_TABLES_PER_MODULE)
+        .table_elements(POOLING_ALLOCATOR_TABLE_ELEMENTS)
+        .max_memories_per_module(POOLING_ALLOCATOR_MAX_MEMORIES_PER_MODULE)
+        .max_memory_size(POOLING_ALLOCATOR_MAX_MEMORY_SIZE);
+    InstanceAllocationStrategy::Pooling(pooling)
+}
+
 pub(super) fn runtime_config(with_fuel: bool, cache: Cache) -> Config {
     let mut config = Config::new();
     config.cache(Some(cache));
+    config.allocation_strategy(pooling_allocation_strategy());
     if with_fuel {
         config.consume_fuel(true);
     }
