@@ -38,11 +38,11 @@ pub(super) fn shutdown_runtime() -> Result<()> {
     };
 
     for (_, session) in &sessions {
-        let (done_tx, _done_rx) = std_mpsc::channel();
+        let (done_tx, _done_rx) = worker_result_channel();
         let _ = session.cmd_tx.send(SessionCommand::Close(done_tx));
     }
     for (_, interpreter) in &interpreters {
-        let (done_tx, _done_rx) = std_mpsc::channel();
+        let (done_tx, _done_rx) = worker_result_channel();
         let _ = interpreter.cmd_tx.send(InterpreterCommand::Close(done_tx));
     }
     for (_, run) in &runs {
@@ -79,6 +79,13 @@ pub(super) fn shutdown_runtime() -> Result<()> {
             &run.join_handle,
             &mut errors,
         );
+    }
+    for (name, handle) in super::session::take_detached_session_workers() {
+        match handle.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => errors.push(format!("detached session `{name}` failed: {err}")),
+            Err(_) => errors.push(format!("detached session `{name}` panicked")),
+        }
     }
     for pipe in pipes {
         if let Err(err) = pipe.wait_join_for_cleanup() {

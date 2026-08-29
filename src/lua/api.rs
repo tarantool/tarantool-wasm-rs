@@ -5,7 +5,6 @@ use anyhow::Result;
 use mlua::prelude::*;
 use mlua::Value;
 use rmpv::Value as RmpvValue;
-use tarantool::coio::coio_call;
 
 use super::resource::{
     from_rmpv_with_instance, mark_consumed, to_rmpv_with_instance_tracking, InstanceLease,
@@ -13,16 +12,17 @@ use super::resource::{
 };
 use crate::bindings::lua_callback::callback_registry_key;
 use crate::runtime::convert::{from_rmpv, msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes, to_rmpv};
-use crate::runtime::metrics::{self, TimingSnapshot};
+use crate::runtime::metrics::TimingSnapshot;
+use crate::runtime::tarantool_wasm::resources::SessionCallResult;
 use crate::runtime::tarantool_wasm::{
     debug_assert_tx_thread, start_wasm_call_function, start_wasm_call_functions,
-    tt_wasm_bind_instance, tt_wasm_close_session, tt_wasm_drop_module, tt_wasm_export_names,
-    tt_wasm_instance_call_function_with_ownership, tt_wasm_interpreter_call,
-    tt_wasm_interpreter_exec, tt_wasm_interpreter_key, tt_wasm_load_module, tt_wasm_open_session,
-    tt_wasm_pipe_spawn, tt_wasm_precompile_component, tt_wasm_run_module,
-    tt_wasm_session_call_function_with_ownership, tt_wasm_session_call_functions_with_ownership,
-    tt_wasm_stats, PipeStream, WasmCallHandle, WasmInstanceTarget, WasmPipeProcess, WasmRunHandle,
-    DEFAULT_PIPE_CAPACITY, MAX_PIPE_CAPACITY,
+    start_wasm_session_call_function_with_ownership,
+    start_wasm_session_call_functions_with_ownership, tt_wasm_bind_instance, tt_wasm_close_session,
+    tt_wasm_drop_module, tt_wasm_export_names, tt_wasm_instance_call_function_with_ownership,
+    tt_wasm_interpreter_call, tt_wasm_interpreter_exec, tt_wasm_interpreter_key,
+    tt_wasm_load_module, tt_wasm_open_session, tt_wasm_pipe_spawn, tt_wasm_precompile_component,
+    tt_wasm_run_module, tt_wasm_stats, PipeStream, WasmCallHandle, WasmInstanceTarget,
+    WasmPipeProcess, WasmRunHandle, WorkerResultReceiver, DEFAULT_PIPE_CAPACITY, MAX_PIPE_CAPACITY,
 };
 
 use super::args::{
@@ -54,6 +54,16 @@ struct LuaCallHandle(Mutex<LuaCallState>);
 
 impl LuaUserData for LuaCallHandle {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("ready", |_, this, ()| {
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("call state lock poisoned"))?
+                .handle
+                .as_ref()
+                .ok_or_else(|| LuaError::runtime("call result already awaited"))?
+                .ready_or_subscribe()
+                .map_err(LuaError::runtime)
+        });
         methods.add_method("wait", |_, this, ()| {
             let handle = this
                 .0
@@ -92,6 +102,16 @@ struct LuaBatchHandle(Mutex<LuaBatchState>);
 
 impl LuaUserData for LuaBatchHandle {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("ready", |_, this, ()| {
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("batch state lock poisoned"))?
+                .handle
+                .as_ref()
+                .ok_or_else(|| LuaError::runtime("batch result already awaited"))?
+                .ready_or_subscribe()
+                .map_err(LuaError::runtime)
+        });
         methods.add_method("wait", |_, this, ()| {
             let handle = this
                 .0
@@ -127,22 +147,7 @@ impl LuaUserData for LuaBatchHandle {
 
 fn wait_for_call<T: Send + 'static>(handle: WasmCallHandle<T>) -> Result<T> {
     debug_assert_tx_thread();
-    let started = std::time::Instant::now();
-    let result = if handle.is_finished() {
-        handle.join()
-    } else {
-        let mut result = Err(anyhow::anyhow!("failed to join WASM call worker"));
-        coio_call(
-            &mut |handle: Box<WasmCallHandle<T>>| {
-                result = handle.join();
-                0
-            },
-            handle,
-        );
-        result
-    };
-    metrics::observe_worker_wait(started.elapsed());
-    result
+    handle.join()
 }
 
 struct LuaPipeProcess(WasmPipeProcess);
@@ -562,6 +567,9 @@ fn create_async_execution_functions(
         local fiber = require('fiber')
 
         local function await(handle)
+            while not handle:ready() do
+                fiber.yield()
+            end
             handle:wait()
             return handle:take()
         end
@@ -726,8 +734,119 @@ fn create_interpreter_functions(lua: &Lua) -> LuaResult<(LuaFunction, LuaFunctio
     .call((raw_exec, raw_call, key_for))
 }
 
-/// Call a function on an already opened long-lived WASM session.
-fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+struct LuaSessionCallState {
+    receiver: Option<WorkerResultReceiver<SessionCallResult>>,
+    instance: Arc<InstanceLease>,
+    used: Vec<LuaWasmResource>,
+}
+
+struct LuaSessionCallHandle(Mutex<LuaSessionCallState>);
+
+impl LuaUserData for LuaSessionCallHandle {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("ready", |_, this, ()| {
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("session call state lock poisoned"))?
+                .receiver
+                .as_ref()
+                .ok_or_else(|| LuaError::runtime("session call result already taken"))?
+                .ready_or_subscribe()
+                .map_err(LuaError::runtime)
+        });
+        methods.add_method("unsubscribe", |_, this, ()| {
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("session call state lock poisoned"))?
+                .receiver
+                .as_ref()
+                .ok_or_else(|| LuaError::runtime("session call result already taken"))?
+                .unsubscribe_current()
+                .map_err(LuaError::runtime)
+        });
+        methods.add_method("take", |lua, this, ()| {
+            let (receiver, instance, used) = {
+                let mut state = this
+                    .0
+                    .lock()
+                    .map_err(|_| LuaError::runtime("session call state lock poisoned"))?;
+                let receiver = state
+                    .receiver
+                    .take()
+                    .ok_or_else(|| LuaError::runtime("session call result already taken"))?;
+                (
+                    receiver,
+                    Arc::clone(&state.instance),
+                    std::mem::take(&mut state.used),
+                )
+            };
+            let result = receiver.recv_ready().map_err(mlua::Error::external)?;
+            mark_consumed(&used, &result.consumed);
+            from_rmpv_with_instance(lua, &result.value, instance)
+        });
+    }
+}
+
+struct LuaSessionBatchState {
+    receiver: Option<WorkerResultReceiver<Vec<SessionCallResult>>>,
+    instance: Arc<InstanceLease>,
+    used: Vec<LuaWasmResource>,
+}
+
+struct LuaSessionBatchHandle(Mutex<LuaSessionBatchState>);
+
+impl LuaUserData for LuaSessionBatchHandle {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("ready", |_, this, ()| {
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("session batch state lock poisoned"))?
+                .receiver
+                .as_ref()
+                .ok_or_else(|| LuaError::runtime("session batch result already taken"))?
+                .ready_or_subscribe()
+                .map_err(LuaError::runtime)
+        });
+        methods.add_method("unsubscribe", |_, this, ()| {
+            this.0
+                .lock()
+                .map_err(|_| LuaError::runtime("session batch state lock poisoned"))?
+                .receiver
+                .as_ref()
+                .ok_or_else(|| LuaError::runtime("session batch result already taken"))?
+                .unsubscribe_current()
+                .map_err(LuaError::runtime)
+        });
+        methods.add_method("take", |lua, this, ()| {
+            let (receiver, instance, used) = {
+                let mut state = this
+                    .0
+                    .lock()
+                    .map_err(|_| LuaError::runtime("session batch state lock poisoned"))?;
+                let receiver = state
+                    .receiver
+                    .take()
+                    .ok_or_else(|| LuaError::runtime("session batch result already taken"))?;
+                (
+                    receiver,
+                    Arc::clone(&state.instance),
+                    std::mem::take(&mut state.used),
+                )
+            };
+            let results = receiver.recv_ready().map_err(mlua::Error::external)?;
+            let results_table = lua.create_table()?;
+            for (index, result) in results.into_iter().enumerate() {
+                mark_consumed(&used, &result.consumed);
+                let value = from_rmpv_with_instance(lua, &result.value, Arc::clone(&instance))?;
+                results_table.set(index + 1, value)?;
+            }
+            Ok(LuaValue::Table(results_table))
+        });
+    }
+}
+
+/// Start a function call on an already opened long-lived WASM session.
+fn session_call_start(lua: &Lua, args: LuaMultiValue) -> LuaResult<LuaSessionCallHandle> {
     let mut iter = args.into_iter();
 
     let session_handle = parse_required_string(iter.next(), "expected session_handle as string")?;
@@ -741,17 +860,18 @@ fn session_call(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         .map(|value| to_rmpv_with_instance_tracking(lua, value, instance.as_ref(), &mut used))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let result =
-        tt_wasm_session_call_function_with_ownership(session_handle, interface, func, rmp_args)
+    let receiver =
+        start_wasm_session_call_function_with_ownership(session_handle, interface, func, rmp_args)
             .map_err(mlua::Error::external)?;
-    mark_consumed(&used, &result.consumed);
-
-    let lua_val = from_rmpv_with_instance(lua, &result.value, instance)?;
-    Ok(lua_val)
+    Ok(LuaSessionCallHandle(Mutex::new(LuaSessionCallState {
+        receiver: Some(receiver),
+        instance,
+        used,
+    })))
 }
 
-/// Execute multiple function calls on an already opened long-lived WASM session.
-fn session_batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
+/// Start multiple calls on an already opened long-lived WASM session.
+fn session_batch_start(lua: &Lua, args: LuaMultiValue) -> LuaResult<LuaSessionBatchHandle> {
     let mut iter = args.into_iter();
 
     let session_handle = parse_required_string(iter.next(), "expected session_handle as string")?;
@@ -780,23 +900,60 @@ fn session_batch(lua: &Lua, args: LuaMultiValue) -> LuaResult<Value> {
         calls.push((interface, func, call_args));
     }
 
-    let results = tt_wasm_session_call_functions_with_ownership(session_handle, calls)
+    let receiver = start_wasm_session_call_functions_with_ownership(session_handle, calls)
         .map_err(mlua::Error::external)?;
-
-    let results_tbl = lua.create_table()?;
-    for (i, result) in results.into_iter().enumerate() {
-        mark_consumed(&used, &result.consumed);
-        let lua_val = from_rmpv_with_instance(lua, &result.value, Arc::clone(&instance))?;
-        results_tbl.set(i + 1, lua_val)?;
-    }
-
-    Ok(LuaValue::Table(results_tbl))
+    Ok(LuaSessionBatchHandle(Mutex::new(LuaSessionBatchState {
+        receiver: Some(receiver),
+        instance,
+        used,
+    })))
 }
 
 /// Close a long-lived WASM session.
 fn close_session(_: &Lua, session_handle: String) -> LuaResult<bool> {
     tt_wasm_close_session(session_handle).map_err(LuaError::runtime)?;
     Ok(true)
+}
+
+fn create_session_functions(lua: &Lua) -> LuaResult<(LuaFunction, LuaFunction, LuaFunction)> {
+    let call_start = lua.create_function(session_call_start)?;
+    let batch_start = lua.create_function(session_batch_start)?;
+    let raw_close = lua.create_function(close_session)?;
+
+    lua.load(
+        r#"
+        local call_start, batch_start, raw_close = ...
+        local fiber = require('fiber')
+
+        local function finish_in_background(handle)
+            fiber.create(function()
+                while not handle:ready() do
+                    fiber.yield()
+                end
+                pcall(handle.take, handle)
+            end)
+        end
+
+        local function await(handle)
+            while not handle:ready() do
+                local ok, err = pcall(fiber.yield)
+                if not ok then
+                    handle:unsubscribe()
+                    finish_in_background(handle)
+                    error(err, 0)
+                end
+            end
+            return handle:take()
+        end
+
+        return function(...)
+            return await(call_start(...))
+        end, function(...)
+            return await(batch_start(...))
+        end, raw_close
+        "#,
+    )
+    .call((call_start, batch_start, raw_close))
 }
 
 /// Return a Lua table describing all exported functions of a module.
@@ -1016,6 +1173,8 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     let (call, batch, join, cancel) = create_async_execution_functions(lua)?;
     let (serialized_interpreter_exec, serialized_interpreter_call) =
         create_interpreter_functions(lua)?;
+    let (serialized_session_call, serialized_session_batch, serialized_close_session) =
+        create_session_functions(lua)?;
     let bind = create_bind_function(
         lua,
         serialized_interpreter_exec.clone(),
@@ -1035,9 +1194,9 @@ pub(crate) fn create_module(lua: &Lua) -> LuaResult<LuaTable> {
     module.set("batch", batch)?;
     module.set("interpreter_exec", serialized_interpreter_exec)?;
     module.set("interpreter_call", serialized_interpreter_call)?;
-    module.set("session_call", lua.create_function(session_call)?)?;
-    module.set("session_batch", lua.create_function(session_batch)?)?;
-    module.set("close_session", lua.create_function(close_session)?)?;
+    module.set("session_call", serialized_session_call)?;
+    module.set("session_batch", serialized_session_batch)?;
+    module.set("close_session", serialized_close_session)?;
     module.set("exports", lua.create_function(exports)?)?;
     module.set("bind", bind)?;
     module.set("drop", lua.create_function(drop)?)?;

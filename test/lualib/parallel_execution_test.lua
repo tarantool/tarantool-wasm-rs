@@ -89,6 +89,82 @@ g.test_concurrent_batches_keep_request_results = function()
     t.assert(wasm.drop(module_uid))
 end
 
+g.test_concurrent_session_calls_wake_the_right_fibers = function()
+    local module_uid = wasm.load(export_component)
+    local session = wasm.open_session(module_uid)
+    local workers = 24
+    local calls_per_worker = 8
+    local done = fiber.channel(workers)
+
+    for worker = 1, workers do
+        local worker_id = worker
+        fiber.create(function()
+            local ok, err = pcall(function()
+                for call = 1, calls_per_worker do
+                    local expected = worker_id * 1000 + call
+                    local actual = wasm.session_call(session, 't-u32', expected)
+                    if tonumber(actual) ~= expected then
+                        error(string.format(
+                            'worker %d call %d expected %d, got %s',
+                            worker_id, call, expected, tostring(actual)
+                        ))
+                    end
+                end
+            end)
+            done:put({ok, err})
+        end)
+    end
+
+    for _ = 1, workers do
+        local result = done:get(30)
+        t.assert(result ~= nil, 'parallel session worker timed out')
+        t.assert(result[1], tostring(result[2]))
+    end
+
+    t.assert(wasm.close_session(session))
+    t.assert(wasm.drop(module_uid))
+end
+
+g.test_distinct_sessions_complete_in_parallel = function()
+    local module_uid = wasm.load(export_component)
+    local workers = 12
+    local calls_per_worker = 6
+    local sessions = {}
+    local done = fiber.channel(workers)
+
+    for worker = 1, workers do
+        sessions[worker] = wasm.open_session(module_uid)
+        local worker_id = worker
+        fiber.create(function()
+            local ok, err = pcall(function()
+                for call = 1, calls_per_worker do
+                    local expected = worker_id * 1000 + call
+                    local actual = wasm.session_call(
+                        sessions[worker_id], 't-u32', expected
+                    )
+                    if tonumber(actual) ~= expected then
+                        error(string.format(
+                            'worker %d call %d expected %d, got %s',
+                            worker_id, call, expected, tostring(actual)
+                        ))
+                    end
+                end
+            end)
+            done:put({ok, err})
+        end)
+    end
+
+    for _ = 1, workers do
+        local result = done:get(30)
+        t.assert(result ~= nil, 'parallel session worker timed out')
+        t.assert(result[1], tostring(result[2]))
+    end
+    for _, session in ipairs(sessions) do
+        t.assert(wasm.close_session(session))
+    end
+    t.assert(wasm.drop(module_uid))
+end
+
 g.test_background_runs_make_progress_in_parallel = function()
     local tmpdir = fio.tempdir()
     local outputs = {

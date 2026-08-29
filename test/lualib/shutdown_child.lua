@@ -5,6 +5,8 @@ box.cfg{
     memtx_dir = workdir,
     wal_dir = workdir,
     vinyl_dir = workdir,
+    log = fio.pathjoin(workdir, 'tarantool.log'),
+    log_level = 7,
 }
 box.ctl.set_on_shutdown_timeout(10)
 
@@ -15,6 +17,10 @@ local root = assert(os.getenv('WASM_REPO'))
 local idle_component = fio.pathjoin(
     root,
     'test/lualib/wasm_component_test/export_test/c/adder.component.wasm'
+)
+local tx_component = fio.pathjoin(
+    root,
+    'test/tarantool_bindings/wasm_component_test/bindings_box_test/c/adder.component.wasm'
 )
 local run_component = fio.pathjoin(
     root,
@@ -38,6 +44,14 @@ report_setup('runtime loaded')
 local session_module = wasm.load(idle_component)
 _G.shutdown_session = wasm.open_session(session_module)
 report_setup('session started')
+
+local tx_module = wasm.load(tx_component)
+do
+    local orphan_binding = wasm.bind(tx_module)
+    assert(type(orphan_binding['t-schema-version']()) == 'number')
+end
+collectgarbage('collect')
+report_setup('orphan bound session with tx callback collected')
 
 local run_module = wasm.load(run_component, {
     env = {INF = 'True'},

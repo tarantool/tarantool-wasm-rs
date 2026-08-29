@@ -38,33 +38,35 @@ impl WasmRunHandle {
 }
 
 pub(crate) struct WasmCallHandle<T> {
-    join_handle: Option<JoinHandle<Result<T>>>,
+    receiver: Option<WorkerResultReceiver<T>>,
+    join_handle: Option<JoinHandle<()>>,
 }
 
 impl<T> WasmCallHandle<T> {
-    fn new(join_handle: JoinHandle<Result<T>>) -> Self {
+    fn new(receiver: WorkerResultReceiver<T>, join_handle: JoinHandle<()>) -> Self {
         Self {
+            receiver: Some(receiver),
             join_handle: Some(join_handle),
         }
     }
 
-    pub(crate) fn is_finished(&self) -> bool {
-        self.join_handle
-            .as_ref()
-            .is_none_or(JoinHandle::is_finished)
-    }
-
-    pub(crate) fn join(self) -> Result<T> {
-        let handle = self.into_join_handle()?;
-        handle
-            .join()
-            .unwrap_or_else(|_| Err(anyhow!("thread panicked")))
-    }
-
-    fn into_join_handle(mut self) -> Result<JoinHandle<Result<T>>> {
-        self.join_handle
+    pub(crate) fn join(mut self) -> Result<T> {
+        let receiver = self
+            .receiver
             .take()
-            .ok_or_else(|| anyhow!("call result already taken"))
+            .ok_or_else(|| anyhow!("call result already taken"))?;
+        let result = receiver.recv_ready();
+        if let Some(handle) = self.join_handle.take().filter(JoinHandle::is_finished) {
+            handle.join().map_err(|_| anyhow!("thread panicked"))?;
+        }
+        result
+    }
+
+    pub(crate) fn ready_or_subscribe(&self) -> Result<bool> {
+        self.receiver
+            .as_ref()
+            .ok_or_else(|| anyhow!("call result already taken"))?
+            .ready_or_subscribe()
     }
 }
 
@@ -96,6 +98,18 @@ impl WorkerCompletion {
         Ok(false)
     }
 
+    fn unsubscribe_current(&self) -> Result<()> {
+        debug_assert_tx_thread();
+        let mut waiter = self.waiter.lock().unwrap();
+        let current = fiber::id();
+        match *waiter {
+            Some(existing) if existing == current => *waiter = None,
+            None => {}
+            Some(_) => return Err(anyhow!("worker result is awaited by another fiber")),
+        }
+        Ok(())
+    }
+
     fn finish(&self) {
         self.finished.store(true, Ordering::Release);
         let waiter = self.waiter.lock().unwrap().take();
@@ -113,6 +127,97 @@ impl Drop for CompletionNotifier {
     fn drop(&mut self) {
         self.0.finish();
     }
+}
+
+pub(super) struct WorkerResultSender<T> {
+    sender: Option<std_mpsc::Sender<Result<T>>>,
+    completion: Arc<WorkerCompletion>,
+}
+
+impl<T> WorkerResultSender<T> {
+    pub(super) fn send(
+        mut self,
+        result: Result<T>,
+    ) -> std::result::Result<(), std_mpsc::SendError<Result<T>>> {
+        self.sender
+            .take()
+            .expect("worker result sender must be available")
+            .send(result)
+    }
+}
+
+impl<T> Drop for WorkerResultSender<T> {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+        self.completion.finish();
+    }
+}
+
+pub(crate) struct WorkerResultReceiver<T> {
+    receiver: std_mpsc::Receiver<Result<T>>,
+    completion: Arc<WorkerCompletion>,
+    started: std::time::Instant,
+}
+
+impl<T> WorkerResultReceiver<T> {
+    pub(super) fn recv(self) -> Result<T>
+    where
+        T: Send + 'static,
+    {
+        debug_assert_tx_thread();
+        let mut result: Result<T> = Err(anyhow!("failed to receive worker response"));
+        coio_call(
+            &mut |receiver: Box<std_mpsc::Receiver<Result<T>>>| {
+                result = receiver
+                    .recv()
+                    .unwrap_or_else(|_| Err(anyhow!("worker stopped unexpectedly")));
+                0
+            },
+            self.receiver,
+        );
+        metrics::observe_worker_wait(self.started.elapsed());
+        result
+    }
+
+    pub(crate) fn ready_or_subscribe(&self) -> Result<bool> {
+        self.completion.ready_or_subscribe()
+    }
+
+    pub(crate) fn unsubscribe_current(&self) -> Result<()> {
+        self.completion.unsubscribe_current()
+    }
+
+    pub(crate) fn recv_ready(self) -> Result<T> {
+        debug_assert_tx_thread();
+        let ready = if self.completion.finished.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(anyhow!("worker response is not ready"))
+        };
+        let result = ready.and_then(|()| {
+            self.receiver
+                .recv()
+                .unwrap_or_else(|_| Err(anyhow!("worker stopped unexpectedly")))
+        });
+        metrics::observe_worker_wait(self.started.elapsed());
+        result
+    }
+}
+
+pub(super) fn worker_result_channel<T>() -> (WorkerResultSender<T>, WorkerResultReceiver<T>) {
+    let (sender, receiver) = std_mpsc::channel();
+    let completion = Arc::new(WorkerCompletion::new());
+    (
+        WorkerResultSender {
+            sender: Some(sender),
+            completion: Arc::clone(&completion),
+        },
+        WorkerResultReceiver {
+            receiver,
+            completion,
+            started: std::time::Instant::now(),
+        },
+    )
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -173,25 +278,6 @@ pub(super) struct WasmRunEntry {
     pub(super) cancel_tx: WasmFiberCanceler,
     pub(super) join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
     completion: Arc<WorkerCompletion>,
-}
-
-pub(super) fn recv_result_via_coio<T: Send + 'static>(
-    receiver: std_mpsc::Receiver<Result<T>>,
-) -> Result<T> {
-    debug_assert_tx_thread();
-    let started = std::time::Instant::now();
-    let mut result: Result<T> = Err(anyhow!("failed to receive worker response"));
-    coio_call(
-        &mut |rx: Box<std_mpsc::Receiver<Result<T>>>| {
-            result = rx
-                .recv()
-                .unwrap_or_else(|_| Err(anyhow!("worker stopped unexpectedly")));
-            0
-        },
-        receiver,
-    );
-    metrics::observe_worker_wait(started.elapsed());
-    result
 }
 
 pub(super) fn join_handle_via_coio<T: Send + 'static>(handle: JoinHandle<Result<T>>) -> Result<T> {
@@ -318,40 +404,44 @@ pub(crate) fn start_wasm_call_function(
     let fuel = loaded.fuel;
     let export_cache = loaded.export_cache;
 
+    let (result_tx, result_rx) = worker_result_channel();
     let worker_started = std::time::Instant::now();
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        metrics::observe_worker_start(worker_started.elapsed());
-        let engine = if fuel {
-            &runtime_state.fuel_engine
-        } else {
-            &runtime_state.engine
-        };
-        let mut store = init_store(engine, &cfg, fuel)?;
+        let result = (|| {
+            metrics::observe_worker_start(worker_started.elapsed());
+            let engine = if fuel {
+                &runtime_state.fuel_engine
+            } else {
+                &runtime_state.engine
+            };
+            let mut store = init_store(engine, &cfg, fuel)?;
 
-        let runtime_started = std::time::Instant::now();
-        let rt = Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
-            .build()
-            .unwrap();
-        metrics::observe_runtime_setup(runtime_started.elapsed());
+            let runtime_started = std::time::Instant::now();
+            let rt = Builder::new_current_thread()
+                .enable_time()
+                .enable_io()
+                .build()
+                .unwrap();
+            metrics::observe_runtime_setup(runtime_started.elapsed());
 
-        rt.block_on(async move {
-            let job = CallJob::new(interface, func, args)
-                .with_caller_session_id(caller_session_id)
-                .with_call_chain(call_chain);
-            execute_call_job(
-                &mut store,
-                &instance_pre,
-                &component,
-                export_cache.as_ref(),
-                &job,
-            )
-            .await
-        })
+            rt.block_on(async move {
+                let job = CallJob::new(interface, func, args)
+                    .with_caller_session_id(caller_session_id)
+                    .with_call_chain(call_chain);
+                execute_call_job(
+                    &mut store,
+                    &instance_pre,
+                    &component,
+                    export_cache.as_ref(),
+                    &job,
+                )
+                .await
+            })
+        })();
+        let _ = result_tx.send(result);
     })?;
 
-    Ok(WasmCallHandle::new(handle))
+    Ok(WasmCallHandle::new(result_rx, handle))
 }
 
 /// Start a batch of exported calls on one worker thread.
@@ -381,43 +471,47 @@ pub(crate) fn start_wasm_call_functions(
         .map(|job| job.with_call_chain(call_chain.clone()))
         .collect::<Vec<_>>();
 
+    let (result_tx, result_rx) = worker_result_channel();
     let worker_started = std::time::Instant::now();
     let handle = spawn_tt_thread("wasm".to_string(), move || {
-        metrics::observe_worker_start(worker_started.elapsed());
-        let engine = if fuel {
-            &runtime_state.fuel_engine
-        } else {
-            &runtime_state.engine
+        let result = {
+            metrics::observe_worker_start(worker_started.elapsed());
+            let engine = if fuel {
+                &runtime_state.fuel_engine
+            } else {
+                &runtime_state.engine
+            };
+            let runtime_started = std::time::Instant::now();
+            let rt = Builder::new_current_thread()
+                .enable_time()
+                .enable_io()
+                .build()
+                .unwrap();
+            metrics::observe_runtime_setup(runtime_started.elapsed());
+
+            rt.block_on(async move {
+                let mut results_all = Vec::new();
+
+                for job in jobs.into_iter() {
+                    let mut store = init_store(engine, &cfg, fuel)?;
+
+                    results_all.push(
+                        execute_call_job(
+                            &mut store,
+                            &instance_pre,
+                            &component,
+                            export_cache.as_ref(),
+                            &job,
+                        )
+                        .await?,
+                    );
+                }
+
+                Ok(results_all)
+            })
         };
-        let runtime_started = std::time::Instant::now();
-        let rt = Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
-            .build()
-            .unwrap();
-        metrics::observe_runtime_setup(runtime_started.elapsed());
-
-        rt.block_on(async move {
-            let mut results_all = Vec::new();
-
-            for job in jobs.into_iter() {
-                let mut store = init_store(engine, &cfg, fuel)?;
-
-                results_all.push(
-                    execute_call_job(
-                        &mut store,
-                        &instance_pre,
-                        &component,
-                        export_cache.as_ref(),
-                        &job,
-                    )
-                    .await?,
-                );
-            }
-
-            Ok(results_all)
-        })
+        let _ = result_tx.send(result);
     })?;
 
-    Ok(WasmCallHandle::new(handle))
+    Ok(WasmCallHandle::new(result_rx, handle))
 }

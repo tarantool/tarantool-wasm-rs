@@ -1,19 +1,24 @@
 use super::*;
 
 pub(super) enum SessionCommand {
-    Call(CallJob, std_mpsc::Sender<Result<SessionCallResult>>),
-    Batch(
-        Vec<CallJob>,
-        std_mpsc::Sender<Result<Vec<SessionCallResult>>>,
-    ),
-    DropResource(u64, Option<std_mpsc::Sender<Result<()>>>),
-    Close(std_mpsc::Sender<Result<()>>),
+    Call(CallJob, WorkerResultSender<SessionCallResult>),
+    Batch(Vec<CallJob>, WorkerResultSender<Vec<SessionCallResult>>),
+    DropResource(u64, Option<WorkerResultSender<()>>),
+    Close(WorkerResultSender<()>),
 }
 
 pub(super) struct WasmSession {
     pub(super) module_uid: String,
     pub(super) cmd_tx: std_mpsc::Sender<SessionCommand>,
     pub(super) join_handle: Mutex<Option<JoinHandle<Result<()>>>>,
+}
+
+type DetachedSessionWorker = (String, JoinHandle<Result<()>>);
+
+static DETACHED_SESSION_WORKERS: Mutex<Vec<DetachedSessionWorker>> = Mutex::new(Vec::new());
+
+pub(super) fn take_detached_session_workers() -> Vec<DetachedSessionWorker> {
+    std::mem::take(&mut *DETACHED_SESSION_WORKERS.lock().unwrap())
 }
 
 impl WasmSession {
@@ -71,7 +76,7 @@ pub(super) fn run_session_worker(
     config: WasmConfig,
     with_fuel: bool,
     export_cache: Arc<ExportCache>,
-    ready_tx: std_mpsc::Sender<Result<()>>,
+    ready_tx: WorkerResultSender<()>,
     cmd_rx: std_mpsc::Receiver<SessionCommand>,
 ) -> Result<()> {
     let PreparedComponent {
@@ -117,16 +122,9 @@ pub(super) fn run_session_worker(
     let _ = ready_tx.send(Ok(()));
 
     loop {
-        let command = match cmd_rx.recv_timeout(Duration::from_millis(10)) {
+        let command = match cmd_rx.recv() {
             Ok(command) => command,
-            Err(std_mpsc::RecvTimeoutError::Timeout)
-                if lifecycle::state() == RuntimeLifecycle::Running =>
-            {
-                continue;
-            }
-            Err(std_mpsc::RecvTimeoutError::Timeout | std_mpsc::RecvTimeoutError::Disconnected) => {
-                break;
-            }
+            Err(_) => break,
         };
         match command {
             SessionCommand::Call(job, result_tx) => {
@@ -191,9 +189,9 @@ pub(super) fn run_session_worker(
 }
 
 pub(super) fn close_session_impl(session_handle: &str, session: Arc<WasmSession>) -> Result<()> {
-    let (close_tx, close_rx) = std_mpsc::channel();
+    let (close_tx, close_rx) = worker_result_channel();
     if session.cmd_tx.send(SessionCommand::Close(close_tx)).is_ok() {
-        recv_result_via_coio(close_rx)?;
+        close_rx.recv()?;
     }
 
     if let Some(handle) = session.join_handle.lock().unwrap().take() {
@@ -230,7 +228,7 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
     let export_cache = loaded.export_cache;
 
     let (cmd_tx, cmd_rx) = std_mpsc::channel();
-    let (ready_tx, ready_rx) = std_mpsc::channel();
+    let (ready_tx, ready_rx) = worker_result_channel();
 
     let module_uid_for_thread = module_uid.clone();
     let worker = spawn_tt_thread("wasm-session".to_string(), move || {
@@ -248,12 +246,12 @@ pub fn tt_wasm_open_session(module_uid: String, config: Option<WasmConfig>) -> R
         )
     })?;
 
-    if let Err(err) = recv_result_via_coio(ready_rx) {
+    if let Err(err) = ready_rx.recv() {
         let _ = join_handle_via_coio(worker);
         return Err(err);
     }
     if let Err(err) = lifecycle::ensure_running() {
-        let (done_tx, _done_rx) = std_mpsc::channel();
+        let (done_tx, _done_rx) = worker_result_channel();
         let _ = cmd_tx.send(SessionCommand::Close(done_tx));
         let _ = join_handle_via_coio(worker);
         return Err(err);
@@ -357,12 +355,12 @@ pub fn tt_wasm_session_call_function(
     Ok(tt_wasm_session_call_function_with_ownership(session_handle, interface, func, args)?.value)
 }
 
-pub(crate) fn tt_wasm_session_call_function_with_ownership(
+pub(crate) fn start_wasm_session_call_function_with_ownership(
     session_handle: String,
     interface: Option<String>,
     func: String,
     args: Vec<RmpvValue>,
-) -> Result<SessionCallResult> {
+) -> Result<WorkerResultReceiver<SessionCallResult>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let session = runtime_state
@@ -377,7 +375,7 @@ pub(crate) fn tt_wasm_session_call_function_with_ownership(
         &format!("session `{session_handle}`"),
     )?;
 
-    let (result_tx, result_rx) = std_mpsc::channel();
+    let (result_tx, result_rx) = worker_result_channel();
     session
         .cmd_tx
         .send(SessionCommand::Call(
@@ -388,7 +386,16 @@ pub(crate) fn tt_wasm_session_call_function_with_ownership(
         ))
         .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
 
-    recv_result_via_coio(result_rx)
+    Ok(result_rx)
+}
+
+pub(crate) fn tt_wasm_session_call_function_with_ownership(
+    session_handle: String,
+    interface: Option<String>,
+    func: String,
+    args: Vec<RmpvValue>,
+) -> Result<SessionCallResult> {
+    start_wasm_session_call_function_with_ownership(session_handle, interface, func, args)?.recv()
 }
 
 /// Call multiple exports through an opened long-lived session.
@@ -405,10 +412,10 @@ pub fn tt_wasm_session_call_functions(
     )
 }
 
-pub(crate) fn tt_wasm_session_call_functions_with_ownership(
+pub(crate) fn start_wasm_session_call_functions_with_ownership(
     session_handle: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
-) -> Result<Vec<SessionCallResult>> {
+) -> Result<WorkerResultReceiver<Vec<SessionCallResult>>> {
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let session = runtime_state
@@ -428,13 +435,20 @@ pub(crate) fn tt_wasm_session_call_functions_with_ownership(
         .map(|call| CallJob::from(call).with_caller_session_id(caller_session_id))
         .map(|job| job.with_call_chain(call_chain.clone()))
         .collect::<Vec<_>>();
-    let (result_tx, result_rx) = std_mpsc::channel();
+    let (result_tx, result_rx) = worker_result_channel();
     session
         .cmd_tx
         .send(SessionCommand::Batch(jobs, result_tx))
         .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
 
-    recv_result_via_coio(result_rx)
+    Ok(result_rx)
+}
+
+pub(crate) fn tt_wasm_session_call_functions_with_ownership(
+    session_handle: String,
+    calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
+) -> Result<Vec<SessionCallResult>> {
+    start_wasm_session_call_functions_with_ownership(session_handle, calls)?.recv()
 }
 
 pub fn tt_wasm_session_drop_resource(session_handle: String, id: u64) -> Result<()> {
@@ -450,12 +464,12 @@ pub fn tt_wasm_session_drop_resource(session_handle: String, id: u64) -> Result<
         session.worker_thread_id()?,
         &format!("session `{session_handle}`"),
     )?;
-    let (result_tx, result_rx) = std_mpsc::channel();
+    let (result_tx, result_rx) = worker_result_channel();
     session
         .cmd_tx
         .send(SessionCommand::DropResource(id, Some(result_tx)))
         .map_err(|_| anyhow!("session `{session_handle}` is closed"))?;
-    recv_result_via_coio(result_rx)
+    result_rx.recv()
 }
 
 pub fn tt_wasm_session_drop_resource_detached(session_handle: &str, id: u64) {
@@ -490,7 +504,20 @@ pub fn tt_wasm_close_session_detached(session_handle: &str) {
         .unwrap()
         .remove(session_handle);
     if let Some(session) = session {
-        let (done_tx, _done_rx) = std_mpsc::channel();
+        let (done_tx, _done_rx) = worker_result_channel();
         let _ = session.cmd_tx.send(SessionCommand::Close(done_tx));
+        if let Some(handle) = session.join_handle.lock().unwrap().take() {
+            let mut workers = DETACHED_SESSION_WORKERS.lock().unwrap();
+            let mut pending = Vec::with_capacity(workers.len() + 1);
+            for worker in workers.drain(..) {
+                if worker.1.is_finished() {
+                    let _ = worker.1.join();
+                } else {
+                    pending.push(worker);
+                }
+            }
+            pending.push((session_handle.to_string(), handle));
+            *workers = pending;
+        }
     }
 }

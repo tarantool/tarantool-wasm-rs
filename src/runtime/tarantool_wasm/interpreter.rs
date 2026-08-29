@@ -35,18 +35,18 @@ pub(super) enum InterpreterCommand {
         code: String,
         caller_session_id: u64,
         call_chain: CallChain,
-        result_tx: std_mpsc::Sender<Result<()>>,
+        result_tx: WorkerResultSender<()>,
     },
     Call {
         func: String,
         args_msgpack: Vec<u8>,
         caller_session_id: u64,
         call_chain: CallChain,
-        result_tx: std_mpsc::Sender<Result<Vec<u8>>>,
+        result_tx: WorkerResultSender<Vec<u8>>,
     },
-    ExportCall(CallJob, std_mpsc::Sender<Result<SessionCallResult>>),
-    DropResource(u64, Option<std_mpsc::Sender<Result<()>>>),
-    Close(std_mpsc::Sender<Result<()>>),
+    ExportCall(CallJob, WorkerResultSender<SessionCallResult>),
+    DropResource(u64, Option<WorkerResultSender<()>>),
+    Close(WorkerResultSender<()>),
 }
 
 fn decode_result_tuple(value: &RmpvValue, op: &str) -> Result<Option<RmpvValue>> {
@@ -201,7 +201,7 @@ pub(super) fn run_interpreter_worker(
     config: WasmConfig,
     with_fuel: bool,
     export_cache: Arc<ExportCache>,
-    ready_tx: std_mpsc::Sender<Result<()>>,
+    ready_tx: WorkerResultSender<()>,
     cmd_rx: std_mpsc::Receiver<InterpreterCommand>,
 ) -> Result<()> {
     let PreparedComponent {
@@ -242,16 +242,9 @@ pub(super) fn run_interpreter_worker(
     let _ = ready_tx.send(Ok(()));
 
     loop {
-        let command = match cmd_rx.recv_timeout(Duration::from_millis(10)) {
+        let command = match cmd_rx.recv() {
             Ok(command) => command,
-            Err(std_mpsc::RecvTimeoutError::Timeout)
-                if lifecycle::state() == RuntimeLifecycle::Running =>
-            {
-                continue;
-            }
-            Err(std_mpsc::RecvTimeoutError::Timeout | std_mpsc::RecvTimeoutError::Disconnected) => {
-                break;
-            }
+            Err(_) => break,
         };
         match command {
             InterpreterCommand::Exec {
@@ -405,13 +398,13 @@ pub(super) fn close_interpreter_impl(
     path_key: &str,
     entry: Arc<SharedInterpreterEntry>,
 ) -> Result<()> {
-    let (close_tx, close_rx) = std_mpsc::channel();
+    let (close_tx, close_rx) = worker_result_channel();
     if entry
         .cmd_tx
         .send(InterpreterCommand::Close(close_tx))
         .is_ok()
     {
-        recv_result_via_coio(close_rx)?;
+        close_rx.recv()?;
     }
 
     if let Some(handle) = entry.join_handle.lock().unwrap().take() {
@@ -454,7 +447,7 @@ pub fn tt_wasm_interpreter_exec(module_uid: String, code: String) -> Result<()> 
     let caller_session_id = current_session_id();
     let entry = interpreter_entry_for_module(&module_uid)?;
     let call_chain = entry.ensure_not_reentrant()?;
-    let (result_tx, result_rx) = std_mpsc::channel();
+    let (result_tx, result_rx) = worker_result_channel();
     entry
         .cmd_tx
         .send(InterpreterCommand::Exec {
@@ -465,7 +458,7 @@ pub fn tt_wasm_interpreter_exec(module_uid: String, code: String) -> Result<()> 
         })
         .map_err(|_| anyhow!("interpreter for module `{module_uid}` is closed"))?;
 
-    recv_result_via_coio(result_rx)
+    result_rx.recv()
 }
 
 /// Call a function in a shared interpreter instance.
@@ -478,7 +471,7 @@ pub fn tt_wasm_interpreter_call(
     let caller_session_id = current_session_id();
     let entry = interpreter_entry_for_module(&module_uid)?;
     let call_chain = entry.ensure_not_reentrant()?;
-    let (result_tx, result_rx) = std_mpsc::channel();
+    let (result_tx, result_rx) = worker_result_channel();
 
     entry
         .cmd_tx
@@ -491,7 +484,7 @@ pub fn tt_wasm_interpreter_call(
         })
         .map_err(|_| anyhow!("interpreter for module `{module_uid}` is closed"))?;
 
-    recv_result_via_coio(result_rx)
+    result_rx.recv()
 }
 
 pub(crate) fn tt_wasm_interpreter_call_export_with_ownership(
@@ -503,7 +496,7 @@ pub(crate) fn tt_wasm_interpreter_call_export_with_ownership(
     lifecycle::ensure_running()?;
     let caller_session_id = current_session_id();
     let call_chain = entry.ensure_not_reentrant()?;
-    let (result_tx, result_rx) = std_mpsc::channel();
+    let (result_tx, result_rx) = worker_result_channel();
     entry
         .cmd_tx
         .send(InterpreterCommand::ExportCall(
@@ -513,7 +506,7 @@ pub(crate) fn tt_wasm_interpreter_call_export_with_ownership(
             result_tx,
         ))
         .map_err(|_| anyhow!("interpreter `{}` is closed", entry.path_key))?;
-    recv_result_via_coio(result_rx)
+    result_rx.recv()
 }
 
 pub(crate) fn tt_wasm_interpreter_drop_resource(
@@ -522,12 +515,12 @@ pub(crate) fn tt_wasm_interpreter_drop_resource(
 ) -> Result<()> {
     lifecycle::ensure_running()?;
     entry.ensure_not_reentrant()?;
-    let (result_tx, result_rx) = std_mpsc::channel();
+    let (result_tx, result_rx) = worker_result_channel();
     entry
         .cmd_tx
         .send(InterpreterCommand::DropResource(id, Some(result_tx)))
         .map_err(|_| anyhow!("interpreter `{}` is closed", entry.path_key))?;
-    recv_result_via_coio(result_rx)
+    result_rx.recv()
 }
 
 pub(crate) fn tt_wasm_interpreter_drop_resource_detached(
