@@ -1,6 +1,7 @@
 local t = require('luatest')
 local wasm = require('wasm')
 local fio = require('fio')
+local fiber = require('fiber')
 
 package.path = './test/?.lua;' .. package.path
 local utils = require('utils')
@@ -131,7 +132,55 @@ g.test_explicit_session_api = function(cg)
     })
     t.assert_equals(values, {11, 24})
 
+    local consumed = wasm.session_call(
+        session, selector .. '[constructor]counter', 17
+    )
+    t.assert_equals(wasm.session_call(session, selector .. 'consume', consumed), 17)
+    t.assert_not(consumed:is_alive())
+
     t.assert(first:drop())
     t.assert(second:drop())
+    t.assert(wasm.close_session(session))
+end
+
+g.test_cancelled_session_call_still_records_consumed_resource = function(cg)
+    local session = wasm.open_session(cg.module)
+    local selector = 'test:resources/counters@0.1.0::'
+    local counter = wasm.session_call(
+        session, selector .. '[constructor]counter', 42
+    )
+    local calls = {}
+    for _ = 1, 2000 do
+        table.insert(calls, {selector .. 'peek', counter})
+    end
+
+    local blocker_done = fiber.channel(1)
+    fiber.create(function()
+        blocker_done:put({pcall(wasm.session_batch, session, calls)})
+    end)
+
+    local consumer_started = fiber.channel(1)
+    local consumer_done = fiber.channel(1)
+    local consumer = fiber.create(function()
+        consumer_started:put(true)
+        consumer_done:put({
+            pcall(wasm.session_call, session, selector .. 'consume', counter),
+        })
+    end)
+    t.assert(consumer_started:get(1), 'session consumer did not start')
+    consumer:cancel()
+
+    local blocker_result = blocker_done:get(30)
+    t.assert(blocker_result ~= nil, 'blocking session batch timed out')
+    t.assert(blocker_result[1], tostring(blocker_result[2]))
+    local consumer_result = consumer_done:get(30)
+    t.assert(consumer_result ~= nil, 'cancelled session call timed out')
+    t.assert_not(consumer_result[1])
+    t.assert_str_contains(tostring(consumer_result[2]), 'fiber is cancelled')
+    local cleanup_deadline = fiber.clock() + 5
+    while counter:is_alive() and fiber.clock() < cleanup_deadline do
+        fiber.sleep(0.001)
+    end
+    t.assert_not(counter:is_alive())
     t.assert(wasm.close_session(session))
 end

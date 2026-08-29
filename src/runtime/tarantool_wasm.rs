@@ -55,8 +55,7 @@ use wasmtime_wasi_tls::{WasiTlsCtx, WasiTlsCtxBuilder, WasiTlsCtxView, WasiTlsVi
 use crate::ffi;
 use crate::runtime::{
     executor::{Executor, TxMode},
-    lifecycle::{self, RuntimeLifecycle},
-    metrics,
+    lifecycle, metrics,
     tx::{begin_shutdown, drain_stopping_queue, run_on_tx_detached},
     wasm_fiber::{WasmFiber, WasmFiberCanceler, WasmFiberStatus},
 };
@@ -67,8 +66,8 @@ use self::{
         resolve_call_export_index, ExportCache,
     },
     execution::{
-        current_session_id, join_handle_via_coio, recv_result_via_coio, CallJob, ExportCacheKey,
-        WasmRunEntry,
+        current_session_id, join_handle_via_coio, worker_result_channel, CallJob, ExportCacheKey,
+        WasmRunEntry, WorkerResultSender,
     },
     exports::{collect_exports, export_info_from_component_func},
     interpreter::{
@@ -102,14 +101,16 @@ pub use self::{
 pub(crate) use self::{
     execution::{
         start_wasm_call_function, start_wasm_call_functions, WasmCallHandle, WasmRunHandle,
+        WorkerResultReceiver,
     },
     pipe::WasmPipeProcess,
     reentrancy::install_call_chain,
     session::{
-        tt_wasm_bind_instance, tt_wasm_close_instance_detached,
-        tt_wasm_instance_call_function_with_ownership, tt_wasm_instance_drop_resource,
-        tt_wasm_instance_drop_resource_detached, tt_wasm_session_call_function_with_ownership,
-        tt_wasm_session_call_functions_with_ownership, WasmInstanceTarget,
+        start_wasm_session_call_function_with_ownership,
+        start_wasm_session_call_functions_with_ownership, tt_wasm_bind_instance,
+        tt_wasm_close_instance_detached, tt_wasm_instance_call_function_with_ownership,
+        tt_wasm_instance_drop_resource, tt_wasm_instance_drop_resource_detached,
+        WasmInstanceTarget,
     },
     store::SyncWasmStates,
 };
