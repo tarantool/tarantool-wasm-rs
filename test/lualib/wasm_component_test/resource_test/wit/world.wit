@@ -10,6 +10,7 @@ interface counters {
 
     peek: func(value: borrow<counter>) -> u32;
     consume: func(value: counter) -> u32;
+    consume-with-delta: func(value: counter, delta: u32) -> u32;
     pair: func(first: u32, second: u32) -> tuple<counter, counter>;
 }
 

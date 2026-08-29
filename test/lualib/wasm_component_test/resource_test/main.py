@@ -19,6 +19,9 @@ class Counters(exports.Counters):
     def consume(self, value: Counter) -> int:
         return value.get()
 
+    def consume_with_delta(self, value: Counter, delta: int) -> int:
+        return value.get() + delta
+
     def pair(self, first: int, second: int):
         return (Counter(first), Counter(second))
 

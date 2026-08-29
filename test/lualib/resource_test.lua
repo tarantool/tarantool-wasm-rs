@@ -90,6 +90,15 @@ g.test_interpreter_bindings_share_resources = function()
     local counter = first_counters.counter.new(21)
     t.assert_equals(second_counters.peek(counter), 21)
 
+    local ok, err = pcall(
+        first_counters.counter.sum,
+        counter,
+        'not-a-resource'
+    )
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), 'WIT resource')
+    t.assert_equals(first_counters.peek(counter), 21)
+
     t.assert(wasm.interpreter_exec(first_module, [[
 def read_latest():
     return latest_value()
@@ -125,6 +134,45 @@ g.test_explicit_session_api = function(cg)
     local second = wasm.session_call(
         session, selector .. '[constructor]counter', 13
     )
+
+    local ok, err = pcall(
+        wasm.session_call,
+        session,
+        selector .. '[static]counter.sum',
+        first,
+        'not-a-resource'
+    )
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), 'WIT resource')
+    t.assert_equals(
+        wasm.session_call(session, selector .. 'peek', first),
+        11
+    )
+
+    local restored = wasm.session_call(
+        session, selector .. '[constructor]counter', 19
+    )
+    ok, err = pcall(
+        wasm.session_call,
+        session,
+        selector .. 'consume-with-delta',
+        restored,
+        'invalid'
+    )
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), 'expected u32')
+    t.assert(restored:is_alive())
+    t.assert_equals(
+        wasm.session_call(session, selector .. 'peek', restored),
+        19
+    )
+    t.assert_equals(
+        wasm.session_call(
+            session, selector .. 'consume-with-delta', restored, 4
+        ),
+        23
+    )
+    t.assert_not(restored:is_alive())
 
     local values = wasm.session_batch(session, {
         {selector .. 'peek', first},

@@ -101,6 +101,33 @@ def fail():
     t.assert_equals(wasm.interpreter_call(m, 'next_value'), 2)
 end
 
+g.test_dynamic_exec_recovers_after_error_and_trap = function(cg)
+    local m = wasm.load(wasm_path, {
+        interpreter = true,
+        max_instructions = 100 * 1000 * 1000,
+    })
+    table.insert(cg.modules, m)
+
+    local ok, err = pcall(wasm.interpreter_exec, m, 'def invalid(: pass')
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), 'invalid syntax')
+
+    ok = pcall(wasm.interpreter_exec, m, [[
+while True:
+    pass
+]])
+    t.assert_not(ok)
+
+    t.assert_equals(wasm.interpreter_exec(m, [[
+def answer_after_recovery():
+    return 42
+]]), true)
+    t.assert_equals(
+        wasm.interpreter_call(m, 'answer_after_recovery'),
+        42
+    )
+end
+
 g.test_large_payload_round_trip = function(cg)
     local m = load_interpreter(cg)
     t.assert_equals(wasm.interpreter_exec(m, [[

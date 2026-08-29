@@ -12,6 +12,10 @@ local export_component = fio.pathjoin(
     utils.get_test_dir(),
     'lualib', 'wasm_component_test', 'export_test', 'c', 'adder.component.wasm'
 )
+local acl_component = fio.pathjoin(
+    utils.get_test_dir(),
+    'lualib', 'wasm_component_test', 'config_acl_test', 'adder.wasm'
+)
 local run_component = fio.pathjoin(
     utils.get_test_dir(),
     'lualib', 'wasm_component_test', 'cancel_run_test', 'adder.component.wasm'
@@ -102,6 +106,30 @@ g.test_concurrent_batches_keep_request_results = function()
     t.assert(wasm.drop(module_uid))
 end
 
+g.test_stateless_scratch_is_cleared_after_partial_lowering = function()
+    local module_uid = wasm.load(acl_component, {
+        allowed_ips = {'127.0.0.1'},
+        allowed_ports = {1},
+    })
+
+    -- Cover every possible stateless worker. `foo` lowers the host string
+    -- before rejecting the invalid s16 port, leaving a partially filled
+    -- argument scratch buffer on the error path.
+    for _ = 1, 32 do
+        local ok, err = pcall(
+            wasm.call, module_uid, 'foo', '127.0.0.1', 'invalid'
+        )
+        t.assert_not(ok)
+        t.assert_str_contains(tostring(err), 'expected s16')
+    end
+
+    for _ = 1, 32 do
+        t.assert_not(wasm.call(module_uid, 'foo', '127.0.0.1', 1))
+    end
+
+    t.assert(wasm.drop(module_uid))
+end
+
 g.test_concurrent_session_calls_wake_the_right_fibers = function()
     local module_uid = wasm.load(export_component)
     local session = wasm.open_session(module_uid)
@@ -133,6 +161,30 @@ g.test_concurrent_session_calls_wake_the_right_fibers = function()
         t.assert(result ~= nil, 'parallel session worker timed out')
         t.assert(result[1], tostring(result[2]))
     end
+
+    t.assert(wasm.close_session(session))
+    t.assert(wasm.drop(module_uid))
+end
+
+g.test_session_scratch_is_cleared_after_call_and_batch_errors = function()
+    local module_uid = wasm.load(export_component)
+    local session = wasm.open_session(module_uid)
+
+    local ok, err = pcall(wasm.session_call, session, 't-s32', 'invalid')
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), 'expected s32')
+    t.assert_equals(tonumber(wasm.session_call(session, 't-u32', 17)), 17)
+
+    ok, err = pcall(wasm.session_batch, session, {
+        {'t-u32', 23},
+        {'t-s32', 'invalid'},
+    })
+    t.assert_not(ok)
+    t.assert_str_contains(tostring(err), 'expected s32')
+    t.assert_equals(wasm.session_batch(session, {
+        {'t-u32', 29},
+        {'t-s32', 31},
+    }), {29, 31})
 
     t.assert(wasm.close_session(session))
     t.assert(wasm.drop(module_uid))

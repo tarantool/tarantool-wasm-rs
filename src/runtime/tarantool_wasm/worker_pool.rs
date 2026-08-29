@@ -301,6 +301,7 @@ fn run_worker(
     ready_tx
         .send(Ok(thread::current().id()))
         .map_err(|_| anyhow!("stateless WASM worker startup receiver was dropped"))?;
+    let mut scratch = CallScratch::default();
 
     while let Ok(command) = command_rx.recv() {
         if !accepting.load(Ordering::Acquire) {
@@ -315,8 +316,9 @@ fn run_worker(
                 submitted_at,
             } => {
                 metrics::observe_worker_start(submitted_at.elapsed());
-                let (result, panicked) =
-                    catch_job_panic(|| execute_stateless_call(&runtime, execution, job));
+                let (result, panicked) = catch_job_panic(|| {
+                    execute_stateless_call(&runtime, execution, job, &mut scratch)
+                });
                 let _ = result_tx.send(result);
                 panicked
             }
@@ -327,13 +329,15 @@ fn run_worker(
                 submitted_at,
             } => {
                 metrics::observe_worker_start(submitted_at.elapsed());
-                let (result, panicked) =
-                    catch_job_panic(|| execute_stateless_batch(&runtime, execution, jobs));
+                let (result, panicked) = catch_job_panic(|| {
+                    execute_stateless_batch(&runtime, execution, jobs, &mut scratch)
+                });
                 let _ = result_tx.send(result);
                 panicked
             }
         };
         if panicked {
+            scratch = CallScratch::default();
             runtime = build_worker_runtime()
                 .context("failed to rebuild stateless WASM worker runtime after panic")?;
         }
@@ -413,6 +417,7 @@ fn execute_stateless_call(
     runtime: &Runtime,
     execution: StatelessExecution,
     job: CallJob,
+    scratch: &mut CallScratch,
 ) -> Result<RmpvValue> {
     let StatelessExecution {
         engine,
@@ -430,6 +435,7 @@ fn execute_stateless_call(
             &component,
             export_cache.as_ref(),
             &job,
+            scratch,
         )
         .await
     })
@@ -439,6 +445,7 @@ fn execute_stateless_batch(
     runtime: &Runtime,
     execution: StatelessExecution,
     jobs: Vec<CallJob>,
+    scratch: &mut CallScratch,
 ) -> Result<Vec<RmpvValue>> {
     let StatelessExecution {
         engine,
@@ -459,6 +466,7 @@ fn execute_stateless_batch(
                     &component,
                     export_cache.as_ref(),
                     &job,
+                    scratch,
                 )
                 .await?,
             );
