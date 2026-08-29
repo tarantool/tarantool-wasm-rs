@@ -37,8 +37,14 @@ as observational data rather than a transactional view.
 ```lua
 {
     compilation = {count = 0, total_ns = 0, max_ns = 0},
+    worker_start = {count = 0, total_ns = 0, max_ns = 0},
+    runtime_setup = {count = 0, total_ns = 0, max_ns = 0},
+    store_setup = {count = 0, total_ns = 0, max_ns = 0},
     instantiation = {count = 0, total_ns = 0, max_ns = 0},
+    argument_lowering = {count = 0, total_ns = 0, max_ns = 0},
     guest_execution = {count = 0, total_ns = 0, max_ns = 0},
+    result_lifting = {count = 0, total_ns = 0, max_ns = 0},
+    worker_wait = {count = 0, total_ns = 0, max_ns = 0},
     tx_wait = {count = 0, total_ns = 0, max_ns = 0},
     lua_callback = {count = 0, total_ns = 0, max_ns = 0},
 
@@ -73,10 +79,31 @@ deserialization together with `instantiate_pre` preparation. Component cache
 hits do not add a compilation sample. Explicit `wasm.precompile` operations
 also add a sample.
 
+The call path is split into additional diagnostic spans. `worker_start`
+measures the delay from dispatching a one-shot `call` or `batch` worker until
+its thread closure begins. `runtime_setup` measures creation of the
+current-thread Tokio runtime used by one-shot workers, sessions, and shared
+interpreters. `store_setup` covers creation and configuration of the Wasmtime
+store used by those execution modes.
+
 `instantiation` covers creation of a Wasmtime component instance for one-shot
-calls, sessions, shared interpreters, and `wasi:cli/run`. `guest_execution`
-covers only the exported guest function or `wasi:cli/run` call; argument
-conversion and instantiation are outside this timer.
+calls, sessions, shared interpreters, and `wasi:cli/run`.
+`argument_lowering` measures conversion from the runtime value representation
+to component-model values, including resource handling for persistent
+instances. `guest_execution` covers only the exported guest function or
+`wasi:cli/run` call. `result_lifting` measures conversion back to the runtime
+value representation. The direct MessagePack interpreter protocol does not
+use the argument-lowering or result-lifting timers.
+
+`worker_wait` measures time spent joining a one-shot worker or waiting for a
+session/interpreter response on the Tarantool thread. It intentionally overlaps
+the worker-side setup, instantiation, conversion, and guest-execution spans, so
+the duration groups must not be added together. In a one-shot batch,
+worker-start, runtime-setup, and wait samples are counted per batch, while
+store, instantiation, lowering, guest, and lifting samples are counted per
+logical call. A persistent session or interpreter records runtime/store setup
+and instantiation once when its worker starts; lowering, guest, lifting, and
+wait continue to be recorded for subsequent calls.
 
 `tx_wait` starts immediately before a worker submits work to Tarantool's TX
 thread and stops when that closure begins running. Direct execution on the TX

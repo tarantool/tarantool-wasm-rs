@@ -125,16 +125,22 @@ pub(super) async fn execute_call_job_on_instance(
         ));
     }
 
+    let lowering_started = Instant::now();
     let mut wasm_args = Vec::with_capacity(param_types.len());
-    for (ty, val) in param_types.iter().zip(job.args.iter()) {
-        match to_component_val(ty, val) {
-            Ok(value) => wasm_args.push(value),
-            Err(err) => {
-                metrics::observe_conversion_error("arguments");
-                return Err(err);
+    let lowering_result = (|| {
+        for (ty, val) in param_types.iter().zip(job.args.iter()) {
+            match to_component_val(ty, val) {
+                Ok(value) => wasm_args.push(value),
+                Err(err) => {
+                    metrics::observe_conversion_error("arguments");
+                    return Err(err);
+                }
             }
         }
-    }
+        Ok(())
+    })();
+    metrics::observe_argument_lowering(lowering_started.elapsed());
+    lowering_result?;
 
     let result_types = export_ty.results().collect::<Vec<_>>();
     let mut results_buf = vec![Val::Bool(false); result_types.len()];
@@ -151,7 +157,10 @@ pub(super) async fn execute_call_job_on_instance(
     }
     call_result?;
 
-    values_to_rmpv(&results_buf).inspect_err(|_| {
+    let lifting_started = Instant::now();
+    let result = values_to_rmpv(&results_buf);
+    metrics::observe_result_lifting(lifting_started.elapsed());
+    result.inspect_err(|_| {
         metrics::observe_conversion_error("results");
     })
 }
@@ -183,12 +192,14 @@ pub(super) async fn execute_session_call_job_on_instance(
     }
 
     let mut consumed = Vec::new();
-    let wasm_args = match param_types
+    let lowering_started = Instant::now();
+    let wasm_args = param_types
         .iter()
         .zip(job.args.iter())
         .map(|(ty, value)| to_session_val(ty, value, resources, &mut consumed))
-        .collect::<Result<Vec<_>>>()
-    {
+        .collect::<Result<Vec<_>>>();
+    metrics::observe_argument_lowering(lowering_started.elapsed());
+    let wasm_args = match wasm_args {
         Ok(args) => args,
         Err(err) => {
             metrics::observe_conversion_error("resource_arguments");
@@ -212,18 +223,19 @@ pub(super) async fn execute_session_call_job_on_instance(
     }
     call_result?;
 
+    let lifting_started = Instant::now();
     let value = match results.as_slice() {
         [] => Ok(RmpvValue::Nil),
         [value] => from_session_val(&result_types[0], value, resources),
-        values => Ok(RmpvValue::Array(
-            values
-                .iter()
-                .zip(result_types)
-                .map(|(value, ty)| from_session_val(&ty, value, resources))
-                .collect::<Result<_>>()?,
-        )),
-    }
-    .inspect_err(|_| metrics::observe_conversion_error("resource_results"))?;
+        values => values
+            .iter()
+            .zip(result_types)
+            .map(|(value, ty)| from_session_val(&ty, value, resources))
+            .collect::<Result<_>>()
+            .map(RmpvValue::Array),
+    };
+    metrics::observe_result_lifting(lifting_started.elapsed());
+    let value = value.inspect_err(|_| metrics::observe_conversion_error("resource_results"))?;
     Ok(SessionCallResult { value, consumed })
 }
 
