@@ -118,6 +118,7 @@ pub(super) fn run_session_worker(
     };
     metrics::observe_instantiation(instantiation_started.elapsed());
     let mut resources = SessionResources::new(engine, &component, &instance, &mut store);
+    let mut scratch = CallScratch::default();
 
     let _ = ready_tx.send(Ok(()));
 
@@ -137,6 +138,7 @@ pub(super) fn run_session_worker(
                         export_cache.as_ref(),
                         &mut resources,
                         &job,
+                        &mut scratch,
                     )
                     .await
                 });
@@ -155,6 +157,7 @@ pub(super) fn run_session_worker(
                             export_cache.as_ref(),
                             &mut resources,
                             &job,
+                            &mut scratch,
                         )
                         .await
                     }) {

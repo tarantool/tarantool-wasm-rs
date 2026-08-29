@@ -92,6 +92,7 @@ fn decode_exec_response(value: RmpvValue) -> Result<()> {
 
 struct InterpreterJobCtx<'a> {
     store: &'a mut Store<SyncWasmStates>,
+    scratch: &'a mut CallScratch,
     rt: &'a tokio::runtime::Runtime,
     instance: &'a Instance,
     component: &'a Component,
@@ -117,6 +118,7 @@ fn run_interpreter_exec_job(
             ctx.component,
             ctx.export_cache,
             &job,
+            ctx.scratch,
         )
         .await
     })?;
@@ -238,6 +240,7 @@ pub(super) fn run_interpreter_worker(
                 return Err(init_error);
             }
         };
+    let mut scratch = CallScratch::default();
 
     let _ = ready_tx.send(Ok(()));
 
@@ -256,6 +259,7 @@ pub(super) fn run_interpreter_worker(
                 let result = run_interpreter_exec_job(
                     InterpreterJobCtx {
                         store: &mut store,
+                        scratch: &mut scratch,
                         rt: &rt,
                         instance: &instance,
                         component: &component,
@@ -303,6 +307,7 @@ pub(super) fn run_interpreter_worker(
                 let result = run_interpreter_call_job(
                     InterpreterJobCtx {
                         store: &mut store,
+                        scratch: &mut scratch,
                         rt: &rt,
                         instance: &instance,
                         component: &component,
@@ -351,6 +356,7 @@ pub(super) fn run_interpreter_worker(
                         export_cache.as_ref(),
                         &mut resources,
                         &job,
+                        &mut scratch,
                     )
                     .await
                 });

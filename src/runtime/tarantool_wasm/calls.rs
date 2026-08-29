@@ -30,6 +30,19 @@ impl Equivalent<ExportCacheKey> for ExportCacheKeyRef<'_> {
     }
 }
 
+#[derive(Default)]
+pub(super) struct CallScratch {
+    wasm_args: Vec<Val>,
+    results: Vec<Val>,
+}
+
+impl CallScratch {
+    fn clear(&mut self) {
+        self.wasm_args.clear();
+        self.results.clear();
+    }
+}
+
 pub(super) type ExportCache = RwLock<HashMap<ExportCacheKey, ComponentExportIndex>>;
 
 pub(super) fn resolve_call_export_index(
@@ -89,12 +102,14 @@ pub(super) async fn execute_call_job(
     component: &Component,
     export_cache: &ExportCache,
     job: &CallJob,
+    scratch: &mut CallScratch,
 ) -> Result<RmpvValue> {
+    scratch.clear();
     let started = Instant::now();
     let instance_result = instance_pre.instantiate_async(&mut *store).await;
     metrics::observe_instantiation(started.elapsed());
     let instance = instance_result?;
-    execute_call_job_on_instance(store, &instance, component, export_cache, job).await
+    execute_call_job_on_instance(store, &instance, component, export_cache, job, scratch).await
 }
 
 pub(super) async fn execute_call_job_on_instance(
@@ -103,6 +118,23 @@ pub(super) async fn execute_call_job_on_instance(
     component: &Component,
     export_cache: &ExportCache,
     job: &CallJob,
+    scratch: &mut CallScratch,
+) -> Result<RmpvValue> {
+    scratch.clear();
+    let result =
+        execute_call_job_on_instance_inner(store, instance, component, export_cache, job, scratch)
+            .await;
+    scratch.clear();
+    result
+}
+
+async fn execute_call_job_on_instance_inner(
+    store: &mut Store<SyncWasmStates>,
+    instance: &Instance,
+    component: &Component,
+    export_cache: &ExportCache,
+    job: &CallJob,
+    scratch: &mut CallScratch,
 ) -> Result<RmpvValue> {
     let state = store.data_mut();
     state.set_caller_session_id(job.caller_session_id);
@@ -114,7 +146,7 @@ pub(super) async fn execute_call_job_on_instance(
         .ok_or_else(|| anyhow!("function export `{}` not found", job.func))?;
 
     let export_ty = export.ty(store.as_context());
-    let param_types = export_ty.params().map(|(_, t)| t).collect::<Vec<_>>();
+    let param_types = export_ty.params().map(|(_, ty)| ty).collect::<Vec<_>>();
 
     if job.args.len() != param_types.len() {
         return Err(anyhow!(
@@ -126,11 +158,11 @@ pub(super) async fn execute_call_job_on_instance(
     }
 
     let lowering_started = Instant::now();
-    let mut wasm_args = Vec::with_capacity(param_types.len());
+    scratch.wasm_args.reserve(param_types.len());
     let lowering_result = (|| {
         for (ty, val) in param_types.iter().zip(job.args.iter()) {
             match to_component_val(ty, val) {
-                Ok(value) => wasm_args.push(value),
+                Ok(value) => scratch.wasm_args.push(value),
                 Err(err) => {
                     metrics::observe_conversion_error("arguments");
                     return Err(err);
@@ -143,12 +175,12 @@ pub(super) async fn execute_call_job_on_instance(
     lowering_result?;
 
     let result_types = export_ty.results().collect::<Vec<_>>();
-    let mut results_buf = vec![Val::Bool(false); result_types.len()];
+    scratch.results.resize(result_types.len(), Val::Bool(false));
 
     let fuel_before = store.get_fuel().ok();
     let started = Instant::now();
     let call_result = export
-        .call_async(&mut *store, &wasm_args, &mut results_buf)
+        .call_async(&mut *store, &scratch.wasm_args, &mut scratch.results)
         .await;
     metrics::observe_guest_execution(started.elapsed());
     metrics::observe_fuel(fuel_before, store.get_fuel().ok());
@@ -158,7 +190,7 @@ pub(super) async fn execute_call_job_on_instance(
     call_result?;
 
     let lifting_started = Instant::now();
-    let result = values_to_rmpv(&results_buf);
+    let result = values_to_rmpv(&scratch.results);
     metrics::observe_result_lifting(lifting_started.elapsed());
     result.inspect_err(|_| {
         metrics::observe_conversion_error("results");
@@ -172,6 +204,31 @@ pub(super) async fn execute_session_call_job_on_instance(
     export_cache: &ExportCache,
     resources: &mut SessionResources,
     job: &CallJob,
+    scratch: &mut CallScratch,
+) -> Result<SessionCallResult> {
+    scratch.clear();
+    let result = execute_session_call_job_on_instance_inner(
+        store,
+        instance,
+        component,
+        export_cache,
+        resources,
+        job,
+        scratch,
+    )
+    .await;
+    scratch.clear();
+    result
+}
+
+async fn execute_session_call_job_on_instance_inner(
+    store: &mut Store<SyncWasmStates>,
+    instance: &Instance,
+    component: &Component,
+    export_cache: &ExportCache,
+    resources: &mut SessionResources,
+    job: &CallJob,
+    scratch: &mut CallScratch,
 ) -> Result<SessionCallResult> {
     let state = store.data_mut();
     state.set_caller_session_id(job.caller_session_id);
@@ -193,28 +250,32 @@ pub(super) async fn execute_session_call_job_on_instance(
 
     let mut consumed = Vec::new();
     let lowering_started = Instant::now();
-    let wasm_args = param_types
-        .iter()
-        .zip(job.args.iter())
-        .map(|(ty, value)| to_session_val(ty, value, resources, &mut consumed))
-        .collect::<Result<Vec<_>>>();
+    scratch.wasm_args.reserve(param_types.len());
+    let lowering_result = (|| {
+        for (ty, value) in param_types.iter().zip(job.args.iter()) {
+            scratch
+                .wasm_args
+                .push(to_session_val(ty, value, resources, &mut consumed)?);
+        }
+        Ok(())
+    })();
     metrics::observe_argument_lowering(lowering_started.elapsed());
-    let wasm_args = match wasm_args {
-        Ok(args) => args,
+    match lowering_result {
+        Ok(()) => {}
         Err(err) => {
             metrics::observe_conversion_error("resource_arguments");
             resources.restore(consumed);
             return Err(err);
         }
-    };
+    }
     let consumed = consumed.iter().map(|(id, _)| *id).collect();
 
     let result_types = export_ty.results().collect::<Vec<_>>();
-    let mut results = vec![Val::Bool(false); result_types.len()];
+    scratch.results.resize(result_types.len(), Val::Bool(false));
     let fuel_before = store.get_fuel().ok();
     let started = Instant::now();
     let call_result = export
-        .call_async(&mut *store, &wasm_args, &mut results)
+        .call_async(&mut *store, &scratch.wasm_args, &mut scratch.results)
         .await;
     metrics::observe_guest_execution(started.elapsed());
     metrics::observe_fuel(fuel_before, store.get_fuel().ok());
@@ -224,7 +285,7 @@ pub(super) async fn execute_session_call_job_on_instance(
     call_result?;
 
     let lifting_started = Instant::now();
-    let value = match results.as_slice() {
+    let value = match scratch.results.as_slice() {
         [] => Ok(RmpvValue::Nil),
         [value] => from_session_val(&result_types[0], value, resources),
         values => values
@@ -241,8 +302,26 @@ pub(super) async fn execute_session_call_job_on_instance(
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportCacheKey, ExportCacheKeyRef};
+    use super::{CallScratch, ExportCacheKey, ExportCacheKeyRef};
     use hashbrown::HashMap;
+    use wasmtime::component::Val;
+
+    #[test]
+    fn call_scratch_clear_preserves_buffer_capacity() {
+        let mut scratch = CallScratch::default();
+        scratch.wasm_args.reserve(4);
+        scratch.results.resize(3, Val::Bool(false));
+        scratch.wasm_args.push(Val::Bool(true));
+        let args_capacity = scratch.wasm_args.capacity();
+        let results_capacity = scratch.results.capacity();
+
+        scratch.clear();
+
+        assert!(scratch.wasm_args.is_empty());
+        assert!(scratch.results.is_empty());
+        assert_eq!(scratch.wasm_args.capacity(), args_capacity);
+        assert_eq!(scratch.results.capacity(), results_capacity);
+    }
 
     #[test]
     fn borrowed_export_keys_match_owned_cache_entries() {
