@@ -64,7 +64,7 @@ use crate::runtime::{
 use self::{
     calls::{
         execute_call_job, execute_call_job_on_instance, execute_session_call_job_on_instance,
-        resolve_call_export_index, ExportCache,
+        resolve_call_export_index, CallScratch, ExportCache,
     },
     execution::{
         current_session_id, join_handle_via_coio, worker_result_channel, CallJob, ExportCacheKey,
