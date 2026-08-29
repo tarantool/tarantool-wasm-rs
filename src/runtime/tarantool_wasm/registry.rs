@@ -278,7 +278,7 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                 let instance_pre = prepared.instance_pre;
                 let export_cache = Arc::new(ExportCache::default());
                 let (cmd_tx, cmd_rx) = std_mpsc::channel();
-                let (ready_tx, ready_rx) = std_mpsc::channel();
+                let (ready_tx, ready_rx) = worker_result_channel();
 
                 let worker = spawn_tt_thread("wasm-interpreter".to_string(), {
                     let path_key_for_thread = path_key.clone();
@@ -302,12 +302,12 @@ pub fn tt_wasm_load_module(path: String, config: WasmConfig) -> Result<String> {
                     }
                 })?;
 
-                if let Err(err) = recv_result_via_coio(ready_rx) {
+                if let Err(err) = ready_rx.recv() {
                     let _ = join_handle_via_coio(worker);
                     return Err(err);
                 }
                 if let Err(err) = lifecycle::ensure_running() {
-                    let (done_tx, _done_rx) = std_mpsc::channel();
+                    let (done_tx, _done_rx) = worker_result_channel();
                     let _ = cmd_tx.send(InterpreterCommand::Close(done_tx));
                     let _ = join_handle_via_coio(worker);
                     return Err(err);
