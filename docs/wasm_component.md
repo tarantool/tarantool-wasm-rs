@@ -51,6 +51,25 @@ performed once at load time and reused by calls, sessions, interpreters, and
 background runs. A persistent Wasmtime compilation cache additionally avoids
 recompiling unchanged components after a Tarantool restart.
 
+Both the regular and fuel-enabled Wasmtime engines use the pooling instance
+allocator. Component metadata, core instances, linear memories, tables, async
+stacks, and GC heaps are taken from preallocated pools and returned when the
+owning `Store` is dropped. Each pool has 1,000 slots on 64-bit targets and 100
+on 32-bit targets. The pools are separate for regular and fuel-enabled modules;
+their limits apply to all execution models sharing the corresponding engine.
+Pool exhaustion is reported as an instantiation error instead of allocating
+outside the configured bound. A `memory_limit` still controls committed guest
+linear memory per store; it does not reduce the allocator's virtual-address
+reservation.
+
+Pooling also imposes explicit structural bounds on each component: at most one
+linear memory and one table per core module, at most 20,000 elements per table,
+and at most 1 MiB each for a component instance's aggregate metadata and an
+individual core instance's metadata. A linear memory may be at most 4 GiB on
+64-bit targets and 10 MiB on 32-bit targets. These engine-level bounds apply
+even when the module configuration omits `memory_limit`; a component that
+exceeds one of them fails during instantiation with the Wasmtime limit error.
+
 For large components, an AOT artifact removes compilation from the load path:
 
 ```lua
