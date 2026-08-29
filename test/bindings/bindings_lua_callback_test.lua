@@ -149,6 +149,33 @@ g.test_cyclic_reentrant_call_is_rejected = function(cg)
     t.assert_str_contains(result[2], 'reentrant WASM call rejected')
 end
 
+g.test_stateless_recursion_fails_without_worker_deadlock = function(cg)
+    wasm.register_callback('cycle-handler', function(request)
+        if request.hop >= 64 then return request end
+
+        local nested = wasm.call(
+            cg.first_module,
+            'invoke',
+            'cycle-handler',
+            utils.enc({hop = request.hop + 1})
+        )
+        if not nested[1] then error(nested[2]) end
+        return utils.dec(nested[2])
+    end)
+
+    local result = wasm.call(
+        cg.first_module,
+        'invoke',
+        'cycle-handler',
+        utils.enc({hop = 1})
+    )
+    t.assert_equals(result[1], false)
+    t.assert_str_contains(
+        result[2],
+        'no stateless WASM worker is available outside the active call chain'
+    )
+end
+
 g.test_interpreter_reentrant_call_is_rejected = function(cg)
     wasm.register_callback('http-handler', function()
         local nested = cg.interpreter.invoke('http-handler', utils.enc({}))

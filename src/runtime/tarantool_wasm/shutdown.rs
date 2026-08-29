@@ -6,6 +6,9 @@ pub(super) fn shutdown_runtime() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(pool) = runtime_state.stateless_workers.lock().unwrap().as_ref() {
+        pool.shutdown();
+    }
     runtime_state.engine.increment_epoch();
     runtime_state.fuel_engine.increment_epoch();
     let sessions = loop {
@@ -51,8 +54,13 @@ pub(super) fn shutdown_runtime() -> Result<()> {
     for pipe in &pipes {
         pipe.cancel();
     }
-
     while lifecycle::active_workers() != 0 {
+        // A stateless worker can cross its stopping check just before shutdown
+        // starts and create a store after the first epoch increment. Keep
+        // advancing both epochs until every worker has exited so that this
+        // narrow race cannot leave shutdown waiting on an uninterruptible job.
+        runtime_state.engine.increment_epoch();
+        runtime_state.fuel_engine.increment_epoch();
         drain_stopping_queue();
         fiber::sleep(Duration::from_millis(1));
     }
@@ -91,6 +99,9 @@ pub(super) fn shutdown_runtime() -> Result<()> {
         if let Err(err) = pipe.wait_join_for_cleanup() {
             errors.push(format!("pipe process failed: {err}"));
         }
+    }
+    if let Some(pool) = runtime_state.stateless_workers.lock().unwrap().as_ref() {
+        pool.join(&mut errors);
     }
     runtime_state.pipes.write().unwrap().clear();
 

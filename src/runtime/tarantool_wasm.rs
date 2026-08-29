@@ -16,6 +16,7 @@ mod session;
 mod shutdown;
 mod store;
 mod threading;
+mod worker_pool;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -83,6 +84,7 @@ use self::{
     shutdown::shutdown_runtime,
     store::{init_store, reset_store_fuel},
     threading::spawn_tt_thread,
+    worker_pool::{StatelessExecution, StatelessWorkerPool},
 };
 
 #[allow(unused_imports)]

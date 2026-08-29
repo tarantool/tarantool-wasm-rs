@@ -44,16 +44,19 @@ non-yielding finalizer back to TX. This is the safety condition for the narrow
 | Logging (`say`) | Tarantool creates an on-demand thread-local cord for a native thread, formats through a thread-local buffer, protects logger configuration with a mutex, and emits through the logger file descriptor. The binding passes owned Rust strings for the duration of each call and retains no borrowed pointer afterward. Logger reconfiguration and shutdown remain TX-owned lifecycle operations. |
 | MessagePack conversion | Pure Rust decoding/encoding over owned input and output buffers; it does not enter Tarantool or retain pointers into guest memory. |
 | zlib | Pure compression/decompression over owned input and output buffers; it does not enter Tarantool or retain pointers into guest memory. |
-| Wasmtime/WASI execution | Engine and component objects use their documented thread-safe ownership. A store and instance remain owned by one worker and are not concurrently accessed. |
+| Wasmtime/WASI execution | Engine and component objects use their documented thread-safe ownership. Stateless workers reuse their OS thread and Tokio runtime, but each store and instance remains owned by one worker job and is not concurrently accessed. |
 
 ## Shutdown
 
 The runtime has a process-wide `Running` → `Stopping` → `Stopped` lifecycle.
 The Tarantool shutdown trigger first rejects new loads, calls, sessions, and
 workers, then increments both Wasmtime engine epochs to interrupt running
-stores. It closes sessions and shared interpreters, cancels background runs,
-and continues draining callbacks from active workers on TX. Only after the
-active worker count reaches zero does it join every worker thread, clear the
+stores. It closes the stateless pool's command senders, sessions, and shared
+interpreters, cancels background runs, and continues draining callbacks from
+active workers on TX. Pool workers finish cleanup for their current job and
+then exit. Jobs still waiting in bounded queues are rejected so they cannot
+create a new store after the shutdown epoch increment. Only after the active
+worker count reaches zero does the runtime join every worker thread, clear the
 module and component registries, and enter `Stopped`.
 
 This ordering is required by the `tnt_tx_push` contract: all external worker

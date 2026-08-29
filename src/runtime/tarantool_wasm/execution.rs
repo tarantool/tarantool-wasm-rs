@@ -39,14 +39,12 @@ impl WasmRunHandle {
 
 pub(crate) struct WasmCallHandle<T> {
     receiver: Option<WorkerResultReceiver<T>>,
-    join_handle: Option<JoinHandle<()>>,
 }
 
 impl<T> WasmCallHandle<T> {
-    fn new(receiver: WorkerResultReceiver<T>, join_handle: JoinHandle<()>) -> Self {
+    fn new(receiver: WorkerResultReceiver<T>) -> Self {
         Self {
             receiver: Some(receiver),
-            join_handle: Some(join_handle),
         }
     }
 
@@ -55,11 +53,7 @@ impl<T> WasmCallHandle<T> {
             .receiver
             .take()
             .ok_or_else(|| anyhow!("call result already taken"))?;
-        let result = receiver.recv_ready();
-        if let Some(handle) = self.join_handle.take().filter(JoinHandle::is_finished) {
-            handle.join().map_err(|_| anyhow!("thread panicked"))?;
-        }
-        result
+        receiver.recv_ready()
     }
 
     pub(crate) fn ready_or_subscribe(&self) -> Result<bool> {
@@ -398,53 +392,21 @@ pub(crate) fn start_wasm_call_function(
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
         .clone();
 
-    let component = loaded.component;
-    let instance_pre = loaded.instance_pre;
-    let cfg = loaded.config;
-    let fuel = loaded.fuel;
-    let export_cache = loaded.export_cache;
-
+    let job = CallJob::new(interface, func, args)
+        .with_caller_session_id(caller_session_id)
+        .with_call_chain(call_chain);
     let (result_tx, result_rx) = worker_result_channel();
-    let worker_started = std::time::Instant::now();
-    let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let result = (|| {
-            metrics::observe_worker_start(worker_started.elapsed());
-            let engine = if fuel {
-                &runtime_state.fuel_engine
-            } else {
-                &runtime_state.engine
-            };
-            let mut store = init_store(engine, &cfg, fuel)?;
+    let mut pool = runtime_state.stateless_workers.lock().unwrap();
+    let pool = match pool.as_ref() {
+        Some(pool) => pool,
+        None => pool.insert(StatelessWorkerPool::new()?),
+    };
+    pool.submit_call(StatelessExecution::new(loaded), job, result_tx)?;
 
-            let runtime_started = std::time::Instant::now();
-            let rt = Builder::new_current_thread()
-                .enable_time()
-                .enable_io()
-                .build()
-                .unwrap();
-            metrics::observe_runtime_setup(runtime_started.elapsed());
-
-            rt.block_on(async move {
-                let job = CallJob::new(interface, func, args)
-                    .with_caller_session_id(caller_session_id)
-                    .with_call_chain(call_chain);
-                execute_call_job(
-                    &mut store,
-                    &instance_pre,
-                    &component,
-                    export_cache.as_ref(),
-                    &job,
-                )
-                .await
-            })
-        })();
-        let _ = result_tx.send(result);
-    })?;
-
-    Ok(WasmCallHandle::new(result_rx, handle))
+    Ok(WasmCallHandle::new(result_rx))
 }
 
-/// Start a batch of exported calls on one worker thread.
+/// Start a batch of exported calls on one persistent worker.
 pub(crate) fn start_wasm_call_functions(
     module_uid: String,
     calls: Vec<(Option<String>, String, Vec<RmpvValue>)>,
@@ -460,11 +422,6 @@ pub(crate) fn start_wasm_call_functions(
         .ok_or_else(|| anyhow::anyhow!("module `{}` not found", module_uid))?
         .clone();
 
-    let component = loaded.component;
-    let instance_pre = loaded.instance_pre;
-    let cfg = loaded.config;
-    let fuel = loaded.fuel;
-    let export_cache = loaded.export_cache;
     let jobs = calls
         .into_iter()
         .map(|call| CallJob::from(call).with_caller_session_id(caller_session_id))
@@ -472,46 +429,12 @@ pub(crate) fn start_wasm_call_functions(
         .collect::<Vec<_>>();
 
     let (result_tx, result_rx) = worker_result_channel();
-    let worker_started = std::time::Instant::now();
-    let handle = spawn_tt_thread("wasm".to_string(), move || {
-        let result = {
-            metrics::observe_worker_start(worker_started.elapsed());
-            let engine = if fuel {
-                &runtime_state.fuel_engine
-            } else {
-                &runtime_state.engine
-            };
-            let runtime_started = std::time::Instant::now();
-            let rt = Builder::new_current_thread()
-                .enable_time()
-                .enable_io()
-                .build()
-                .unwrap();
-            metrics::observe_runtime_setup(runtime_started.elapsed());
+    let mut pool = runtime_state.stateless_workers.lock().unwrap();
+    let pool = match pool.as_ref() {
+        Some(pool) => pool,
+        None => pool.insert(StatelessWorkerPool::new()?),
+    };
+    pool.submit_batch(StatelessExecution::new(loaded), jobs, result_tx)?;
 
-            rt.block_on(async move {
-                let mut results_all = Vec::new();
-
-                for job in jobs.into_iter() {
-                    let mut store = init_store(engine, &cfg, fuel)?;
-
-                    results_all.push(
-                        execute_call_job(
-                            &mut store,
-                            &instance_pre,
-                            &component,
-                            export_cache.as_ref(),
-                            &job,
-                        )
-                        .await?,
-                    );
-                }
-
-                Ok(results_all)
-            })
-        };
-        let _ = result_tx.send(result);
-    })?;
-
-    Ok(WasmCallHandle::new(result_rx, handle))
+    Ok(WasmCallHandle::new(result_rx))
 }

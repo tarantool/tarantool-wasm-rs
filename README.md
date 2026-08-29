@@ -37,8 +37,8 @@ flowchart LR
 
 | API | Instance lifetime | Best suited for |
 | --- | --- | --- |
-| `wasm.call` | New store and instance for one call | Isolated, stateless calls |
-| `wasm.batch` | New store and instance per item, one worker thread for the batch | Several isolated calls with less thread overhead |
+| `wasm.call` | New store and instance for one call on a shared worker pool | Isolated, stateless calls without per-call thread setup |
+| `wasm.batch` | New store and instance per item on one pooled worker | Several isolated calls with less dispatch overhead |
 | `wasm.open_session` / `session_call` | One store and instance until the session is closed | Stateful components and guest resources reused across calls |
 | Interpreter mode | One warmed instance per component path | Large Python or other interpreter components |
 | `wasm.run` | One instance for a background `wasi:cli/run` task | Long-running logic and guest-managed Tarantool transactions |
