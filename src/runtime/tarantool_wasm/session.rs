@@ -93,11 +93,13 @@ pub(super) fn run_session_worker(
         }
     };
 
+    let runtime_started = std::time::Instant::now();
     let rt = Builder::new_current_thread()
         .enable_time()
         .enable_io()
         .build()
         .unwrap();
+    metrics::observe_runtime_setup(runtime_started.elapsed());
 
     let instantiation_started = std::time::Instant::now();
     let instance = match rt.block_on(instance_pre.instantiate_async(&mut store)) {

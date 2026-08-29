@@ -179,6 +179,7 @@ pub(super) fn recv_result_via_coio<T: Send + 'static>(
     receiver: std_mpsc::Receiver<Result<T>>,
 ) -> Result<T> {
     debug_assert_tx_thread();
+    let started = std::time::Instant::now();
     let mut result: Result<T> = Err(anyhow!("failed to receive worker response"));
     coio_call(
         &mut |rx: Box<std_mpsc::Receiver<Result<T>>>| {
@@ -189,6 +190,7 @@ pub(super) fn recv_result_via_coio<T: Send + 'static>(
         },
         receiver,
     );
+    metrics::observe_worker_wait(started.elapsed());
     result
 }
 
@@ -316,28 +318,23 @@ pub(crate) fn start_wasm_call_function(
     let fuel = loaded.fuel;
     let export_cache = loaded.export_cache;
 
+    let worker_started = std::time::Instant::now();
     let handle = spawn_tt_thread("wasm".to_string(), move || {
+        metrics::observe_worker_start(worker_started.elapsed());
         let engine = if fuel {
             &runtime_state.fuel_engine
         } else {
             &runtime_state.engine
         };
-        let wasi_view = SyncWasmStates::new(cfg.clone())?;
-        let mut store = Store::new(engine, wasi_view);
-        store.limiter(|state| &mut state.limits);
-        if fuel {
-            let limit = cfg.max_instructions.unwrap_or(u64::MAX);
-            let _ = store.set_fuel(limit);
-        }
+        let mut store = init_store(engine, &cfg, fuel)?;
 
-        store.set_epoch_deadline(1);
-        store.epoch_deadline_trap();
-
+        let runtime_started = std::time::Instant::now();
         let rt = Builder::new_current_thread()
             .enable_time()
             .enable_io()
             .build()
             .unwrap();
+        metrics::observe_runtime_setup(runtime_started.elapsed());
 
         rt.block_on(async move {
             let job = CallJob::new(interface, func, args)
@@ -384,32 +381,27 @@ pub(crate) fn start_wasm_call_functions(
         .map(|job| job.with_call_chain(call_chain.clone()))
         .collect::<Vec<_>>();
 
+    let worker_started = std::time::Instant::now();
     let handle = spawn_tt_thread("wasm".to_string(), move || {
+        metrics::observe_worker_start(worker_started.elapsed());
         let engine = if fuel {
             &runtime_state.fuel_engine
         } else {
             &runtime_state.engine
         };
+        let runtime_started = std::time::Instant::now();
         let rt = Builder::new_current_thread()
             .enable_time()
             .enable_io()
             .build()
             .unwrap();
+        metrics::observe_runtime_setup(runtime_started.elapsed());
 
         rt.block_on(async move {
             let mut results_all = Vec::new();
 
             for job in jobs.into_iter() {
-                let wasi_view = SyncWasmStates::new(cfg.clone())?;
-                let mut store = Store::new(engine, wasi_view);
-                store.limiter(|state| &mut state.limits);
-                if fuel {
-                    let limit = cfg.max_instructions.unwrap_or(u64::MAX);
-                    let _ = store.set_fuel(limit);
-                }
-
-                store.set_epoch_deadline(1);
-                store.epoch_deadline_trap();
+                let mut store = init_store(engine, &cfg, fuel)?;
 
                 results_all.push(
                     execute_call_job(

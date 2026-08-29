@@ -13,7 +13,7 @@ use super::resource::{
 };
 use crate::bindings::lua_callback::callback_registry_key;
 use crate::runtime::convert::{from_rmpv, msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes, to_rmpv};
-use crate::runtime::metrics::TimingSnapshot;
+use crate::runtime::metrics::{self, TimingSnapshot};
 use crate::runtime::tarantool_wasm::{
     debug_assert_tx_thread, start_wasm_call_function, start_wasm_call_functions,
     tt_wasm_bind_instance, tt_wasm_close_session, tt_wasm_drop_module, tt_wasm_export_names,
@@ -127,17 +127,21 @@ impl LuaUserData for LuaBatchHandle {
 
 fn wait_for_call<T: Send + 'static>(handle: WasmCallHandle<T>) -> Result<T> {
     debug_assert_tx_thread();
-    if handle.is_finished() {
-        return handle.join();
-    }
-    let mut result = Err(anyhow::anyhow!("failed to join WASM call worker"));
-    coio_call(
-        &mut |handle: Box<WasmCallHandle<T>>| {
-            result = handle.join();
-            0
-        },
-        handle,
-    );
+    let started = std::time::Instant::now();
+    let result = if handle.is_finished() {
+        handle.join()
+    } else {
+        let mut result = Err(anyhow::anyhow!("failed to join WASM call worker"));
+        coio_call(
+            &mut |handle: Box<WasmCallHandle<T>>| {
+                result = handle.join();
+                0
+            },
+            handle,
+        );
+        result
+    };
+    metrics::observe_worker_wait(started.elapsed());
     result
 }
 
@@ -275,13 +279,31 @@ fn stats(lua: &Lua, _: ()) -> LuaResult<LuaTable> {
 
     result.set("compilation", timing_stats_table(lua, metrics.compilation)?)?;
     result.set(
+        "worker_start",
+        timing_stats_table(lua, metrics.worker_start)?,
+    )?;
+    result.set(
+        "runtime_setup",
+        timing_stats_table(lua, metrics.runtime_setup)?,
+    )?;
+    result.set("store_setup", timing_stats_table(lua, metrics.store_setup)?)?;
+    result.set(
         "instantiation",
         timing_stats_table(lua, metrics.instantiation)?,
+    )?;
+    result.set(
+        "argument_lowering",
+        timing_stats_table(lua, metrics.argument_lowering)?,
     )?;
     result.set(
         "guest_execution",
         timing_stats_table(lua, metrics.guest_execution)?,
     )?;
+    result.set(
+        "result_lifting",
+        timing_stats_table(lua, metrics.result_lifting)?,
+    )?;
+    result.set("worker_wait", timing_stats_table(lua, metrics.worker_wait)?)?;
     result.set("tx_wait", timing_stats_table(lua, metrics.tx_wait)?)?;
     result.set(
         "lua_callback",
