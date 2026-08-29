@@ -80,11 +80,11 @@ hits do not add a compilation sample. Explicit `wasm.precompile` operations
 also add a sample.
 
 The call path is split into additional diagnostic spans. `worker_start`
-measures the delay from dispatching a one-shot `call` or `batch` worker until
-its thread closure begins. `runtime_setup` measures creation of the
-current-thread Tokio runtime used by one-shot workers, sessions, and shared
-interpreters. `store_setup` covers creation and configuration of the Wasmtime
-store used by those execution modes.
+measures the delay from submitting a `call` or `batch` until a stateless pool
+worker begins the job, including queueing. `runtime_setup` measures creation of
+the current-thread Tokio runtime used once by each stateless pool worker,
+session, and shared interpreter. `store_setup` covers creation and
+configuration of the Wasmtime store used by those execution modes.
 
 `instantiation` covers creation of a Wasmtime component instance for one-shot
 calls, sessions, shared interpreters, and `wasi:cli/run`.
@@ -95,15 +95,16 @@ instances. `guest_execution` covers only the exported guest function or
 value representation. The direct MessagePack interpreter protocol does not
 use the argument-lowering or result-lifting timers.
 
-`worker_wait` measures time spent joining a one-shot worker or waiting for a
-session/interpreter response on the Tarantool thread. It intentionally overlaps
-the worker-side setup, instantiation, conversion, and guest-execution spans, so
-the duration groups must not be added together. In a one-shot batch,
-worker-start, runtime-setup, and wait samples are counted per batch, while
-store, instantiation, lowering, guest, and lifting samples are counted per
-logical call. A persistent session or interpreter records runtime/store setup
-and instantiation once when its worker starts; lowering, guest, lifting, and
-wait continue to be recorded for subsequent calls.
+`worker_wait` measures end-to-end time from dispatch until a worker result is
+consumed on the Tarantool thread. It intentionally overlaps queueing,
+worker-side setup, instantiation, conversion, and guest-execution spans, so the
+duration groups must not be added together. In a stateless batch,
+worker-start and wait samples are counted per batch, while store,
+instantiation, lowering, guest, and lifting samples are counted per logical
+call. Runtime-setup samples are recorded when pool workers are created, not for
+each stateless call or batch. A persistent session or interpreter records
+runtime/store setup and instantiation once when its worker starts; lowering,
+guest, lifting, and wait continue to be recorded for subsequent calls.
 
 `tx_wait` starts immediately before a worker submits work to Tarantool's TX
 thread and stops when that closure begins running. Direct execution on the TX

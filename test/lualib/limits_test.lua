@@ -26,7 +26,7 @@ g.test_mem_size_no_limit = function(cg)
     t.assert(ok)
 end
 
-g.test_fuel_limit = function()
+g.test_fuel_limit = function(cg)
     local before = wasm.stats()
     local m = wasm.load(path, { max_instructions = 50000000 })
     local ok, err = pcall(wasm.call, m, "foo")
@@ -37,6 +37,8 @@ g.test_fuel_limit = function()
     t.assert_gt(after.fuel.consumed, before.fuel.consumed)
     t.assert_ge(after.traps.total, before.traps.total + 1)
     t.assert_ge(after.traps.by_kind.out_of_fuel, 1)
+    local recovered, recovery_err = pcall(wasm.call, cg.unlimited_module, "foo")
+    t.assert(recovered, recovery_err)
     t.assert(wasm.drop(m))
 end
 
