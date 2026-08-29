@@ -22,17 +22,24 @@ complete. The Lua helper waits for the join handle to finish so callers can rely
 terminated before continuing.
 
 At Tarantool shutdown the runtime rejects new work, interrupts running stores,
-closes sessions and shared interpreters, cancels background runs, services any
-remaining TX callbacks, and joins all worker threads before shutdown proceeds.
+closes the stateless worker pool, sessions, and shared interpreters, cancels
+background runs, services any remaining TX callbacks, rejects stateless jobs
+that have not started, and joins all worker threads before shutdown proceeds.
 
 ## Calling Exported Functions
 
 To invoke an exported function, use `wasm.call(module_uid, func, ...)`:
 
-1. The `tt_wasm_call_function` also spawns a separate thread for the WASM execution.
-2. Within that thread, the component is instantiated, the export is located by name, and `call_async` is executed.
-3. Arguments and results are converted to/from MsgPack.
-4. The result is returned to the Lua caller via `coio_call`.
+1. The runtime submits the call to a bounded pool of persistent stateless workers.
+2. The selected worker reuses its OS thread and Tokio runtime, but creates a fresh `Store` and component instance for the call.
+3. The export is located by name, arguments and results are converted to/from MsgPack, and `call_async` is executed.
+4. Publishing the result wakes the waiting Tarantool fiber directly.
+
+The pool is created lazily, uses between 2 and 32 workers according to
+available parallelism, and has a bounded queue of 32 jobs per worker. A nested
+call cannot be dispatched to a worker already present in its active call
+chain. If all eligible queues are full, the call returns an explicit
+backpressure error instead of growing an unbounded queue or deadlocking.
 
 Loaded components are compiled once and cached by canonical path, source
 bytes, and fuel mode. Repeated loads of an unchanged file reuse the compiled
@@ -58,7 +65,9 @@ same `max_instructions` setting for `precompile` and `load`.
 
 ### Executing Multiple Functions Sequentially
 
-Sometimes it’s necessary to call several exports in sequence without creating a new thread for each call. For this purpose, a `wasm.batch` function is available, which takes a list of calls:
+Sometimes it’s necessary to call several exports in sequence with one worker
+dispatch. For this purpose, a `wasm.batch` function is available, which takes
+a list of calls:
 
 ```lua
 local results = wasm.batch(m, {
@@ -67,7 +76,9 @@ local results = wasm.batch(m, {
 })
 ```
 
-All functions are executed within a single OS thread. The result is returned as a Lua array of values. Each export is executed in its own `Store` and component instance, but without spawning new OS threads.
+All functions are executed by one selected pool worker. The result is returned
+as a Lua array of values. Each export is executed in its own `Store` and
+component instance, while the worker's OS thread and Tokio runtime are reused.
 
 ## Long-Lived Sessions
 
@@ -185,7 +196,7 @@ flowchart LR
     Queue --> Runtime
     Runtime --> Instance
     Instance <--> Resources
-    Instance -->|"result via coio"| Calls
+    Instance -->|"publish result<br/>and wake fiber"| Calls
     Close --> Sessions
     Sessions -->|"Close / DropResource"| Queue
 ```
@@ -226,8 +237,8 @@ flowchart LR
     Entry --> Queue
     Queue --> Instance
     Instance <--> Resources
-    Instance -->|"result via coio"| Exec
-    Instance -->|"result via coio"| Bound
+    Instance -->|"publish result<br/>and wake fiber"| Exec
+    Instance -->|"publish result<br/>and wake fiber"| Bound
     Instance -->|"trap"| Recreate
     Recreate -->|"new Store, instance,<br/>and resource table"| Instance
     Drop -->|"close worker"| Entry
@@ -275,10 +286,10 @@ flowchart TD
 
     LC -- call --> FC[tt_wasm_call_function]
 
-    subgraph Worker thread
-        FC -- spawn --> ST[spawn_tt_thread]
-        ST -- start --> TR[Tokio runtime]
-        TR -- instantiate --> CI[instantiate_async]
+    subgraph Persistent stateless worker
+        FC -- bounded queue --> Queue[worker command queue]
+        Queue --> TR[reused Tokio runtime]
+        TR -- fresh Store and instance --> CI[instantiate_async]
         CI -- lookup --> Find[find export]
         Find -- call --> CCall[export.call_async]
         CCall -->|yield| TX[tx_push to TX thread]
@@ -286,8 +297,8 @@ flowchart TD
         CCall --> CDone[return value]
     end
 
-    CDone -- send --> CoioCall[coio_call]
-    CoioCall -- return --> ReturnCall[Lua gets value]
+    CDone -- publish --> WakeCall[wake waiting fiber]
+    WakeCall -- return --> ReturnCall[Lua gets value]
 ```
 
 ### wasm.batch
@@ -300,9 +311,9 @@ flowchart TD
 
     LB -- batch --> FB[tt_wasm_call_functions]
 
-    subgraph Worker thread
-        FB -- spawn --> ST[spawn_tt_thread]
-        ST -- start --> TR[Tokio runtime]
+    subgraph Persistent stateless worker
+        FB -- bounded queue --> Queue[worker command queue]
+        Queue --> TR[reused Tokio runtime]
         TR -- loop --> Loop{{for each call}}
         Loop -- store --> BS[new Store]
         BS -- instantiate --> BI[instantiate_async]
@@ -315,6 +326,6 @@ flowchart TD
         Loop --> BDone[all results]
     end
 
-    BDone -- send --> CoioBatch[coio_call]
-    CoioBatch -- return --> ReturnBatch[Lua array of results]
+    BDone -- publish --> WakeBatch[wake waiting fiber]
+    WakeBatch -- return --> ReturnBatch[Lua array of results]
 ```

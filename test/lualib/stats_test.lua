@@ -73,6 +73,7 @@ g.test_snapshot_shape_and_execution_counters = function(cg)
         wasm.call(first, 't-s16', 7),
         7
     )
+    local warmed = wasm.stats()
     t.assert_equals(
         wasm.call(first, 't-s16', 8),
         8
@@ -81,7 +82,7 @@ g.test_snapshot_shape_and_execution_counters = function(cg)
     local after = wasm.stats()
     t.assert_ge(after.compilation.count, before.compilation.count + 1)
     t.assert_ge(after.worker_start.count, before.worker_start.count + 2)
-    t.assert_ge(after.runtime_setup.count, before.runtime_setup.count + 2)
+    t.assert_equals(after.runtime_setup.count, warmed.runtime_setup.count)
     t.assert_ge(after.store_setup.count, before.store_setup.count + 2)
     t.assert_ge(after.instantiation.count, before.instantiation.count + 2)
     t.assert_ge(
