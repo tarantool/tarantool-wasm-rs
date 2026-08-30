@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use hashbrown::{Equivalent, HashMap};
 use rmpv::Value as RmpvValue;
 use wasmtime::{
-    component::{Component, ComponentExportIndex, Instance, InstancePre, Val},
+    component::{types::Type, Component, ComponentExportIndex, Instance, InstancePre, Val},
     AsContext, Store,
 };
 
@@ -32,12 +32,16 @@ impl Equivalent<ExportCacheKey> for ExportCacheKeyRef<'_> {
 
 #[derive(Default)]
 pub(super) struct CallScratch {
+    param_types: Vec<Type>,
+    result_types: Vec<Type>,
     wasm_args: Vec<Val>,
     results: Vec<Val>,
 }
 
 impl CallScratch {
     fn clear(&mut self) {
+        self.param_types.clear();
+        self.result_types.clear();
         self.wasm_args.clear();
         self.results.clear();
     }
@@ -146,21 +150,24 @@ async fn execute_call_job_on_instance_inner(
         .ok_or_else(|| anyhow!("function export `{}` not found", job.func))?;
 
     let export_ty = export.ty(store.as_context());
-    let param_types = export_ty.params().map(|(_, ty)| ty).collect::<Vec<_>>();
+    scratch
+        .param_types
+        .extend(export_ty.params().map(|(_, ty)| ty));
+    let param_count = scratch.param_types.len();
 
-    if job.args.len() != param_types.len() {
+    if job.args.len() != param_count {
         return Err(anyhow!(
             "argument count mismatch for `{}`: expected {}, got {}",
             job.func,
-            param_types.len(),
+            param_count,
             job.args.len()
         ));
     }
 
     let lowering_started = Instant::now();
-    scratch.wasm_args.reserve(param_types.len());
+    scratch.wasm_args.reserve(param_count);
     let lowering_result = (|| {
-        for (ty, val) in param_types.iter().zip(job.args.iter()) {
+        for (ty, val) in scratch.param_types.iter().zip(job.args.iter()) {
             match to_component_val(ty, val) {
                 Ok(value) => scratch.wasm_args.push(value),
                 Err(err) => {
@@ -174,8 +181,10 @@ async fn execute_call_job_on_instance_inner(
     metrics::observe_argument_lowering(lowering_started.elapsed());
     lowering_result?;
 
-    let result_types = export_ty.results().collect::<Vec<_>>();
-    scratch.results.resize(result_types.len(), Val::Bool(false));
+    scratch.result_types.extend(export_ty.results());
+    scratch
+        .results
+        .resize(scratch.result_types.len(), Val::Bool(false));
 
     let fuel_before = store.get_fuel().ok();
     let started = Instant::now();
@@ -238,21 +247,24 @@ async fn execute_session_call_job_on_instance_inner(
         .get_func(&mut *store, func_index)
         .ok_or_else(|| anyhow!("function export `{}` not found", job.func))?;
     let export_ty = export.ty(store.as_context());
-    let param_types = export_ty.params().map(|(_, ty)| ty).collect::<Vec<_>>();
-    if job.args.len() != param_types.len() {
+    scratch
+        .param_types
+        .extend(export_ty.params().map(|(_, ty)| ty));
+    let param_count = scratch.param_types.len();
+    if job.args.len() != param_count {
         return Err(anyhow!(
             "argument count mismatch for `{}`: expected {}, got {}",
             job.func,
-            param_types.len(),
+            param_count,
             job.args.len()
         ));
     }
 
     let mut consumed = Vec::new();
     let lowering_started = Instant::now();
-    scratch.wasm_args.reserve(param_types.len());
+    scratch.wasm_args.reserve(param_count);
     let lowering_result = (|| {
-        for (ty, value) in param_types.iter().zip(job.args.iter()) {
+        for (ty, value) in scratch.param_types.iter().zip(job.args.iter()) {
             scratch
                 .wasm_args
                 .push(to_session_val(ty, value, resources, &mut consumed)?);
@@ -270,8 +282,10 @@ async fn execute_session_call_job_on_instance_inner(
     }
     let consumed = consumed.iter().map(|(id, _)| *id).collect();
 
-    let result_types = export_ty.results().collect::<Vec<_>>();
-    scratch.results.resize(result_types.len(), Val::Bool(false));
+    scratch.result_types.extend(export_ty.results());
+    scratch
+        .results
+        .resize(scratch.result_types.len(), Val::Bool(false));
     let fuel_before = store.get_fuel().ok();
     let started = Instant::now();
     let call_result = export
@@ -287,11 +301,11 @@ async fn execute_session_call_job_on_instance_inner(
     let lifting_started = Instant::now();
     let value = match scratch.results.as_slice() {
         [] => Ok(RmpvValue::Nil),
-        [value] => from_session_val(&result_types[0], value, resources),
+        [value] => from_session_val(&scratch.result_types[0], value, resources),
         values => values
             .iter()
-            .zip(result_types)
-            .map(|(value, ty)| from_session_val(&ty, value, resources))
+            .zip(scratch.result_types.iter())
+            .map(|(value, ty)| from_session_val(ty, value, resources))
             .collect::<Result<_>>()
             .map(RmpvValue::Array),
     };
@@ -304,21 +318,31 @@ async fn execute_session_call_job_on_instance_inner(
 mod tests {
     use super::{CallScratch, ExportCacheKey, ExportCacheKeyRef};
     use hashbrown::HashMap;
-    use wasmtime::component::Val;
+    use wasmtime::component::{types::Type, Val};
 
     #[test]
     fn call_scratch_clear_preserves_buffer_capacity() {
         let mut scratch = CallScratch::default();
+        scratch.param_types.reserve(2);
+        scratch.result_types.reserve(2);
+        scratch.param_types.push(Type::Bool);
+        scratch.result_types.push(Type::U32);
         scratch.wasm_args.reserve(4);
         scratch.results.resize(3, Val::Bool(false));
         scratch.wasm_args.push(Val::Bool(true));
+        let param_types_capacity = scratch.param_types.capacity();
+        let result_types_capacity = scratch.result_types.capacity();
         let args_capacity = scratch.wasm_args.capacity();
         let results_capacity = scratch.results.capacity();
 
         scratch.clear();
 
+        assert!(scratch.param_types.is_empty());
+        assert!(scratch.result_types.is_empty());
         assert!(scratch.wasm_args.is_empty());
         assert!(scratch.results.is_empty());
+        assert_eq!(scratch.param_types.capacity(), param_types_capacity);
+        assert_eq!(scratch.result_types.capacity(), result_types_capacity);
         assert_eq!(scratch.wasm_args.capacity(), args_capacity);
         assert_eq!(scratch.results.capacity(), results_capacity);
     }
