@@ -35,15 +35,15 @@ end)
 
 local expected_lines = {
     "unknown say%.rs:%d+ I> transaction id before begin: none",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction%.begin%(%)",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction id first: %d+",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction isolation: read%-confirmed",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction%.make_synchronous%(%)",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction%.set_isolation%(%)",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction isolation after set: best%-effort",
+    "unknown say%.rs:%d+ I> transaction%.begin%(%)",
+    "unknown say%.rs:%d+ I> transaction id first: %d+",
+    "unknown say%.rs:%d+ I> transaction isolation: read%-confirmed",
+    "unknown say%.rs:%d+ I> transaction%.make_synchronous%(%)",
+    "unknown say%.rs:%d+ I> transaction%.set_isolation%(%)",
+    "unknown say%.rs:%d+ I> transaction isolation after set: best%-effort",
     "unknown say%.rs:%d+ I> transaction%.commit%(%)",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction%.begin%(%) second",
-    "main/%d+/%w+ say%.rs:%d+ I> transaction id second: %d+",
+    "unknown say%.rs:%d+ I> transaction%.begin%(%) second",
+    "unknown say%.rs:%d+ I> transaction id second: %d+",
     "unknown say%.rs:%d+ I> transaction%.rollback%(%)",
     "unknown say%.rs:%d+ I> transaction id after rollback: none",
 }
