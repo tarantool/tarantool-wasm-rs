@@ -21,13 +21,31 @@ and CI builds turn a violation into a panic at the offending API boundary.
 | Diagnostics | read, set, and clear Tarantool's fiber-local last error |
 | Tuples | creation, update/upsert, reference counts, fields, validation, comparison, iterators |
 | Metadata | key-def and tuple-format creation, use, reference counts, and destruction; APIs returning box-region memory are enclosed in a savepoint guard that truncates the current TX fiber region after copying |
-| Runtime integration | `coio_call`, shutdown trigger callbacks, and fiber operations |
+| Runtime integration | `coio_call`, `coio_wait`, shutdown trigger callbacks, and fiber operations |
 | Metrics | `tarantool_uptime` |
 
-During `wasm.run`, transaction begin reschedules the Wasmtime task onto TX and
-switches its executor to direct execution until commit or rollback. Calls made
-through `wasm.call`, sessions, or the interpreter cannot preserve a Tarantool
-fiber transaction across host calls and reject transaction begin.
+During `wasm.run` or `wasm.pipe`, transaction begin spawns a dedicated
+Tarantool fiber that owns the transaction. While it is open, every host call
+dispatched through `Executor::TxFiber` runs on that same fiber (so the
+fiber-local transaction is preserved), and the fiber waits for the next call
+on a nonblocking Unix socket through `coio_wait`. This yields to the TX
+event loop without occupying a worker in Tarantool's shared eio pool. The
+guest itself stays on its own OS thread, so blocking on WASI
+I/O between statements (for example waiting for the next client message on a
+pipe) cannot stall Tarantool's scheduler. Calls made through `wasm.call`,
+sessions, or the interpreter cannot preserve a Tarantool fiber transaction
+across host calls and reject transaction begin.
+
+Transactions now yield between host calls. **Memtx transactions accessing data
+require `memtx_use_mvcc_engine = true`** to survive these yields; with MVCC
+disabled, Tarantool aborts them on yield and commit returns an error. Earlier
+non-yielding `wasm.run` transactions could work with MVCC disabled. This is a
+compatibility limitation of keeping guest execution off TX. Vinyl uses its
+normal cooperative transaction semantics.
+
+A failed duplicate begin preserves the existing transaction. Commit and
+rollback release its owner even on failure; guest exit, trap, or cancellation
+closes the queue and wakes the owner to roll back any unfinished transaction.
 
 Index and tuple iterators are `Send` only as opaque transport objects. Their
 pointers are never dereferenced on a worker thread, host resource calls are

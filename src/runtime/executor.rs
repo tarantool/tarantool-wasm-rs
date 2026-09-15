@@ -1,11 +1,13 @@
 //! Execution helpers bridging the async Wasmtime runtime with Tarantool's
 //! cooperative multitasking environment.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::runtime::{
     metrics,
     tx::{tx_push, TxCtx},
+    tx_fiber::{Job, TxFiber},
 };
 use tokio::sync::oneshot;
 use wasmtime_wasi::async_trait;
@@ -27,21 +29,6 @@ pub trait ExecutorImpl: Send + Sync {
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
-}
-
-/// Executor that simply runs tasks on the current thread.
-#[derive(Debug)]
-pub struct DirectExecutor;
-
-#[async_trait]
-impl ExecutorImpl for DirectExecutor {
-    async fn execute<F, R>(&self, task: F) -> R
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        task()
-    }
 }
 
 /// Executor that schedules tasks to be executed inside Tarantool's transaction
@@ -78,13 +65,47 @@ impl ExecutorImpl for TxPushExecutor {
     }
 }
 
+/// Executor that runs tasks on the dedicated fiber owning the current
+/// transaction (see [`crate::runtime::tx_fiber`]).
+///
+/// Unlike [`TxPushExecutor`], every task is dispatched to the *same* fiber, so
+/// fiber-local `box` transaction state is preserved across calls without
+/// keeping the guest itself resident on the TX thread.
+#[derive(Debug)]
+pub struct TxFiberExecutor {
+    fiber: Arc<TxFiber>,
+}
+
+#[async_trait]
+impl ExecutorImpl for TxFiberExecutor {
+    async fn execute<F, R>(&self, task: F) -> R
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let job: Job = Box::new(move || {
+            let _ = reply_tx.send(task());
+        });
+
+        self.fiber
+            .submit(job)
+            .unwrap_or_else(|_| panic!("transaction fiber is no longer available"));
+
+        reply_rx
+            .await
+            .expect("transaction fiber dropped a job without replying")
+    }
+}
+
 /// Public enum selecting between available executor implementations.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Executor {
-    /// Execute tasks directly.
-    Direct,
-    /// Push tasks to the transaction thread.
+    /// Push each task to the transaction thread independently. Used whenever no
+    /// Tarantool transaction is open.
     TxPush,
+    /// Run each task on the dedicated fiber that owns the open transaction.
+    TxFiber(Arc<TxFiber>),
 }
 
 impl Executor {
@@ -95,8 +116,14 @@ impl Executor {
         R: Send + 'static,
     {
         match self {
-            Executor::Direct => DirectExecutor.execute(task).await,
             Executor::TxPush => TxPushExecutor.execute(task).await,
+            Executor::TxFiber(fiber) => {
+                TxFiberExecutor {
+                    fiber: Arc::clone(fiber),
+                }
+                .execute(task)
+                .await
+            }
         }
     }
 }

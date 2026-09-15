@@ -9,4 +9,5 @@ pub(crate) mod lifecycle;
 pub(crate) mod metrics;
 pub mod tarantool_wasm;
 pub mod tx;
+pub(crate) mod tx_fiber;
 pub mod wasm_fiber;

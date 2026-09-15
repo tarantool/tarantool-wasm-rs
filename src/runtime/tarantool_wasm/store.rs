@@ -1,5 +1,8 @@
 use super::*;
 use crate::bindings::handles::NativeHandles;
+use crate::runtime::tx_fiber::TxFiber;
+
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Configuration options controlling how a module is executed.
@@ -85,6 +88,7 @@ pub(crate) struct WasmStates {
     pub(crate) tls: WasiTlsCtx,
     pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
     pub(crate) executor: Executor,
+    pub(crate) tx_fiber: Option<Arc<TxFiber>>,
     pub(crate) tx_mode: TxMode,
     pub(crate) caller_session_id: Option<u64>,
     pub(crate) instance_thread_id: ThreadId,
@@ -200,6 +204,7 @@ impl WasmStates {
             tls: WasiTlsCtxBuilder::new().build(),
             yielder: None,
             executor: Executor::TxPush, // start outside the transaction
+            tx_fiber: None,
             tx_mode: TxMode::None,
             caller_session_id: None,
             instance_thread_id: thread::current().id(),
@@ -324,20 +329,43 @@ impl SyncWasmStates {
         })
     }
 
-    pub fn begin_tx(&mut self) {
+    /// Open a transaction by spawning its dedicated fiber.
+    ///
+    /// All host calls made while the transaction is open are dispatched to this
+    /// fiber (see [`Executor::TxFiber`]), so the fiber-local `box` transaction
+    /// is preserved without keeping the guest on the TX thread.
+    ///
+    /// Must be called from outside the TX thread: spawning the fiber pushes work
+    /// onto TX. Returns an error if that submission fails.
+    pub fn begin_tx(&mut self) -> Result<()> {
         let mut state = self.state.lock().unwrap();
+        // Reuse an existing fiber: a second `begin` without an intervening
+        // commit/rollback must reach the same fiber so Tarantool reports the
+        // duplicate begin, rather than silently spawning a new transaction and
+        // orphaning the first.
+        if state.tx_fiber.is_none() {
+            // `TxFiber::spawn` submits to TX; safe from the guest's OS thread.
+            // The spawn callback never touches `WasmStates`, so holding the
+            // lock here cannot deadlock it.
+            state.tx_fiber = Some(TxFiber::spawn()?);
+        }
+        let fiber = Arc::clone(state.tx_fiber.as_ref().unwrap());
         state.tx_mode = TxMode::Started;
-        state.executor = Executor::Direct;
+        state.executor = Executor::TxFiber(fiber);
+        Ok(())
     }
 
     pub fn end_tx(&mut self) {
         let mut state = self.state.lock().unwrap();
         state.tx_mode = TxMode::None;
         state.executor = Executor::TxPush;
+        // Dropping the handle closes the job channel; the fiber rolls back any
+        // still-open transaction and exits.
+        state.tx_fiber = None;
     }
 
     pub fn executor(&self) -> Executor {
-        self.state.lock().unwrap().executor
+        self.state.lock().unwrap().executor.clone()
     }
     pub(crate) fn caller_session_id(&self) -> Option<u64> {
         self.state.lock().unwrap().caller_session_id
@@ -366,6 +394,10 @@ impl SyncWasmStates {
             .clone()
     }
 
+    // Retained for the (now unused) task-rescheduling path: transactions used
+    // to migrate the guest onto TX via `yield_now`. The dedicated-fiber model
+    // in `crate::runtime::tx_fiber` no longer needs it.
+    #[allow(dead_code)]
     pub(crate) async fn yield_now(&self) {
         let maybe_yielder = {
             let guard = self.state.lock().unwrap();
