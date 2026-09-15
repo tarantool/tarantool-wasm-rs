@@ -24,10 +24,16 @@ and CI builds turn a violation into a panic at the offending API boundary.
 | Runtime integration | `coio_call`, shutdown trigger callbacks, and fiber operations |
 | Metrics | `tarantool_uptime` |
 
-During `wasm.run`, transaction begin reschedules the Wasmtime task onto TX and
-switches its executor to direct execution until commit or rollback. Calls made
-through `wasm.call`, sessions, or the interpreter cannot preserve a Tarantool
-fiber transaction across host calls and reject transaction begin.
+During `wasm.run` or `wasm.pipe`, transaction begin spawns a dedicated
+Tarantool fiber that owns the transaction. While it is open, every host call
+dispatched through `Executor::TxFiber` runs on that same fiber (so the
+fiber-local transaction is preserved), and the fiber waits for the next call
+with a `coio_call`-based cooperative receive that yields rather than parking
+the TX thread. The guest itself stays on its own OS thread, so blocking on WASI
+I/O between statements (for example waiting for the next client message on a
+pipe) cannot stall Tarantool's scheduler. Calls made through `wasm.call`,
+sessions, or the interpreter cannot preserve a Tarantool fiber transaction
+across host calls and reject transaction begin.
 
 Index and tuple iterators are `Send` only as opaque transport objects. Their
 pointers are never dereferenced on a worker thread, host resource calls are

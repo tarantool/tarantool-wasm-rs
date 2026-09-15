@@ -1,5 +1,5 @@
 use crate::bindings::error::{handle_tarantool_error, map_tarantool_error};
-use crate::bindings::helpers::{debug_assert_tx_thread, illegal_params};
+use crate::bindings::helpers::{debug_assert_tx_thread, illegal_params, unknown_error};
 use crate::bindings::tarantool::tarantool::transaction;
 use crate::bindings::tarantool::tarantool::types::{BoxError, TransactionIsolation};
 use crate::ffi;
@@ -44,38 +44,51 @@ impl transaction::Host for SyncWasmStates {
                 "transactions require a reschedulable wasm.run execution",
             ));
         }
-        self.yield_now().await;
-        self.begin_tx();
-        debug_assert_tx_thread();
-        tnt_transaction::begin().map_err(|e| map_tarantool_error(e.into()))
+        if let Err(err) = self.begin_tx() {
+            return Err(unknown_error(format!(
+                "failed to start transaction fiber: {err:#}"
+            )));
+        }
+        let res = self
+            .executor()
+            .execute(|| {
+                debug_assert_tx_thread();
+                tnt_transaction::begin().map_err(|e| map_tarantool_error(e.into()))
+            })
+            .await;
+        if res.is_err() {
+            // Do not leave the store pinned to a fiber whose transaction failed
+            // to start.
+            self.end_tx();
+        }
+        res
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
-        self.executor()
+        let res = self
+            .executor()
             .execute(|| {
                 debug_assert_tx_thread();
                 tnt_transaction::commit().map_err(|e| map_tarantool_error(e.into()))
             })
-            .await?;
-
-        self.yield_now().await;
+            .await;
+        // Tear the fiber down unconditionally: a failed commit must not strand
+        // the executor on `TxFiber`, and the fiber rolls back anything the guest
+        // left open.
         self.end_tx();
-
-        Ok(())
+        res
     }
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
-        self.executor()
+        let res = self
+            .executor()
             .execute(|| {
                 debug_assert_tx_thread();
                 tnt_transaction::rollback().map_err(|e| map_tarantool_error(e.into()))
             })
-            .await?;
-
-        self.yield_now().await;
+            .await;
         self.end_tx();
-
-        Ok(())
+        res
     }
 
     async fn set_isolation(&mut self, isolation: TransactionIsolation) -> Result<(), BoxError> {
