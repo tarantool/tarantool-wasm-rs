@@ -1,7 +1,7 @@
 use crate::runtime::tarantool_wasm::WasmConfig;
 use mlua::prelude::*;
 use std::net::IpAddr;
-use wasmtime_wasi::{DirPerms, FilePerms};
+use wasmtime_wasi::FsPerms;
 
 fn invalid_type(field: &str, expected: &str, value: &LuaValue) -> LuaError {
     LuaError::runtime(format!(
@@ -144,17 +144,16 @@ pub(super) fn parse_config_table(tbl: Option<LuaTable>) -> LuaResult<WasmConfig>
                 let host = required_string(entry.raw_get::<LuaValue>(1)?, "preopened_dirs host")?;
                 let guest = required_string(entry.raw_get::<LuaValue>(2)?, "preopened_dirs guest")?;
                 let perms = optional_string(&entry, "perms")?;
-                let (dir_perms, file_perms) = match perms.as_deref() {
-                    Some("ro") => (DirPerms::READ, FilePerms::READ),
-                    Some("rw") | None => (DirPerms::all(), FilePerms::all()),
+                let perms = match perms.as_deref() {
+                    Some("ro") => FsPerms::ReadOnly,
+                    Some("rw") | None => FsPerms::ReadWrite,
                     Some(perms) => {
                         return Err(LuaError::runtime(format!(
                         "invalid preopened directory permissions `{perms}`; expected `ro` or `rw`"
                     )))
                     }
                 };
-                cfg.preopened_dirs
-                    .push((host, guest, dir_perms, file_perms));
+                cfg.preopened_dirs.push((host, guest, perms));
             }
         }
         if let Some(memory_limit) = optional_u64(&t, "memory_limit")? {

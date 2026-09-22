@@ -40,7 +40,7 @@ pub struct WasmConfig {
     /// Restrict networking to these ports.
     pub allowed_ports: Vec<u16>,
     /// Directories pre-opened for WASI with their permissions.
-    pub preopened_dirs: Vec<(String, String, DirPerms, FilePerms)>,
+    pub preopened_dirs: Vec<(String, String, FsPerms)>,
     /// Maximum amount of linear memory a module may allocate.
     pub memory_limit: Option<usize>,
     /// Limit on the number of Wasmtime instructions (fuel) a module may consume.
@@ -176,10 +176,13 @@ impl WasmStates {
                 .collect::<Result<_>>()?;
             let allow_all_ports = config.allowed_ports.is_empty();
             let allowed_ports: HashSet<u16> = config.allowed_ports.iter().copied().collect();
-            builder.socket_addr_check(move |addr, _| {
+            builder.socket_addr_check(move |addr, reason| {
+                let implicit_bind = addr.ip().is_unspecified()
+                    && addr.port() == 0
+                    && matches!(reason, SocketAddrUse::TcpBind | SocketAddrUse::UdpBind);
                 let ip_allowed = allow_all_ips || allowed_ips.contains(&addr.ip());
                 let port_allowed = allow_all_ports || allowed_ports.contains(&addr.port());
-                Box::pin(async move { ip_allowed && port_allowed })
+                Box::pin(async move { implicit_bind || ip_allowed && port_allowed })
             });
         }
         builder
@@ -187,12 +190,10 @@ impl WasmStates {
             .allow_tcp(config.allow_tcp)
             .allow_udp(config.allow_udp);
 
-        for (host, guest, dir_perms, file_perms) in config.preopened_dirs.iter() {
-            builder
-                .preopened_dir(host, guest, *dir_perms, *file_perms)
-                .map_err(|err| {
-                    anyhow!("failed to preopen directory `{host}` as `{guest}`: {err}")
-                })?;
+        for (host, guest, perms) in config.preopened_dirs.iter() {
+            builder.preopened_dir(host, guest, *perms).map_err(|err| {
+                anyhow!("failed to preopen directory `{host}` as `{guest}`: {err}")
+            })?;
         }
 
         let ctx = builder.build();
