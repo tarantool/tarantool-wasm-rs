@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly RUST_VERSION="${RUST_VERSION:-1.94.0}"
+readonly RUST_VERSION="${RUST_VERSION:-1.96.0}"
 readonly TARANTOOL_VERSION="${TARANTOOL_VERSION:-3.7.0}"
 readonly TT_VERSION="${TT_VERSION:-2.13.0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
