@@ -16,10 +16,16 @@ cancellation channel; it does not wait for component execution to finish.
 `coio_call`, allowing the Tarantool fiber to yield while the OS thread is
 joined.
 
-If Lua calls `wasm.cancel(handle)`, the runtime sends a `Canceled` status back to the worker. The `WasmFiber`
-aborts the asynchronous task running inside the Tokio runtime and the OS thread exits once cleanup is
-complete. The Lua helper waits for the join handle to finish so callers can rely on the worker thread being
-terminated before continuing.
+If Lua calls `wasm.cancel(handle)`, the runtime latches a cancellation flag,
+sends a `Canceled` status, and starts a 2 ms engine epoch ticker while the
+guest task is active. At the next epoch checkpoint this Store traps; the
+`WasmFiber` reports `Canceled` and aborts the task. `wasm.cancel` joins the OS
+worker before returning. Cancellation cannot preempt a blocking host call or
+native code, and OS scheduling gives no strict wall-clock upper bound. Every
+other Store sharing the Engine rearms its deadline on these ticks. Stores
+created for sessions, interpreters, and stateless calls use the same callback;
+they trap when runtime shutdown begins. The shutdown path continues advancing
+both engine epochs until all active workers exit.
 
 At Tarantool shutdown the runtime rejects new work, interrupts running stores,
 closes the stateless worker pool, sessions, and shared interpreters, cancels

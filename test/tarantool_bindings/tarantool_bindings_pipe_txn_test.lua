@@ -9,6 +9,12 @@ local cases = t.helpers.matrix({
     scenario = {'semantics', 'pool', 'shutdown', 'run'},
 })
 table.insert(cases, {engine = 'memtx', scenario = 'non_mvcc'})
+for _, engine in ipairs({'memtx', 'vinyl'}) do
+    table.insert(cases, {engine = engine, scenario = 'cancel_isolated'})
+end
+for _, scenario in ipairs({'cancel_streams', 'cancel_race', 'shutdown_cpu'}) do
+    table.insert(cases, {engine = 'memtx', scenario = scenario})
+end
 local g = t.group('bindings_pipe_txn_test', cases)
 
 g.after_each(function(cg)
