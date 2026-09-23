@@ -249,8 +249,21 @@ has been drained.
 `join` waits for the command result but never drains output or closes stdin.
 Drain stdout and stderr concurrently, normally with `read_any`, before waiting
 for completion. `cancel` requests termination while preserving bytes already
-committed to host output queues. `close` performs deterministic cancellation,
-join and resource cleanup; garbage collection is a nonblocking fallback.
+committed to host output queues. It closes stdin and advances the Wasmtime
+engine epoch every 2 ms until this worker stops. Each Store checks its own
+cancellation flag at epoch checkpoints, so canceling one pipe does not stop
+another pipe, session, interpreter, or run on the shared Engine. A CPU-bound
+guest with epoch-instrumented Wasm code normally stops within milliseconds;
+there is no hard deadline during a blocking host call, native code, or a
+starved OS thread. Use `join({timeout_ms = ...})` and an external process
+watchdog for a strict wall-clock bound. A timed-out join remains retryable.
+`join` reports `canceled` only when cancellation won; a guest failure remains
+a guest error. Repeated cancel and join calls preserve the terminal result.
+`close` cancels, joins, and releases endpoints only after worker completion;
+garbage collection is a nonblocking fallback. The worker drops its Store and
+transaction owner handle before publishing completion. The owner fiber then
+rolls back any open transaction and exits on the Tarantool TX scheduler.
+Runtime shutdown still interrupts all Stores and waits for every worker.
 
 The pipe endpoints replace stdio inherited from the module's load config.
 Passing explicit `stdin`, `stdout`, `stderr`, or `inherit_*` stdio fields in the

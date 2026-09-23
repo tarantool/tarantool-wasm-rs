@@ -55,11 +55,9 @@ pub(super) fn runtime_config(with_fuel: bool, cache: Cache) -> Config {
     }
 
     /*
-     * We use epoch-based interruptions to implement graceful shutdown.
-     * Epoch is a global tick counter managed by the engine. We can setup
-     * a limiting epoch for each module, after which it will halt. With
-     * that technique we can set the limit at 1 tick for all modules and
-     * then halt all modules at once by incrementing the epoch.
+     * Epoch checks support pipe-local cancellation and global shutdown.
+     * Every store has a callback which rearms on another pipe's tick, and
+     * traps when shutdown starts or its own cancellation is requested.
      */
     config.epoch_interruption(true);
     config

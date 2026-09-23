@@ -134,7 +134,13 @@ impl PipeControlBlock {
                     .ok_or_else(|| anyhow!("pipe join timed out"))?
                     .min(poll),
             };
-            state = self.join_changed.wait_timeout(state, wait).unwrap().0;
+            if is_tx_thread() {
+                drop(state);
+                fiber::sleep(wait);
+                state = self.join.lock().unwrap();
+            } else {
+                state = self.join_changed.wait_timeout(state, wait).unwrap().0;
+            }
         }
     }
 
@@ -152,16 +158,13 @@ impl PipeControlBlock {
     }
 
     pub(crate) fn cancel(&self) {
-        self.endpoints.stdin.close();
-        {
-            let terminal = self.terminal.lock().unwrap();
-            if terminal.is_some() {
-                return;
+        // Latch cancellation before closing stdin can wake a waiting guest.
+        if self.terminal.lock().unwrap().is_none() {
+            if let Some(cancel_tx) = self.cancel_tx.lock().unwrap().as_ref() {
+                cancel_tx.request();
             }
         }
-        if let Some(cancel_tx) = self.cancel_tx.lock().unwrap().as_ref() {
-            cancel_tx.request();
-        }
+        self.endpoints.stdin.close();
     }
 
     pub(crate) fn close_streams(&self, discard: bool) {
@@ -453,8 +456,7 @@ pub fn tt_wasm_pipe_spawn(
         if fuel {
             let _ = store.set_fuel(cfg.max_instructions.unwrap_or(u64::MAX));
         }
-        store.set_epoch_deadline(1);
-        store.epoch_deadline_trap();
+        crate::runtime::wasm_fiber::configure_epoch_deadline(&mut store, None);
         let fiber = WasmFiber::new(store, instance_pre)?;
         let _ = canceler_tx.send(Ok(fiber.canceler()));
         let result = fiber.block_on_status();

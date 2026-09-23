@@ -1,4 +1,5 @@
 import sys
+import time
 
 from wit_world import exports
 from wit_world.imports import box_tuple, database, transaction
@@ -34,6 +35,22 @@ class Run(exports.Run):
                 elif command == "ROLLBACK":
                     transaction.rollback()
                     print("rollback", flush=True)
+                elif command == "LOOP":
+                    print("looping", flush=True)
+                    while True:
+                        pass
+                elif command == "BUSY":
+                    print("busy", flush=True)
+                    deadline = time.monotonic() + 1.0
+                    while time.monotonic() < deadline:
+                        pass
+                    print("done", flush=True)
+                elif command == "SPAM":
+                    while True:
+                        print("x" * 8192, flush=True)
+                elif command == "FINISH":
+                    print("finished", flush=True)
+                    return
                 elif command == "TRAP":
                     raise RuntimeError("intentional guest failure")
                 else:

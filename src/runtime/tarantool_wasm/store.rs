@@ -469,8 +469,7 @@ pub(super) fn init_store(
             let limit = config.max_instructions.unwrap_or(u64::MAX);
             let _ = store.set_fuel(limit);
         }
-        store.set_epoch_deadline(1);
-        store.epoch_deadline_trap();
+        crate::runtime::wasm_fiber::configure_epoch_deadline(&mut store, None);
         Ok(store)
     })();
     metrics::observe_store_setup(started.elapsed());

@@ -334,8 +334,7 @@ pub fn tt_wasm_run_module(module_uid: String, config: Option<WasmConfig>) -> Res
             let _ = store.set_fuel(limit);
         }
 
-        store.set_epoch_deadline(1);
-        store.epoch_deadline_trap();
+        crate::runtime::wasm_fiber::configure_epoch_deadline(&mut store, None);
 
         let fiber = WasmFiber::new(store, instance_pre)?;
         let _ = canceler_tx.send(Ok(fiber.canceler()));

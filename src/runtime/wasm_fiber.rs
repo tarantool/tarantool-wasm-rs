@@ -4,10 +4,12 @@ use std::{
     pin::Pin,
     ptr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
     task::Poll,
+    thread,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
@@ -16,11 +18,12 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
 };
-use wasmtime::{component::InstancePre, Store};
+use wasmtime::{component::InstancePre, Engine, Store, UpdateDeadline};
 use wasmtime_wasi::p2::bindings::CommandPre;
 use wasmtime_wasi::I32Exit;
 
 use crate::runtime::{
+    lifecycle::{self, RuntimeLifecycle},
     metrics,
     tarantool_wasm::SyncWasmStates,
     tx::{tx_push, TxCtx},
@@ -69,6 +72,60 @@ impl Drop for SigAltStackRestoreGuard {
     }
 }
 
+const EXECUTION_RUNNING: u8 = 0;
+const EXECUTION_CANCELED: u8 = 1;
+const EXECUTION_COMPLETED: u8 = 2;
+
+#[derive(Debug)]
+pub(crate) struct EpochCancellation;
+
+impl std::fmt::Display for EpochCancellation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WASM execution canceled")
+    }
+}
+
+impl std::error::Error for EpochCancellation {}
+
+/// Every store sharing an engine must extend its deadline on a pipe tick.
+/// Shutdown remains global and takes precedence over local cancellation.
+pub(crate) fn configure_epoch_deadline(
+    store: &mut Store<SyncWasmStates>,
+    canceled: Option<Arc<AtomicU8>>,
+) {
+    store.set_epoch_deadline(1);
+    store.epoch_deadline_callback(move |_| {
+        if lifecycle::state() != RuntimeLifecycle::Running {
+            return Err(wasmtime::Error::msg("WASM runtime is stopping"));
+        }
+        if canceled
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Acquire) == EXECUTION_CANCELED)
+        {
+            return Err(EpochCancellation.into());
+        }
+        Ok(UpdateDeadline::Continue(1))
+    });
+}
+
+struct ExecutionActive {
+    state: Arc<AtomicU8>,
+    active: Arc<AtomicBool>,
+}
+
+impl Drop for ExecutionActive {
+    fn drop(&mut self) {
+        // A completion and a cancellation request compete for one decision.
+        let _ = self.state.compare_exchange(
+            EXECUTION_RUNNING,
+            EXECUTION_COMPLETED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        self.active.store(false, Ordering::Release);
+    }
+}
+
 pub(crate) enum WasmFiberStatus {
     Suspended,
     Finished,
@@ -78,20 +135,57 @@ pub(crate) enum WasmFiberStatus {
 #[derive(Clone)]
 pub(crate) struct WasmFiberCanceler {
     sender: mpsc::Sender<WasmFiberStatus>,
-    requested: Arc<AtomicBool>,
+    state: Arc<AtomicU8>,
+    engine: Option<Engine>,
+    active: Arc<AtomicBool>,
+    ticker_started: Arc<AtomicBool>,
 }
 
 impl WasmFiberCanceler {
     pub(crate) fn request(&self) {
-        self.requested.store(true, Ordering::Release);
+        // The CAS linearizes cancel against task completion. A completed guest
+        // keeps its original outcome, even when the two happen concurrently.
+        if self
+            .state
+            .compare_exchange(
+                EXECUTION_RUNNING,
+                EXECUTION_CANCELED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return;
+        }
         let _ = self.sender.try_send(WasmFiberStatus::Canceled);
+        if let Some(engine) = &self.engine {
+            if self.active.load(Ordering::Acquire)
+                && !self.ticker_started.swap(true, Ordering::AcqRel)
+            {
+                let engine = engine.clone();
+                let active = Arc::clone(&self.active);
+                // The ticker is independent of the Tokio worker, which may be
+                // executing a CPU loop without yielding. Other stores rearm.
+                let _ = thread::Builder::new()
+                    .name("wasm-epoch-cancel".into())
+                    .spawn(move || {
+                        while active.load(Ordering::Acquire) {
+                            engine.increment_epoch();
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                    });
+            }
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn for_test(sender: mpsc::Sender<WasmFiberStatus>) -> Self {
         Self {
             sender,
-            requested: Arc::new(AtomicBool::new(false)),
+            state: Arc::new(AtomicU8::new(EXECUTION_RUNNING)),
+            engine: None,
+            active: Arc::new(AtomicBool::new(false)),
+            ticker_started: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -101,7 +195,7 @@ pub(crate) struct WasmFiber {
     awaiter: mpsc::Receiver<WasmFiberStatus>,
     handle: Option<JoinHandle<Result<()>>>,
     canceler: WasmFiberCanceler,
-    cancel_requested: Arc<AtomicBool>,
+    cancel_state: Arc<AtomicU8>,
 }
 
 impl WasmFiber {
@@ -116,16 +210,27 @@ impl WasmFiber {
             .build()
             .unwrap();
         let (sender, awaiter) = mpsc::channel(1);
-        let cancel_requested = Arc::new(AtomicBool::new(false));
+        let cancel_state = Arc::new(AtomicU8::new(EXECUTION_RUNNING));
+        let active = Arc::new(AtomicBool::new(true));
+        let active_guard = ExecutionActive {
+            state: Arc::clone(&cancel_state),
+            active: Arc::clone(&active),
+        };
+        let engine = store.engine().clone();
+        configure_epoch_deadline(&mut store, Some(Arc::clone(&cancel_state)));
         let canceler = WasmFiberCanceler {
             sender: sender.clone(),
-            requested: Arc::clone(&cancel_requested),
+            state: Arc::clone(&cancel_state),
+            engine: Some(engine),
+            active,
+            ticker_started: Arc::new(AtomicBool::new(false)),
         };
         let finalizer = sender.clone();
         store.data().state.lock().unwrap().yielder = Some(sender);
         let command_pre = CommandPre::new(instance_pre)?;
 
         let handle = rt.spawn(async move {
+            let _active_guard = active_guard;
             let started = std::time::Instant::now();
             let command_result = command_pre.instantiate_async(&mut store).await;
             metrics::observe_instantiation(started.elapsed());
@@ -148,7 +253,7 @@ impl WasmFiber {
             awaiter,
             handle: Some(handle),
             canceler,
-            cancel_requested,
+            cancel_state,
         })
     }
 
@@ -157,7 +262,7 @@ impl WasmFiber {
     }
 
     fn cancellation_requested(&self) -> bool {
-        self.cancel_requested.load(Ordering::Acquire)
+        self.cancel_state.load(Ordering::Acquire) == EXECUTION_CANCELED
     }
 
     fn cancel_task(&mut self) {
@@ -231,7 +336,16 @@ impl WasmFiber {
                 self.cancel_task();
                 return Ok(WasmFiberStatus::Canceled);
             }
-            let status = self.resume()?;
+            let status = match self.resume() {
+                Ok(status) => status,
+                Err(err) if err.chain().any(|cause| cause.is::<EpochCancellation>()) => {
+                    return Ok(WasmFiberStatus::Canceled);
+                }
+                Err(_) if self.cancellation_requested() => {
+                    return Ok(WasmFiberStatus::Canceled);
+                }
+                Err(err) => return Err(err),
+            };
             if self.cancellation_requested() {
                 self.cancel_task();
                 return Ok(WasmFiberStatus::Canceled);
@@ -274,18 +388,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cancellation_and_completion_have_one_winner() {
+        use std::sync::Barrier;
+
+        for _ in 0..100 {
+            let (sender, _receiver) = mpsc::channel(1);
+            let canceler = WasmFiberCanceler::for_test(sender);
+            let state = Arc::clone(&canceler.state);
+            let active = Arc::new(AtomicBool::new(true));
+            let guard = ExecutionActive {
+                state: Arc::clone(&state),
+                active: Arc::clone(&active),
+            };
+            let barrier = Arc::new(Barrier::new(3));
+            let cancel_barrier = Arc::clone(&barrier);
+            let cancel_thread = thread::spawn(move || {
+                cancel_barrier.wait();
+                canceler.request();
+            });
+            let finish_barrier = Arc::clone(&barrier);
+            let finish_thread = thread::spawn(move || {
+                finish_barrier.wait();
+                drop(guard);
+            });
+            barrier.wait();
+            cancel_thread.join().unwrap();
+            finish_thread.join().unwrap();
+            assert!(matches!(
+                state.load(Ordering::Acquire),
+                EXECUTION_CANCELED | EXECUTION_COMPLETED
+            ));
+            assert!(!active.load(Ordering::Acquire));
+        }
+    }
+
+    #[test]
     fn cancellation_latch_survives_a_full_status_channel() {
         let (sender, mut receiver) = mpsc::channel(1);
         sender.blocking_send(WasmFiberStatus::Suspended).unwrap();
-        let requested = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(AtomicU8::new(EXECUTION_RUNNING));
         let canceler = WasmFiberCanceler {
             sender,
-            requested: Arc::clone(&requested),
+            state: Arc::clone(&state),
+            engine: None,
+            active: Arc::new(AtomicBool::new(false)),
+            ticker_started: Arc::new(AtomicBool::new(false)),
         };
 
         canceler.request();
 
-        assert!(requested.load(Ordering::Acquire));
+        assert_eq!(state.load(Ordering::Acquire), EXECUTION_CANCELED);
         assert!(matches!(
             receiver.blocking_recv(),
             Some(WasmFiberStatus::Suspended)
