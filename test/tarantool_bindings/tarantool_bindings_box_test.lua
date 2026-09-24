@@ -65,12 +65,24 @@ g.test_space_by_name = function(cg)
     t.assert_equals(space, cg.sp)
 end
 
+g.test_space_by_name_missing = function(cg)
+    local res = wasm.call(cg.m, "t-space-by-name", "space_that_does_not_exist")
+    t.assert_equals(res[1], true)
+    t.assert_equals(res[2], nil)
+end
+
 -- index-by-name
 g.test_index_by_name = function(cg)
     local res = wasm.call(cg.m, "t-index-by-name", cg.sp, "primary")
     t.assert(res[1])
     local index = res[2]
     t.assert_equals(index, cg.idx)
+end
+
+g.test_index_by_name_missing = function(cg)
+    local res = wasm.call(cg.m, "t-index-by-name", cg.sp, "index_that_does_not_exist")
+    t.assert_equals(res[1], true)
+    t.assert_equals(res[2], nil)
 end
 
 g.test_box_ops_scenario = function(cg)

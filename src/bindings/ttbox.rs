@@ -8,7 +8,17 @@ use tarantool::index::{Index as TarantoolIndex, IndexId};
 use tarantool::space::{Space as TarantoolSpace, SpaceId};
 use tarantool::tuple::Tuple as TarantoolTuple;
 
-use crate::bindings::error::map_tarantool_error;
+use crate::bindings::error::{handle_tarantool_error, map_tarantool_error};
+
+fn lookup_result<T>(found: Option<T>) -> Result<Option<T>, BoxError> {
+    match found {
+        Some(value) => Ok(Some(value)),
+        None => match tarantool::error::BoxError::maybe_last() {
+            Ok(()) => Ok(None),
+            Err(_) => Err(handle_tarantool_error()),
+        },
+    }
+}
 
 fn tuple_into_ptr(tuple: TarantoolTuple) -> u64 {
     let ptr = tuple.as_ptr() as u64;
@@ -30,10 +40,9 @@ impl database::Host for SyncWasmStates {
         self.executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                match TarantoolSpace::find(&name) {
-                    Some(space) => Ok(Some(Space { id: space.id() })),
-                    None => Ok(None),
-                }
+                tarantool::error::clear_error();
+                let found = TarantoolSpace::find(&name).map(|space| Space { id: space.id() });
+                lookup_result(found)
             })
             .await
     }
@@ -47,13 +56,12 @@ impl database::Host for SyncWasmStates {
             .execute(move || {
                 debug_assert_tx_thread();
                 let spc = unsafe { TarantoolSpace::from_id_unchecked(space.id as SpaceId) };
-                match spc.index(&name) {
-                    Some(index) => Ok(Some(Index {
-                        id: index.id(),
-                        space_id: space.id,
-                    })),
-                    None => Ok(None),
-                }
+                tarantool::error::clear_error();
+                let found = spc.index(&name).map(|index| Index {
+                    id: index.id(),
+                    space_id: space.id,
+                });
+                lookup_result(found)
             })
             .await
     }

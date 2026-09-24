@@ -74,7 +74,17 @@ local function wait_cleanup()
     assert(no_transaction_fibers(), 'transaction fiber leaked')
 end
 
-if scenario == 'semantics' then
+if scenario == 'space_lookup_conflict' then
+    local p = start()
+    command(p, 'BEGIN', 'begin')
+    command(p, 'SPACE_LOOKUP', 'space-found')
+    command(p, 'INSERT 1', 'insert')
+    space:create_index('secondary', {parts = {1, 'unsigned'}, unique = false})
+    command(p, 'SPACE_LOOKUP', 'error:SPACE_LOOKUP:97')
+    command(p, 'ROLLBACK', 'rollback')
+    finish(p)
+    wait_cleanup()
+elseif scenario == 'semantics' then
     local p = start()
     command(p, 'BEGIN', 'begin')
     local id = command(p, 'ID')
