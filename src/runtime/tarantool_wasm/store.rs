@@ -89,6 +89,7 @@ pub(crate) struct WasmStates {
     pub(crate) yielder: Option<mpsc::Sender<WasmFiberStatus>>,
     pub(crate) executor: Executor,
     pub(crate) tx_fiber: Option<Arc<TxFiber>>,
+    pub(crate) tx_id: Option<u64>,
     pub(crate) tx_mode: TxMode,
     pub(crate) caller_session_id: Option<u64>,
     pub(crate) instance_thread_id: ThreadId,
@@ -206,6 +207,7 @@ impl WasmStates {
             yielder: None,
             executor: Executor::TxPush, // start outside the transaction
             tx_fiber: None,
+            tx_id: None,
             tx_mode: TxMode::None,
             caller_session_id: None,
             instance_thread_id: thread::current().id(),
@@ -359,6 +361,7 @@ impl SyncWasmStates {
     pub fn end_tx(&mut self) {
         let mut state = self.state.lock().unwrap();
         state.tx_mode = TxMode::None;
+        state.tx_id = None;
         state.executor = Executor::TxPush;
         // Dropping the handle closes the job channel; the fiber rolls back any
         // still-open transaction and exits.
@@ -367,6 +370,15 @@ impl SyncWasmStates {
 
     pub fn executor(&self) -> Executor {
         self.state.lock().unwrap().executor.clone()
+    }
+
+    pub(crate) fn transaction_owner(&self) -> Option<(Arc<TxFiber>, u64)> {
+        let state = self.state.lock().unwrap();
+        Some((Arc::clone(state.tx_fiber.as_ref()?), state.tx_id?))
+    }
+
+    pub(crate) fn set_tx_id(&mut self, id: u64) {
+        self.state.lock().unwrap().tx_id = Some(id);
     }
     pub(crate) fn caller_session_id(&self) -> Option<u64> {
         self.state.lock().unwrap().caller_session_id

@@ -10,6 +10,11 @@ local cases = t.helpers.matrix({
 })
 table.insert(cases, {engine = 'memtx', scenario = 'non_mvcc'})
 table.insert(cases, {engine = 'memtx', scenario = 'space_lookup_conflict'})
+table.insert(cases, {engine = 'vinyl', scenario = 'iterator_error'})
+for _, engine in ipairs({'memtx', 'vinyl'}) do
+    table.insert(cases, {engine = engine, scenario = 'read_context'})
+    table.insert(cases, {engine = engine, scenario = 'snapshot_at_open'})
+end
 for _, engine in ipairs({'memtx', 'vinyl'}) do
     table.insert(cases, {engine = engine, scenario = 'cancel_isolated'})
 end

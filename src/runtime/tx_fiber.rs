@@ -56,6 +56,28 @@ impl TxFiber {
         Ok(Arc::new(Self { jobs, wake }))
     }
 
+    /// Submit a job and report owner failure instead of panicking on the
+    /// guest worker. Commit and rollback use this to return a WIT error.
+    pub(crate) async fn call<F, R>(&self, task: F) -> Result<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        // The job is enqueued before the wake socket is written. The owner may
+        // execute it even when that write reports a closed socket, so its reply
+        // is authoritative for COMMIT and ROLLBACK.
+        let submit_result = self.submit(Box::new(move || {
+            let _ = reply_tx.send(task());
+        }));
+        match reply_rx.await {
+            Ok(reply) => Ok(reply),
+            Err(_) => Err(submit_result
+                .err()
+                .unwrap_or_else(|| anyhow!("transaction fiber stopped before replying"))),
+        }
+    }
+
     pub(crate) fn submit(&self, job: Job) -> Result<()> {
         self.jobs
             .send(job)
@@ -105,5 +127,39 @@ fn job_loop(receiver: mpsc::Receiver<Job>, mut wake: UnixStream) {
     }
     if transaction::is_in_transaction() {
         let _ = transaction::rollback();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn call_uses_reply_even_when_wake_fails() {
+        let (jobs, receiver) = mpsc::channel::<Job>();
+        let (wake, wake_receiver) = UnixStream::pair().unwrap();
+        drop(wake_receiver);
+        assert!((&wake).write(&[1]).is_err());
+        let owner = std::thread::spawn(move || receiver.recv().unwrap()());
+        let fiber = TxFiber { jobs, wake };
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        assert_eq!(runtime.block_on(fiber.call(|| 42)).unwrap(), 42);
+        owner.join().unwrap();
+    }
+
+    #[test]
+    fn call_reports_closed_owner() {
+        let (jobs, receiver) = mpsc::channel::<Job>();
+        drop(receiver);
+        let (wake, _wake_receiver) = UnixStream::pair().unwrap();
+        let fiber = TxFiber { jobs, wake };
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        assert!(runtime.block_on(fiber.call(|| 42)).is_err());
     }
 }

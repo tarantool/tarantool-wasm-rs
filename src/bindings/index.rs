@@ -1,4 +1,5 @@
 use crate::bindings::error::map_tarantool_error;
+use crate::bindings::fallible_index_iterator::FallibleIndexIterator;
 use crate::bindings::helpers::{debug_assert_tx_thread, unknown_error, validate_array};
 use crate::bindings::tarantool::tarantool::index;
 use crate::bindings::tarantool::tarantool::types::{BoxError, BoxTuple, Index, IteratorType};
@@ -177,11 +178,8 @@ impl index::HostIterator for SyncWasmStates {
             .executor()
             .execute(move || {
                 debug_assert_tx_thread();
-                let key = unsafe { TarantoolTuple::from_slice(&key) };
-                native_index(index)
-                    .select(mode, &key)
+                FallibleIndexIterator::new(index, mode, key)
                     .map(|inner| IndexIteratorImpl { inner: Some(inner) })
-                    .map_err(map_tarantool_error)
             })
             .await?;
 
@@ -217,12 +215,11 @@ impl index::HostIterator for SyncWasmStates {
                 // SAFETY: Wasmtime serializes host resource calls and the
                 // resource table cannot be mutated while this call is pending.
                 let iter = unsafe { &mut *iter_ptr.get() };
-                Ok(iter
-                    .inner
+                iter.inner
                     .as_mut()
                     .expect("live iterator has an inner value")
                     .next()
-                    .map(tuple_into_ptr))
+                    .map(|tuple| tuple.map(tuple_into_ptr))
             })
             .await?;
         ptr.map(|ptr| self.register_tuple(ptr)).transpose()

@@ -3,7 +3,7 @@
   "world": "adder",
   "wit": {
     "path": "wit",
-    "package": "docs:adder@0.1.0"
+    "package": "docs:adder@0.1.3"
   },
   "source": "main.py",
   "output": "adder.wasm"

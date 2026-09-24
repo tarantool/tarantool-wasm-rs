@@ -49,30 +49,53 @@ impl transaction::Host for SyncWasmStates {
                 "failed to start transaction fiber: {err:#}"
             )));
         }
-        let (res, active) = self
+        let (res, active, id) = self
             .executor()
             .execute(|| {
                 debug_assert_tx_thread();
                 let res = tnt_transaction::begin().map_err(|e| map_tarantool_error(e.into()));
-                (res, tnt_transaction::is_in_transaction())
+                let id = unsafe { ffi::tnt::box_txn_id() };
+                (
+                    res,
+                    tnt_transaction::is_in_transaction(),
+                    (id >= 0).then_some(id as u64),
+                )
             })
             .await;
         if !active {
-            // A duplicate begin fails while the original transaction remains
-            // active. Preserve its owner so the guest can still commit/rollback.
+            // If BEGIN failed without an active transaction, release the
+            // owner. A duplicate BEGIN leaves the original owner active.
             self.end_tx();
+        } else if res.is_ok() {
+            if let Some(id) = id {
+                self.set_tx_id(id);
+            } else {
+                self.end_tx();
+                return Err(unknown_error(
+                    "BEGIN succeeded without a host transaction id",
+                ));
+            }
         }
         res
     }
 
     async fn commit(&mut self) -> Result<(), BoxError> {
-        let res = self
-            .executor()
-            .execute(|| {
+        let Some((fiber, expected_id)) = self.transaction_owner() else {
+            self.end_tx();
+            return Err(unknown_error("COMMIT without an active host transaction"));
+        };
+        let res = fiber
+            .call(move || {
                 debug_assert_tx_thread();
+                let actual_id = unsafe { ffi::tnt::box_txn_id() };
+                if actual_id < 0 || actual_id as u64 != expected_id {
+                    return Err(unknown_error("host transaction was lost before COMMIT"));
+                }
                 tnt_transaction::commit().map_err(|e| map_tarantool_error(e.into()))
             })
-            .await;
+            .await
+            .map_err(|err| unknown_error(format!("host transaction unavailable: {err:#}")))
+            .and_then(|res| res);
         // Tear the fiber down unconditionally: a failed commit must not strand
         // the executor on `TxFiber`, and the fiber rolls back anything the guest
         // left open.
@@ -81,13 +104,22 @@ impl transaction::Host for SyncWasmStates {
     }
 
     async fn rollback(&mut self) -> Result<(), BoxError> {
-        let res = self
-            .executor()
-            .execute(|| {
+        let Some((fiber, expected_id)) = self.transaction_owner() else {
+            self.end_tx();
+            return Err(unknown_error("ROLLBACK without an active host transaction"));
+        };
+        let res = fiber
+            .call(move || {
                 debug_assert_tx_thread();
+                let actual_id = unsafe { ffi::tnt::box_txn_id() };
+                if actual_id < 0 || actual_id as u64 != expected_id {
+                    return Err(unknown_error("host transaction was lost before ROLLBACK"));
+                }
                 tnt_transaction::rollback().map_err(|e| map_tarantool_error(e.into()))
             })
-            .await;
+            .await
+            .map_err(|err| unknown_error(format!("host transaction unavailable: {err:#}")))
+            .and_then(|res| res);
         self.end_tx();
         res
     }

@@ -28,6 +28,8 @@ bindgen!({
         "docs:adder/lua-callback.handler": LuaCallbackHandler,
         "tarantool:tarantool/index.iterator": IndexIteratorImpl,
         "tarantool:tarantool/box-tuple.iterator": TupleIteratorImpl,
+        "docs:adder/experimental-read.read-context": read::ReadContextImpl,
+        "docs:adder/experimental-read.iterator": read::ReadIteratorImpl,
     }
 });
 
@@ -39,7 +41,7 @@ pub struct LuaCallbackHandler {
 /// Wrapper implementing the `iterator` interface for Tarantool's index
 /// iterators.
 pub struct IndexIteratorImpl {
-    inner: Option<::tarantool::index::IndexIterator>,
+    inner: Option<fallible_index_iterator::FallibleIndexIterator>,
 }
 
 /// Wrapper around a raw pointer implementing the `tuple-iterator` interface.
@@ -49,6 +51,7 @@ pub struct TupleIteratorImpl {
 }
 
 pub mod error;
+pub mod fallible_index_iterator;
 pub(crate) mod handles;
 pub mod helpers;
 pub mod index;
@@ -56,6 +59,7 @@ pub mod key_def;
 pub mod lua_callback;
 pub mod metrics;
 pub mod msgpack;
+pub mod read;
 pub mod say;
 pub mod sequence;
 pub mod session;

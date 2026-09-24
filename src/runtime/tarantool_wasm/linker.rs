@@ -4,7 +4,7 @@ use wasmtime::{
 use wasmtime_wasi_tls::p2::LinkOptions;
 
 use crate::bindings::{
-    docs::adder::{lua_callback, zlib},
+    docs::adder::{experimental_read, lua_callback, zlib},
     tarantool::tarantool::{
         box_tuple, database, error, index, key_def, log, metrics, msgpack, sequence, session,
         transaction, tuple_format, types,
@@ -90,6 +90,10 @@ pub(super) fn build_runtime_linker(engine: &Engine) -> Linker<SyncWasmStates> {
     let _ = metrics::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ =
         lua_callback::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    let _ =
+        experimental_read::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| {
+            state
+        });
     let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     linker
 }

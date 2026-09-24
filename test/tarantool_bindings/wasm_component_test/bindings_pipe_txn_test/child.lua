@@ -11,6 +11,7 @@ box.cfg{
     log = fio.pathjoin(os.getenv('WASM_TXN_WORKDIR'), 'tarantool.log'),
     -- Vinyl must work independently of the memtx transaction manager.
     memtx_use_mvcc_engine = engine == 'memtx' and scenario ~= 'non_mvcc',
+    vinyl_cache = scenario == 'iterator_error' and 0 or nil,
 }
 box.ctl.set_on_shutdown_timeout(10)
 -- Registered before the runtime so this check runs after its shutdown hook.
@@ -41,15 +42,35 @@ local function response(p, timeout)
     return data
 end
 
+local function guest_stderr(p)
+    local data = ''
+    for _ = 1, 12 do
+        local chunk, eof = p:read({stream = 'stderr', max_bytes = 4096,
+                                   timeout_ms = 100})
+        data = data .. (chunk or '')
+        if eof then break end
+    end
+    return data
+end
+
 local function start()
     local p = wasm.pipe.spawn(m, nil, {capacity = 4096})
-    assert(response(p, 60000) == 'ready\n')
+    local ok, result = pcall(response, p, 60000)
+    if not ok then
+        local err = guest_stderr(p)
+        error(tostring(result) .. ' guest stderr: ' .. tostring(err))
+    end
+    assert(result == 'ready\n')
     return p
 end
 
 local function command(p, input, expected)
     p:write(input .. '\n', {timeout_ms = 5000})
-    local result = response(p, 5000)
+    local ok, result = pcall(response, p, 5000)
+    if not ok then
+        local err = guest_stderr(p)
+        error(input .. ': ' .. tostring(result) .. ' guest stderr: ' .. tostring(err))
+    end
     if expected then
         assert(result == expected .. '\n', input .. ': ' .. result)
     end
@@ -74,7 +95,163 @@ local function wait_cleanup()
     assert(no_transaction_fibers(), 'transaction fiber leaked')
 end
 
-if scenario == 'space_lookup_conflict' then
+if scenario == 'iterator_error' then
+    space:insert{3}
+    box.snapshot()
+    local p = start()
+    command(p, 'INDEX_OPEN', 'index-open')
+    box.error.injection.set('ERRINJ_VY_READ_PAGE', true)
+    command(p, 'INDEX_NEXT', 'error:INDEX_NEXT:' .. box.error.INJECTION)
+    box.error.injection.set('ERRINJ_VY_READ_PAGE', false)
+    local after = command(p, 'INDEX_NEXT')
+    assert(after == 'found\n' or after == 'end\n', after)
+    command(p, 'INDEX_CLOSE', 'index-close')
+    command(p, 'READ_OPEN', 'error:READ_OPEN:snapshot-unavailable')
+    finish(p)
+    wait_cleanup()
+elseif scenario == 'snapshot_at_open' then
+    local before_views = #box.read_view.list()
+    if engine == 'vinyl' then
+        local p = start()
+        command(p, 'READ_OPEN', 'error:READ_OPEN:snapshot-unavailable')
+        finish(p)
+        wait_cleanup()
+        assert(#box.read_view.list() == before_views,
+               'failed open leaked a read view')
+    else
+        -- The guest receives both names over its pipe; the host must pin the
+        -- whole supported database at open, without an index-specific warmup.
+        local first_name = 'snapshot_a_' .. tostring(box.info.id)
+        local second_name = 'snapshot_b_' .. tostring(box.info.id)
+        local first = box.schema.space.create(first_name, {engine = engine})
+        local second = box.schema.space.create(second_name, {engine = engine})
+        first:create_index('primary')
+        second:create_index('primary')
+        first:insert{1}
+        first:insert{3}
+        second:insert{5}
+        second:insert{7}
+        local p = start()
+        command(p, 'READ_OPEN', 'read-open')
+        local other = start()
+        command(other, 'INSERT ' .. first_name .. ' 2', 'insert')
+        command(p, 'READ_GET ' .. first_name .. ' 2', 'missing')
+        command(other, 'INSERT ' .. second_name .. ' 6', 'insert')
+        command(p, 'READ_GET ' .. second_name .. ' 6', 'missing')
+        command(p, 'READ_GET ' .. first_name .. ' 2', 'missing')
+        command(p, 'READ_COUNT ' .. first_name, 'count=2')
+        command(p, 'READ_COUNT ' .. second_name, 'count=2')
+        command(p, 'READ_SELECT ' .. first_name, 'read-select')
+        command(p, 'READ_NEXT_KEY', 'key=1')
+        command(other, 'INSERT ' .. first_name .. ' 4', 'insert')
+        command(p, 'READ_NEXT_KEY', 'key=3')
+        command(p, 'READ_NEXT_KEY', 'end')
+        command(p, 'READ_SELECT ' .. second_name, 'read-select')
+        command(p, 'READ_NEXT_KEY', 'key=5')
+        command(p, 'READ_NEXT_KEY', 'key=7')
+        command(p, 'READ_NEXT_KEY', 'end')
+        command(p, 'READ_CLOSE', 'read-close')
+        finish(other)
+        finish(p)
+        wait_cleanup()
+        assert(#box.read_view.list() == before_views,
+               'closed context leaked a read view')
+        assert(first:get{2} and first:get{4} and second:get{6},
+               'other fibers did not commit the probe data')
+
+        p = start()
+        command(p, 'READ_OPEN', 'read-open')
+        command(p, 'READ_BAD_KEY ' .. first_name, 'error:READ_BAD_KEY')
+        command(p, 'READ_CLOSE', 'read-close')
+        finish(p)
+        wait_cleanup()
+        assert(#box.read_view.list() == before_views,
+               'failed read leaked a read view')
+
+        p = start()
+        command(p, 'READ_OPEN', 'read-open')
+        p:write('TRAP\n', {timeout_ms = 5000})
+        p:close_stdin()
+        local ok = pcall(function() p:join({timeout_ms = 10000}) end)
+        assert(not ok, 'guest trap unexpectedly succeeded')
+        wait_cleanup()
+        assert(#box.read_view.list() == before_views,
+               'dropped context leaked a read view')
+    end
+elseif scenario == 'read_context' and engine == 'vinyl' then
+    local p = start()
+    command(p, 'READ_OPEN', 'error:READ_OPEN:snapshot-unavailable')
+    finish(p)
+    wait_cleanup()
+elseif scenario == 'read_context' then
+    space:insert{3}
+    local p = start()
+    command(p, 'BEGIN', 'begin')
+    command(p, 'INSERT 10', 'insert')
+    command(p, 'TX_GET 10', 'found')
+    command(p, 'READ_OPEN', 'read-open')
+    command(p, 'READ_GET 10', 'missing')
+    command(p, 'READ_GET 1', 'missing')
+    command(p, 'READ_COUNT', 'count=1')
+    command(p, 'READ_SELECT', 'read-select')
+    command(p, 'READ_NEXT', 'found')
+    local other = start()
+    command(other, 'INSERT 1', 'insert')
+    finish(other)
+    command(p, 'READ_GET 1', 'missing')
+    command(p, 'READ_GET 10', 'missing')
+    command(p, 'READ_COUNT', 'count=1')
+    command(p, 'READ_NEXT', 'end')
+    command(p, 'READ_CLOSE', 'read-close')
+    assert(command(p, 'READ_NEXT'):match('^error:READ_NEXT:%d+\n$'))
+    command(p, 'READ_OPEN', 'read-open')
+    assert(command(p, 'READ_NEXT'):match('^error:READ_NEXT:%d+\n$'))
+    command(p, 'READ_GET 1', 'found')
+    command(p, 'READ_GET 10', 'missing')
+    command(p, 'READ_COUNT', 'count=2')
+    command(p, 'READ_CLOSE', 'read-close')
+    command(p, 'TX_GET 1', 'found')
+    command(p, 'INSERT 11', 'insert')
+    assert(space:get{10} == nil and space:get{11} == nil,
+           'writes became visible before commit')
+    command(p, 'COMMIT', 'commit')
+    assert(space:get{10} and space:get{11}, 'write commit was lost')
+    command(p, 'BEGIN', 'begin')
+    command(p, 'INSERT 12', 'insert')
+    command(p, 'ROLLBACK', 'rollback')
+    command(p, 'COMMIT', 'error:COMMIT')
+    assert(space:get{12} == nil, 'rollback appeared as commit')
+    command(p, 'BEGIN', 'begin')
+    command(p, 'INSERT 1', 'error:INSERT')
+    command(p, 'ROLLBACK', 'rollback')
+    assert(space:get{1} and space:get{12} == nil,
+           'conflict changed committed state')
+    command(p, 'BEGIN', 'begin')
+    command(p, 'TX_GET 1', 'found')
+    other = start()
+    command(other, 'REPLACE 1', 'replace')
+    finish(other)
+    command(p, 'READ_OPEN', 'read-open')
+    command(p, 'READ_GET 1', 'found')
+    command(p, 'READ_CLOSE', 'read-close')
+    command(p, 'INSERT 14', 'error:INSERT')
+    command(p, 'COMMIT', 'error:COMMIT')
+    assert(space:get{14} == nil, 'conflicted write was committed')
+    finish(p)
+    wait_cleanup()
+
+    p = start()
+    command(p, 'BEGIN', 'begin')
+    command(p, 'INSERT 13', 'insert')
+    command(p, 'READ_OPEN', 'read-open')
+    command(p, 'READ_GET 1', 'found')
+    assert(p:cancel())
+    local ok, err = pcall(function() p:join({timeout_ms = 10000}) end)
+    assert(not ok and tostring(err):match('canceled'), tostring(err))
+    assert(p:close({timeout_ms = 1000}))
+    wait_cleanup()
+    assert(space:get{13} == nil, 'cancellation committed a write')
+elseif scenario == 'space_lookup_conflict' then
     local p = start()
     command(p, 'BEGIN', 'begin')
     command(p, 'SPACE_LOOKUP', 'space-found')
