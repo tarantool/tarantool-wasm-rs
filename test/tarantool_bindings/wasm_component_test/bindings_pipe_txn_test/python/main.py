@@ -20,6 +20,9 @@ class Run(exports.Run):
                     print("begin", flush=True)
                 elif command == "ID":
                     print(f"id={transaction.id()}", flush=True)
+                elif command == "SPACE_LOOKUP":
+                    found = database.space_by_name("pipe_txn")
+                    print("space-found" if found is not None else "space-missing", flush=True)
                 elif command == "INSERT":
                     # MessagePack [positive fixint], avoiding a Python dependency.
                     key = int(parts[1])
@@ -55,6 +58,9 @@ class Run(exports.Run):
                     raise RuntimeError("intentional guest failure")
                 else:
                     raise ValueError(command)
-            except Err:
+            except Err as err:
                 # Keep running so tests can check the transaction after an error.
-                print(f"error:{command}", flush=True)
+                if command == "SPACE_LOOKUP":
+                    print(f"error:{command}:{err.value.code}", flush=True)
+                else:
+                    print(f"error:{command}", flush=True)
