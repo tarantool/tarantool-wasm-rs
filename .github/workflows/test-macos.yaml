@@ -1,0 +1,78 @@
+name: Test macOS
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: release (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Parallelize submodule fetching
+        run: git config --global submodule.fetchJobs 8
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          brew install tarantool tt coreutils
+          tarantool --version
+          tt version
+
+      - name: Set WIT registry config path
+        run: |
+          echo "WKG_CONFIG_FILE=$RUNNER_TEMP/wkg-config.toml" >> "$GITHUB_ENV"
+          echo 'default_registry = "wasi.dev"' > "$RUNNER_TEMP/wkg-config.toml"
+
+      - name: Setup WIT
+        uses: ./.github/actions/wit-setup
+        with:
+          # RUSTFLAGS would override the macOS linker flags in .cargo/config.toml.
+          rustflags: ""
+
+      - name: Build and install (release)
+        run: |
+          cargo build --release
+          mkdir -p .rocks/lib/tarantool
+          cp target/release/libtarantool_wasm_rs.dylib .rocks/lib/tarantool/wasm.dylib
+
+      - name: Add local rocks to PATH
+        run: echo "$PWD/.rocks/bin" >> "$GITHUB_PATH"
+
+      - name: Install luatest
+        run: tt rocks install luatest
+
+      - name: Run all test files
+        shell: bash
+        run: |
+          # Separate processes avoid the macOS unwind-registration hang when
+          # unloading all fixtures together. Timeouts still fail the job.
+          shopt -s nullglob
+          tests=(test/*/*_test.lua)
+          if (( ${#tests[@]} == 0 )); then
+            echo "No Lua test files found" >&2
+            exit 1
+          fi
+          result=0
+          for test_file in "${tests[@]}"; do
+            echo "::group::$test_file"
+            rm -f luatest.log
+            if ! gtimeout --kill-after=10s 300s luatest -v -l luatest.log "$test_file"; then
+              result=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$result"

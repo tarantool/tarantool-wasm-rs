@@ -3,10 +3,18 @@ description: |
   Installs `wkg`, adds Tarantool registry override, initializes wasi-tls submodule,
   and fetches WIT dependencies.
 
+inputs:
+  rustflags:
+    description: Rust flags for setup-rust-toolchain; empty preserves Cargo configuration.
+    required: false
+    default: "-D warnings"
+
 runs:
   using: "composite"
   steps:
     - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        rustflags: ${{ inputs.rustflags }}
 
     - name: Cache WIT tools
       uses: actions/cache@v4
@@ -21,7 +29,9 @@ runs:
     - name: Cache WIT packages
       uses: actions/cache@v4
       with:
-        path: ~/.cache/wasm-pkg
+        path: |
+          ~/.cache/wasm-pkg
+          ~/Library/Caches/wasm-pkg
         key: ${{ runner.os }}-wit-packages-${{ hashFiles('wkg.lock') }}
 
     - name: Install wkg
