@@ -52,8 +52,9 @@ state unless a session or interpreter is used.
 
 ### 1. Build the runtime
 
-Prerequisites are Rust 1.94 or newer, `cargo`, `just`, and a compatible
-Tarantool build. The release recipe currently targets Linux x86-64.
+Prerequisites are Rust 1.96 or newer, `cargo`, `just`, and a compatible
+Tarantool build. Debug and release recipes build for the native host on Linux
+and macOS.
 
 ```sh
 git clone https://github.com/tarantool/tarantool-wasm-rs.git
@@ -69,7 +70,8 @@ fetch `tarantool:tarantool` packages from GHCR, fetches WIT dependencies, and
 builds:
 
 ```text
-target/debug/libtarantool_wasm_rs.so
+target/debug/libtarantool_wasm_rs.so     # Linux
+target/debug/libtarantool_wasm_rs.dylib  # macOS
 ```
 
 Place the library where Tarantool can resolve `require('wasm')`. For a local
@@ -79,11 +81,13 @@ application this can be the current directory:
 cp target/debug/libtarantool_wasm_rs.so ./wasm.so
 ```
 
-For this repository's test suite, use its local rocks directory instead:
+Both `just build` and `just build-release` also install the resulting library
+into `.rocks/lib/tarantool/wasm.so` on Linux or `wasm.dylib` on macOS. To repeat
+the installation without rebuilding:
 
 ```sh
-mkdir -p .rocks/lib/tarantool
-cp target/debug/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
+just install-module debug
+# Or: just install-module release
 ```
 
 ### 2. Build a component
@@ -494,7 +498,7 @@ and current limitations.
 
 ## Supported platforms
 
-Release builds are tested on x86-64 with Rust 1.94.0 and Tarantool 3.7.0.
+Linux release builds are tested on x86-64 with Rust 1.96.0 and Tarantool 3.7.0.
 
 | Distribution | Version | CI coverage | Support status |
 | --- | --- | --- | --- |
@@ -521,8 +525,6 @@ Build and place the debug module in the test loader path:
 
 ```sh
 just
-mkdir -p .rocks/lib/tarantool
-cp target/debug/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
 ```
 
 Install `luatest` once and run the suite:
@@ -540,8 +542,10 @@ cargo clippy --all-targets --all-features
 ```
 
 
-The release build is produced with `just build-release` at
-`target/x86_64-unknown-linux-gnu/release/libtarantool_wasm_rs.so`.
+The native release build is produced with `just build-release` at
+`target/release/libtarantool_wasm_rs.so` on Linux or
+`target/release/libtarantool_wasm_rs.dylib` on macOS and installed into `.rocks`.
+Use `just test test/lualib/exports_args_test.lua` to run a single test file.
 
 ## Documentation
 
