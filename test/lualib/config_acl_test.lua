@@ -59,6 +59,7 @@ g.test_acl_allow_localhost_8000 = function()
 end
 
 g.test_acl_allow_127_1_2_3_8080 = function()
+    t.skip_if(jit.os == "OSX", "macOS requires an explicit loopback alias for 127.1.2.3")
     assert_client_allowed("127.1.2.3", 8080)
     assert_server_allowed("127.1.2.3", 8080)
 end
@@ -70,6 +71,7 @@ g.test_acl_deny_localhost_1234 = function()
 end
 
 g.test_acl_deny_127_1_2_4_8080 = function()
+    t.skip_if(jit.os == "OSX", "macOS requires an explicit loopback alias for 127.1.2.4")
     with_tcp_server("127.1.2.4", 8080, function()
         t.assert_not(wasm.call(m, "foo", "127.1.2.4", 8080))
     end)

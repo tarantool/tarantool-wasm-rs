@@ -9,6 +9,8 @@ use std::{
 
 use tokio::runtime::Runtime;
 
+use crate::runtime::signal_stack::install_signal_stack;
+
 use super::{registry::LoadedModule, *};
 
 const MIN_STATELESS_WORKERS: usize = 2;
@@ -22,9 +24,7 @@ impl Drop for TarantoolSignalStack {
         // Rust has already torn down its signal stack by the time thread-local
         // destructors run. Reinstall Tarantool's stack so CordOnDemand frees
         // the allocation it created, rather than Rust's former mmap.
-        unsafe {
-            let _ = libc::sigaltstack(&self.0, ptr::null_mut());
-        }
+        let _ = install_signal_stack(&self.0);
     }
 }
 
@@ -371,13 +371,6 @@ fn current_signal_stack() -> Result<libc::stack_t> {
             .context("failed to query signal stack on stateless WASM worker");
     }
     Ok(unsafe { stack.assume_init() })
-}
-
-fn install_signal_stack(stack: &libc::stack_t) -> Result<()> {
-    if unsafe { libc::sigaltstack(stack, ptr::null_mut()) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(())
 }
 
 fn reject_queued_command(command: StatelessCommand) {
