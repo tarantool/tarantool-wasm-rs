@@ -25,6 +25,7 @@ use wasmtime_wasi::I32Exit;
 use crate::runtime::{
     lifecycle::{self, RuntimeLifecycle},
     metrics,
+    signal_stack::install_signal_stack,
     tarantool_wasm::SyncWasmStates,
     tx::{tx_push, TxCtx},
 };
@@ -67,7 +68,7 @@ impl Drop for SigAltStackRestoreGuard {
         if let Some(previous) = self.previous {
             // Ignore failure intentionally: at this point we only try to keep
             // Tarantool's original alt stack for graceful shutdown.
-            let _ = unsafe { libc::sigaltstack(&previous, ptr::null_mut()) };
+            let _ = install_signal_stack(&previous);
         }
     }
 }

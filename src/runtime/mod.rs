@@ -7,6 +7,7 @@ pub mod convert;
 pub mod executor;
 pub(crate) mod lifecycle;
 pub(crate) mod metrics;
+pub(crate) mod signal_stack;
 pub mod tarantool_wasm;
 pub mod tx;
 pub(crate) mod tx_fiber;

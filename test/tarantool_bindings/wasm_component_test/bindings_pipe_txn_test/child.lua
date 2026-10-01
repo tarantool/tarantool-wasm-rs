@@ -62,7 +62,9 @@ local function finish(p)
 end
 
 local function no_transaction_fibers()
-    for _, info in pairs(fiber.info()) do
+    -- Only names are needed. Native backtrace symbol resolution can crash
+    -- during shutdown on macOS release builds.
+    for _, info in pairs(fiber.info({bt = false})) do
         if info.name == 'wasm-tx' then return false end
     end
     return true
