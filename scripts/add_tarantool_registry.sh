@@ -1,9 +1,23 @@
 #!/bin/bash
 
+set -euo pipefail
+
 CONFIG_FILE="${WKG_CONFIG_FILE:-$HOME/.config/wasm-pkg/config.toml}"
 TOML_KEY='"tarantool:tarantool" = { registry = "ghcr.io", metadata = { preferredProtocol = "oci", oci = { registry = "ghcr.io", namespacePrefix = "mandesero/" } } }'
 
 mkdir -p "$(dirname "$CONFIG_FILE")"
+
+# Initialize the fallback registry before checking the Tarantool override.
+# Existing default and namespace-specific registries take precedence.
+# Older wkg reports missing defaults on stdout; newer versions use stderr
+# and prefix the message with "warning:".
+registry_status=$(wkg config --config "$CONFIG_FILE" 2>&1) || {
+    printf '%s\n' "$registry_status" >&2
+    exit 1
+}
+if [[ ! -f "$CONFIG_FILE" || "$registry_status" == *'Default registry is not set'* ]]; then
+    wkg config --config "$CONFIG_FILE" --default-registry wasi.dev
+fi
 
 # Skip if already present
 if grep -q '"tarantool:tarantool"' "$CONFIG_FILE" 2>/dev/null; then
@@ -11,36 +25,27 @@ if grep -q '"tarantool:tarantool"' "$CONFIG_FILE" 2>/dev/null; then
     exit 0
 fi
 
-if grep -q '^\[package_registry_overrides\]' "$CONFIG_FILE" 2>/dev/null; then
-    echo "Appending inside existing [package_registry_overrides] section..."
-
-    line_num=$(grep -n '^\[package_registry_overrides\]' "$CONFIG_FILE" | cut -d: -f1)
-
-    next_section_line=$(awk "NR>$line_num && /^\[.*\]/ {print NR; exit}" "$CONFIG_FILE")
-
-    insert_line=$((line_num + 1))
-
-    if [ -z "$next_section_line" ]; then
-        # No next section - check if line after header is empty
-        sed -i "${insert_line}s/^/${TOML_KEY}\n/" "$CONFIG_FILE"
-    else
-        # Check if the line after header is blank
-        line_after_header=$(sed -n "${insert_line}p" "$CONFIG_FILE")
-        if [[ -z "$line_after_header" ]]; then
-            # Replace the blank line
-            sed -i "${insert_line}s|^|$TOML_KEY\n|" "$CONFIG_FILE"
-        else
-            # Insert directly after header
-            sed -i "${insert_line}i $TOML_KEY" "$CONFIG_FILE"
-        fi
-    fi
-else
-    echo "Creating new [package_registry_overrides] section..."
-
-    {
-        echo "[package_registry_overrides]"
-        echo "$TOML_KEY"
-    } >> "$CONFIG_FILE"
-fi
+# Use a temporary file rather than GNU-only sed -i.
+temp_config=$(mktemp "${CONFIG_FILE}.XXXXXX")
+trap 'rm -f "$temp_config"' EXIT
+cp -p "$CONFIG_FILE" "$temp_config"
+awk -v key="$TOML_KEY" '
+    /^[[:space:]]*\[package_registry_overrides\][[:space:]]*(#.*)?$/ {
+        print
+        print key
+        inserted = 1
+        next
+    }
+    { print }
+    END {
+        if (!inserted) {
+            print ""
+            print "[package_registry_overrides]"
+            print key
+        }
+    }
+' "$CONFIG_FILE" > "$temp_config"
+wkg config --config "$temp_config" > /dev/null
+mv "$temp_config" "$CONFIG_FILE"
 
 echo "Done."
