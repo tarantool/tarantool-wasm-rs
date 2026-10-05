@@ -5,6 +5,9 @@ import logging
 import os
 from copy import copy, deepcopy
 from twr_python_sdk import tarantool as box
+from decimal import Decimal
+from uuid import UUID
+from datetime import datetime, timedelta, timezone
 import _tarantool
 from msgpack import ExtType
 from wit_world import exports
@@ -178,13 +181,116 @@ def messagepack():
         1: None,
         "bin": b"\x00\xff",
         "values": [False, 2**63, -3, 1.5],
-        "ext": ExtType(2, b"opaque"),
+        "ext": ExtType(127, b"opaque"),
     }
     assert box.msgpack.unpack(box.msgpack.pack(value)) == value
     encoded = box.msgpack.from_json('{"a": [1, true]}')
     assert box.msgpack.unpack(encoded) == {"a": [1, True]}
     assert json.loads(box.msgpack.to_json(encoded)) == {"a": [1, True]}
     raises(box.TarantoolError, box.msgpack.from_json, "{")
+
+
+def extensions_read():
+    row = box.space["sdk_specials"].get(1)
+    assert row[1] == Decimal("-12.34")
+    assert row[2] == UUID("f6423bdf-b49e-4913-b361-0740c9702e4b")
+    assert row[3] == box.Datetime(-10801, 123456789, 180)
+    assert row[4] == box.Interval(years=1, months=200, days=-77)
+    assert isinstance(row[5], box.ErrorValue)
+    frame = row[5].stack[0]
+    assert frame.code == 1 and frame.message == "extension test"
+    assert frame.error_type == "IllegalParams" and frame.line > 0
+    assert frame.file.endswith("tarantool_test.lua")
+    with box.tuple(row) as value:
+        assert value.to_tuple() == row
+        assert value[1] == row[1] and value[3] == row[3]
+        with value.iter_fields() as fields:
+            assert list(fields) == list(row)
+
+
+def extensions_write():
+    for boundary in (
+        datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=14))),
+        datetime(9999, 12, 31, 23, 59, 59, 999999, timezone(timedelta(hours=-12))),
+    ):
+        with box.tuple((boundary,)) as value:
+            assert value[0].to_datetime() == boundary
+    date = datetime(2024, 1, 1, 12, 30, 1, 123456, timezone(timedelta(minutes=180)))
+    frame = box.ErrorFrame(
+        42, "Python error", "CustomError", "guest.py", 17, fields={"object_name": "sdk"}
+    )
+    value = (
+        2,
+        Decimal("12345.6700"),
+        UUID(int=1),
+        date,
+        box.Interval(months=2, days=-1, adjust=box.IntervalAdjust.SNAP),
+        box.ErrorValue((frame,)),
+    )
+    expected = (*value[:3], box.Datetime.from_datetime(date), *value[4:])
+    space = box.space["sdk_specials"]
+    row = space.replace(value)
+    assert row == expected
+    assert space.get(2) == expected
+    assert space.index["decimal"].get(value[1]) == expected
+    assert space.index["uuid"].get(value[2]) == expected
+    assert space.index["datetime"].get(date) == expected
+    assert space.update(2, [("+", 1, Decimal("0.33"))])[1] == Decimal("12346.0000")
+    assert space.index["uuid"].delete(value[2])[0] == 2
+    assert space.get(2) is None
+
+
+def extensions_keys():
+    row = box.space["sdk_specials"].get(1)
+    for field, kind in (
+        (1, box.FieldType.DECIMAL),
+        (2, box.FieldType.UUID),
+        (3, box.FieldType.DATETIME),
+    ):
+        with box.key_def([box.KeyPart(field, kind)]) as definition:
+            definition.validate_key(row[field], full=True)
+            with box.tuple(row) as value:
+                assert definition.extract_key(value) == (row[field],)
+                assert value.compare_with_key(row[field], definition) == 0
+    raw = box.msgpack.unpack(box.msgpack.pack(row), raw_extensions=True)
+    assert [value.code for value in raw[1:]] == [1, 2, 4, 6, 3]
+    assert box.msgpack.unpack(box.msgpack.pack(raw)) == list(row)
+
+
+def extensions_callbacks():
+    row = box.space["sdk_specials"].get(1)
+    with box.lua_callback("sdk_echo") as echo:
+        for value in row[1:]:
+            assert echo(value) == value
+        values = {
+            "decimal": row[1],
+            "uuid": row[2],
+            "datetime": row[3],
+            "interval": row[4],
+            "error": row[5],
+        }
+        assert echo(values) == values
+
+
+def extensions_intervals():
+    space = box.space["sdk_intervals"]
+    for i, adjust in enumerate(box.IntervalAdjust):
+        value = box.Interval(
+            years=-1,
+            months=2,
+            weeks=3,
+            days=-4,
+            hours=5,
+            minutes=-6,
+            seconds=7,
+            nanoseconds=-8,
+            adjust=adjust,
+        )
+        assert space.replace((i, value)) == (i, value)
+        assert space.get(i) == (i, value)
+    assert space.replace((9, box.Interval(adjust=box.IntervalAdjust.EXCESS)))[
+        1
+    ] == box.Interval(adjust=box.IntervalAdjust.EXCESS)
 
 
 def sessions():
@@ -284,6 +390,11 @@ CASES = {
         "diagnostics",
         "logging_api",
         "messagepack",
+        "extensions_read",
+        "extensions_write",
+        "extensions_keys",
+        "extensions_callbacks",
+        "extensions_intervals",
         "sessions",
         "callbacks",
         "raw_bindings",

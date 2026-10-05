@@ -1,6 +1,7 @@
 import twr_python_sdk
 twr_python_sdk.install()
 from twr_python_sdk import tarantool
+from twr_python_sdk.tarantool._extensions import encode as _encode_tarantool_value
 import _tarantool
 from _tarantool import lua_callback as wit_lua_callback
 
@@ -124,7 +125,7 @@ def _default_for_msgpack(obj):
         if obj.tzinfo is None:
             obj = obj.replace(tzinfo=datetime.timezone.utc)
         return msgpack.Timestamp.from_datetime(obj)
-    raise TypeError(f"Cannot serialize {type(obj)!r}")
+    return _encode_tarantool_value(obj)
 
 class WitWorld:
     def exec(self, code: str):
@@ -137,7 +138,7 @@ class WitWorld:
     # componentize-py maps WIT list<u8> to Python bytes.
     def call(self, func: str, args_msgpack: bytes) -> bytes:
         try:
-            args = msgpack.unpackb(args_msgpack, raw=False)
+            args = tarantool.msgpack.unpack(args_msgpack)
             if not isinstance(args, list):
                 raise ValueError("args payload must be list")
 

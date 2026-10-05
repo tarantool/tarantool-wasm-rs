@@ -30,6 +30,7 @@ from .types import (
     TransactionIsolation,
 )
 from . import _codec
+from .values import Datetime, Interval, IntervalAdjust, ErrorFrame, ErrorValue
 
 
 class Tarantool:
@@ -100,6 +101,11 @@ def schema_version():
 
 __all__ = [
     "Tarantool",
+    "Datetime",
+    "Interval",
+    "IntervalAdjust",
+    "ErrorFrame",
+    "ErrorValue",
     "Space",
     "Index",
     "Tuple",
