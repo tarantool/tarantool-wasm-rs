@@ -1,0 +1,7 @@
+{
+  "language": "python",
+  "world": "ssl-client",
+  "wit": {"path": "wit", "package": "example:https-smoke@0.1.0"},
+  "source": "main.py",
+  "output": "client.wasm"
+}

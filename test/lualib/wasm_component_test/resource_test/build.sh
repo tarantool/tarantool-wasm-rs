@@ -22,7 +22,7 @@ fi
 "$python" -m pip install \
     --disable-pip-version-check \
     --target "$build_dir/site-packages" \
-    -r "$repo_dir/python-interpreter/requirements-build.txt"
+    -r "$repo_dir/guests/python/interpreter/requirements-build.txt"
 
 PYTHONPATH="$build_dir/site-packages" \
     "$python" -c 'from componentize_py import script; raise SystemExit(script())' \

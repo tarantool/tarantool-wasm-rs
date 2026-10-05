@@ -1,3 +1,6 @@
+import twr_python_sdk
+twr_python_sdk.install()
+
 from wit_world.imports import (
     box_tuple as wit_box_tuple,
     environment as wit_environment,
@@ -46,10 +49,21 @@ from wit_world.imports import (
 )
 from wit_world import Err
 
+
+
+# Freeze stdlib HTTP clients and asyncio's TLS transport into the component.
+import http.client
+import http.cookiejar
+import http.cookies
+import urllib.request
+import asyncio.sslproto
+
+
 import json
 import base64
 import binascii
 import struct
+import array
 
 import re
 
@@ -70,8 +84,32 @@ import dataclasses
 
 import math
 import hashlib
-
+import hmac
+import logging
+import threading
+import queue
+import weakref
+import mimetypes
+import random
+import zlib
+import unicodedata
 import importlib
+import encodings
+import pkgutil
+# Requests/charset-normalizer select text codecs dynamically at runtime.
+# Freeze all portable text modules, including native multibyte codecs and
+# codecs without aliases such as utf_8_sig.
+for _codec in pkgutil.iter_modules(encodings.__path__):
+    if _codec.name not in {"mbcs", "oem", "undefined", "aliases"} and not _codec.name.endswith("_codec"):
+        importlib.import_module("encodings." + _codec.name)
+del _codec
+
+from twr_python_sdk import freeze_packages
+# Compile package sources into the snapshot; execute their imports at runtime.
+freeze_packages("urllib3", "requests", "certifi", "idna", "charset_normalizer")
+
+import importlib.metadata
+import importlib.resources._adapters
 import msgpack
 
 _globals = {

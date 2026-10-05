@@ -1,0 +1,5 @@
+package example:stdlib-smoke@0.1.0;
+
+world stdlib-smoke {
+  export round-trip: func(data: list<u8>) -> list<u8>;
+}
