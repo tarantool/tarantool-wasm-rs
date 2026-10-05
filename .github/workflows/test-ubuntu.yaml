@@ -33,6 +33,9 @@ jobs:
       - name: Setup WIT
         uses: ./.github/actions/wit-setup
 
+      - name: OpenSSL deps
+        run: sudo sh scripts/install_openssl_dependencies.sh
+
       - name: Update Rust toolchain
         run: |
           rustup update stable

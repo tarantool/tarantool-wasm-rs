@@ -20,11 +20,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: OpenSSL deps
+        run: sudo sh scripts/install_openssl_dependencies.sh
+
       - name: Setup WIT
         uses: ./.github/actions/wit-setup
 
-      - name: Install cargo clippy
-        run: rustup component add clippy
+      - name: Rust tools
+        run: rustup component add clippy rustfmt
 
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features
+      - name: Check
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --workspace --all-targets --all-features -- -D warnings

@@ -1,0 +1,142 @@
+name: Python SDK
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.11'
+      - name: Unit tests
+        run: |
+          python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
+      - name: Build guests
+        run: bash guests/python/build-artifacts.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-sdk
+          path: guests/python/dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-components
+          path: |
+            guests/python/interpreter/*.wasm
+            guests/python/tests/components/*/*.wasm
+          if-no-files-found: error
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: sdk
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      WKG_CONFIG_FILE: ${{ github.workspace }}/.python-ci-wkg.toml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        if: runner.os == 'Linux'
+        with:
+          python-version: '3.12.11'
+      # setup-python has no macOS archive for the pinned reference release.
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        if: runner.os == 'macOS'
+        with:
+          # Its Python manifest selects build 20250612 with OpenSSL 3.0,
+          # matching the unmodified CPython 3.12.11 SSL reference suite.
+          version: '0.7.13'
+          enable-cache: false
+      - name: Python reference
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/python-reference-managed
+        run: |
+          uv python install 3.12.11
+          uv venv --managed-python --python 3.12.11 --seed "$RUNNER_TEMP/python-reference"
+          echo "$RUNNER_TEMP/python-reference/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/python-reference/bin/python3" -c 'import sys; assert sys.version_info[:3] == (3, 12, 11), sys.version'
+      - name: macOS deps
+        if: runner.os == 'macOS'
+        run: brew install tarantool tt coreutils pkg-config openssl@3
+      - name: Linux deps
+        if: runner.os == 'Linux'
+        run: sudo sh scripts/install_openssl_dependencies.sh
+      - uses: tarantool/setup-tarantool@v3
+        if: runner.os == 'Linux'
+        with:
+          tarantool-version: '3.6'
+      - name: Linux tt
+        if: runner.os == 'Linux'
+        run: |
+          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
+          sudo apt-get install -y tt
+      - name: Setup WIT
+        uses: ./.github/actions/wit-setup
+        with:
+          rustflags: ''
+      - name: Build host
+        shell: bash
+        run: |
+          cargo build --locked --release
+          extension=so
+          if [[ "$RUNNER_OS" == macOS ]]; then extension=dylib; fi
+          mkdir -p .rocks/lib/tarantool
+          cp "target/release/libtarantool_wasm_rs.$extension" ".rocks/lib/tarantool/wasm.$extension"
+          tt rocks install luatest
+      - name: Rust tests
+        run: |
+          cargo test --locked --release -p twr-python-ssl-host --lib
+          cargo check --locked --release --no-default-features
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-components
+          path: guests/python/
+      - name: Python deps
+        run: python3 -m pip install -r guests/python/interpreter/requirements-build.txt
+      - name: Reference tests
+        run: |
+          python3 guests/python/tests/integration/ssl_bio_cases.py guests/python/tests/fixtures/ssl
+          python3 guests/python/tests/integration/ssl_socket_cases.py guests/python/tests/fixtures/ssl
+          python3 guests/python/tests/integration/ssl_asyncio_cases.py guests/python/tests/fixtures/ssl
+          python3 guests/python/tests/conformance/generate.py > "$RUNNER_TEMP/ssl-conformance-native.json"
+          python3 guests/python/tests/conformance/native.py > "$RUNNER_TEMP/ssl-conformance-native-full.json"
+      - name: Guest tests
+        run: |
+          TWR_SSL_CONFORMANCE_REPORT="$RUNNER_TEMP/ssl-conformance-guest.json" \
+            bash guests/python/test.sh
+      - name: Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssl-conformance-${{ matrix.os }}
+          path: ${{ runner.temp }}/ssl-conformance-*.json
+      - name: Interpreter tests
+        shell: bash
+        run: |
+          export PATH="$PWD/.rocks/bin:$PATH"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            gtimeout --kill-after=10s 300s luatest -v test/lualib/interpreter_api_test.lua
+          else
+            timeout --kill-after=10s 300s luatest -v test/lualib/interpreter_api_test.lua
+          fi
