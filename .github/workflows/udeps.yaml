@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install OpenSSL dependencies
+        run: sudo sh scripts/install_openssl_dependencies.sh
+
       - name: Setup WIT
         uses: ./.github/actions/wit-setup
 
@@ -26,9 +29,6 @@ jobs:
         run: |
           rustup update nightly
           rustup default nightly
-
-      - name: Install dependencies for cargo-udeps
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
 
       - name: Install cargo-udeps
         run: cargo install cargo-udeps --locked

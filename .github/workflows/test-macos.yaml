@@ -28,7 +28,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install tarantool tt coreutils
+          brew install tarantool tt coreutils pkg-config openssl@3
           tarantool --version
           tt version
 

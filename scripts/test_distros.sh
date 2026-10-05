@@ -94,6 +94,7 @@ ensure_wit_dependencies() {
         "$bootstrap_image" \
         -c 'set -eu
             cd /workspace
+            sh scripts/install_openssl_dependencies.sh
             if ! command -v wkg >/dev/null 2>&1; then
                 cargo install wkg --locked
             fi
@@ -120,7 +121,9 @@ build_for() {
         -v "$target_volume:/target" \
         -v "$SOURCE_DIR:/workspace:ro" \
         "$image" \
-        -c 'cd /workspace
+        -c 'set -eu
+            cd /workspace
+            sh scripts/install_openssl_dependencies.sh
             rustc --version
             cargo build --locked --release --target x86_64-unknown-linux-gnu'
 
@@ -169,6 +172,7 @@ test_for() {
         -v "$test_volume:/run-tests" \
         "$image" \
         -c 'set -eu
+            sh /workspace/scripts/install_openssl_dependencies.sh
             if ! command -v cmake >/dev/null 2>&1; then
                 if ! command -v dnf >/dev/null 2>&1; then
                     echo "cmake is required to install luatest" >&2
@@ -191,8 +195,9 @@ test_for() {
             cd /run-tests
             rm -rf -- /run-tests/test
             cp -a /workspace/test /run-tests/test
-            rm -rf -- /run-tests/python-interpreter
-            cp -a /workspace/python-interpreter /run-tests/python-interpreter
+            mkdir -p /run-tests/guests/python
+            rm -rf -- /run-tests/guests/python/interpreter
+            cp -a /workspace/guests/python/interpreter /run-tests/guests/python/interpreter
             tt rocks install luatest
             PATH="/run-tests/.rocks/bin:$PATH" \
                 luatest -v -l /run-tests/luatest.log'
