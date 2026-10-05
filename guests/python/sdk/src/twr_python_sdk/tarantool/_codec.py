@@ -1,15 +1,21 @@
-"""Use the portable MessagePack implementation, including opaque extensions."""
+"""Portable MessagePack with Tarantool value conversions and opaque unknowns."""
 
 from msgpack.fallback import Packer, unpackb
 from msgpack.ext import ExtType, Timestamp
+from ._extensions import encode, decode
 
 
 def pack(value):
-    return Packer(use_bin_type=True).pack(value)
+    return Packer(use_bin_type=True, default=encode).pack(value)
 
 
-def unpack(value):
-    return unpackb(bytes(value), raw=False, strict_map_key=False)
+def unpack(value, *, raw_extensions=False):
+    return unpackb(
+        bytes(value),
+        raw=False,
+        strict_map_key=False,
+        ext_hook=ExtType if raw_extensions else decode,
+    )
 
 
 def array(value):

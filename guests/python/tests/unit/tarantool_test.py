@@ -42,7 +42,7 @@ class ApiTests(unittest.TestCase):
     def test_extension_key_is_a_scalar(self):
         from msgpack import ExtType
 
-        extension = ExtType(2, b"opaque")
+        extension = ExtType(127, b"opaque")
         self.assertEqual(_codec.unpack(_codec.key(extension)), [extension])
 
     def test_error_preserves_host_metadata_and_cause(self):

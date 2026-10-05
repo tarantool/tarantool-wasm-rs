@@ -110,8 +110,59 @@ or pickled; convert tuples to Python values for that purpose.
   `logger.addHandler(box.log.handler())` connects Python logging.
 - `box.metrics.uptime()` returns the host uptime.
 - `box.msgpack.pack/unpack` preserve binary values, non-string map keys and
-  opaque `msgpack.ExtType` values. Tarantool-specific extensions remain opaque.
+  unknown `msgpack.ExtType` values and convert the Tarantool extensions below.
   `from_json/to_json` expose the host's JSON conversions and their limitations.
+
+## MessagePack values
+
+UUID fields use `uuid.UUID`; decimal fields use `decimal.Decimal`. Encoding a
+decimal preserves its digits, scale and sign without applying Python's decimal
+context. NaN and infinity are rejected. The host enforces its decimal precision
+and exponent limits; the SDK does not silently round an unsupported value.
+
+```python
+from decimal import Decimal
+from uuid import UUID
+
+value = (1, Decimal("12.3400"), UUID("f6423bdf-b49e-4913-b361-0740c9702e4b"))
+box.space["prices"].replace(value)
+```
+
+`box.Datetime(seconds, nanoseconds=0, tzoffset=0, tzindex=0)` stores UTC Unix
+seconds, nanoseconds, the UTC offset in minutes and Tarantool's numeric timezone
+ID. Reading it preserves all four fields. An aware Python `datetime.datetime`
+can also be written directly; it keeps the actual offset, with `tzindex=0`.
+Naive datetimes and offsets containing seconds are rejected.
+
+`Datetime.from_datetime(value)` performs that conversion explicitly.
+`value.to_datetime()` returns a Python datetime with a fixed UTC offset; it
+does not resolve the numeric timezone ID to a timezone name. It rejects lost
+nanoseconds unless `truncate=True` is passed. Leap seconds cannot be converted;
+dates outside Python's year range raise `OverflowError`. Standard MessagePack
+`msgpack.Timestamp` is a separate type and is not treated as Tarantool datetime.
+
+`box.Interval(years=0, months=0, weeks=0, days=0, hours=0, minutes=0,
+seconds=0, nanoseconds=0, adjust=box.IntervalAdjust.LIMIT)` preserves calendar
+parts independently. Adjustment modes are EXCESS, LIMIT and SNAP. The SDK
+restricts days/hours/minutes/seconds to ±2**53, the contiguous exact integer
+range of the corresponding host double fields; the other parts are signed
+32-bit integers. Intervals are not automatically converted to `timedelta`,
+which cannot represent calendar months and years.
+
+MP_ERROR values decode to `box.ErrorValue(stack, extra={})`, with a tuple of
+`box.ErrorFrame` entries. Each frame retains code, message, error_type, file,
+line, errno, additional `fields` and unknown numeric attributes in `extra`.
+These are data values; decoding them does not raise `TarantoolError`.
+WIT operation failures still raise `TarantoolError` as before.
+
+These conversions apply to database rows, keys, tuple fields and Lua callbacks.
+The packaged interpreter also converts these types in call arguments/results;
+its existing Python `datetime` results continue to use MessagePack Timestamp.
+`box.msgpack.unpack(data, raw_extensions=True)` returns Tarantool extensions
+as `msgpack.ExtType(code, data)` for manual inspection. Unknown extension codes
+remain `ExtType` in either mode. Malformed known payloads raise `ValueError`;
+raw mode allows inspection of their original bytes. `_tarantool` retains the
+original generated binding behavior.
 
 ## Lua callbacks
 

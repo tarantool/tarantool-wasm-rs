@@ -15,6 +15,21 @@ g.before_all(function(cg)
     cg.ids:create_index('primary')
     cg.sequence = box.schema.sequence.create('sdk_sequence')
     cg.ids:replace({1, cg.sequence.id})
+    cg.specials = box.schema.space.create('sdk_specials')
+    cg.specials:format({{'id', 'unsigned'}, {'decimal', 'decimal'}, {'uuid', 'uuid'},
+                       {'datetime', 'datetime'}, {'interval', 'interval'}, {'error', 'any'}})
+    cg.specials:create_index('primary')
+    cg.specials:create_index('decimal', {parts = {{2, 'decimal'}}})
+    cg.specials:create_index('uuid', {parts = {{3, 'uuid'}}})
+    cg.specials:create_index('datetime', {parts = {{4, 'datetime'}}})
+    cg.specials:replace({1, require('decimal').new('-12.34'),
+        require('uuid').fromstr('f6423bdf-b49e-4913-b361-0740c9702e4b'),
+        require('datetime').new{timestamp = -1, nsec = 123456789, tzoffset = 180},
+        require('datetime').interval.new{year = 1, month = 200, day = -77},
+        box.error.new{code = 1, reason = 'extension test'}})
+    cg.intervals = box.schema.space.create('sdk_intervals')
+    cg.intervals:format({{'id', 'unsigned'}, {'value', 'interval'}})
+    cg.intervals:create_index('primary')
     wasm.register_callback('sdk_echo', function(value) return value end)
     wasm.register_callback('sdk_failure', function() error('sdk callback failure') end)
     wasm.register_callback('sdk_binary', function(value) return require('varbinary').new(value) end)
@@ -40,10 +55,14 @@ g.after_all(function(cg)
     cg.users:drop()
     cg.ids:drop()
     cg.sequence:drop()
+    cg.specials:drop()
+    cg.intervals:drop()
 end)
 
 for _, name in ipairs({'crud', 'indexes', 'tuples', 'keys_formats', 'sequences',
-                      'diagnostics', 'logging_api', 'messagepack', 'callbacks', 'raw_bindings'}) do
+                      'diagnostics', 'logging_api', 'messagepack', 'callbacks', 'raw_bindings',
+                      'extensions_read', 'extensions_write', 'extensions_keys',
+                      'extensions_callbacks', 'extensions_intervals'}) do
     g['test_' .. name] = function(cg)
         t.assert_equals(wasm.call(cg.module, 'check', name), 'ok')
     end
@@ -103,6 +122,34 @@ def close_callback():
         t.assert(wasm.interpreter_call(interpreter, 'close_callback') == nil)
     end)
     wasm.unregister_callback('sdk_replace')
+    wasm.drop(interpreter)
+    t.assert(ok, tostring(err))
+end
+
+g.test_interpreter_extensions = function(cg)
+    local interpreter = wasm.load(fio.abspath('guests/python/interpreter/adder.wasm'), {interpreter = true})
+    local ok, err = pcall(function()
+        t.assert(wasm.interpreter_exec(interpreter, [[
+from twr_python_sdk import tarantool as box
+from decimal import Decimal
+from uuid import UUID
+def special_values(*values):
+    assert isinstance(values[0], Decimal)
+    assert isinstance(values[1], UUID)
+    assert isinstance(values[2], box.Datetime)
+    assert isinstance(values[3], box.Interval)
+    assert isinstance(values[4], box.ErrorValue)
+    assert tuple(values) == box.space['sdk_specials'].get(1)[1:]
+    return values
+]]))
+        local row = cg.specials:get(1)
+        local values = {row[2], row[3], row[4], row[5], row[6]}
+        local returned = wasm.interpreter_call(interpreter, 'special_values', unpack(values))
+        for i, value in ipairs(values) do
+            -- Error object identity and metadata are not Lua scalar equality.
+            t.assert_equals(msgpack.encode(returned[i]), msgpack.encode(value))
+        end
+    end)
     wasm.drop(interpreter)
     t.assert(ok, tostring(err))
 end
