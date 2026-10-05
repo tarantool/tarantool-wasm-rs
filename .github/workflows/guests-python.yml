@@ -23,6 +23,7 @@ jobs:
           python-version: '3.12.11'
       - name: Unit tests
         run: |
+          python3 -m pip install msgpack==1.0.3
           python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
       - name: Build guests
         run: bash guests/python/build-artifacts.sh

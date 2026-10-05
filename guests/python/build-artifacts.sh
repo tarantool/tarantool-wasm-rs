@@ -14,6 +14,7 @@ sh /workspace/guests/python/build-wheel.sh /workspace/guests/python/dist
 sh /workspace/guests/python/interpreter/build.sh
 mkdir -p /workspace/guests/python/dist/wit
 cp /workspace/guests/python/ports/ssl/wit/ssl-bio.wit /workspace/guests/python/dist/wit/
+cp /workspace/guests/python/sdk/src/twr_python_sdk/wit/lua-callback.wit /workspace/guests/python/dist/wit/
 cp /workspace/guests/python/sdk-manifest.json /workspace/guests/python/dist/
 python3 -m pip install --disable-pip-version-check --target /tmp/sdk-installed \
     /workspace/guests/python/dist/twr_python_sdk-0.1.0-py3-none-any.whl
@@ -30,6 +31,16 @@ if grep -q "docs:adder/ssl-bio" /tmp/stdlib.wit; then
     exit 1
 fi
 cp /tmp/stdlib.wasm /workspace/guests/python/tests/components/stdlib_smoke/
+mkdir /tmp/tarantool-app
+cp /workspace/guests/python/tests/components/tarantool/main.py /tmp/tarantool-app/main.py
+cp -R /workspace/guests/python/tests/components/tarantool/wit /tmp/tarantool-app/wit
+cp /tmp/sdk-installed/twr_python_sdk/wit/lua-callback.wit /tmp/tarantool-app/wit/
+cd /tmp/tarantool-app
+wkg wit fetch --wit-dir wit --type wasm
+componentize-py -q -d wit -w sdk-test componentize \
+    -p . -p /tmp/sdk-installed main -o /tmp/tarantool.wasm
+PYTHONPATH=/tmp/sdk-installed python3 /workspace/guests/python/scripts/finalize-component.py /tmp/tarantool.wasm
+cp /tmp/tarantool.wasm /workspace/guests/python/tests/components/tarantool/
 '
 bash "$task_sdk_root/tests/components/https_smoke/build.sh"
 bash "$task_sdk_root/tests/components/ssl_conformance/build.sh"

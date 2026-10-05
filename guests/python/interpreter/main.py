@@ -1,5 +1,8 @@
 import twr_python_sdk
 twr_python_sdk.install()
+from twr_python_sdk import tarantool
+import _tarantool
+from _tarantool import lua_callback as wit_lua_callback
 
 from wit_world.imports import (
     box_tuple as wit_box_tuple,
