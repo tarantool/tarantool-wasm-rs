@@ -9,6 +9,8 @@ mod exports;
 mod interpreter;
 mod linker;
 mod pipe;
+#[cfg(feature = "python-ssl-compat")]
+mod python_ssl;
 mod reentrancy;
 mod registry;
 pub(crate) mod resources;

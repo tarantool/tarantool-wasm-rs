@@ -1,0 +1,16 @@
+[package]
+name = "twr-python-ssl-host"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96.0"
+publish = false
+
+[dependencies]
+wasmtime = "49.0.0"
+libc = "0.2.189"
+openssl = "0.10.81"
+openssl-sys = "0.9.117"
+foreign-types = "0.3.2"
+
+[build-dependencies]
+cc = "=1.4.7"

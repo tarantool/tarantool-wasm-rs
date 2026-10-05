@@ -1,0 +1,146 @@
+{
+  "subject": [
+    [
+      [
+        "countryName",
+        "RU"
+      ]
+    ],
+    [
+      [
+        "organizationName",
+        "TLS сертификат"
+      ]
+    ],
+    [
+      [
+        "organizationalUnitName",
+        "first"
+      ],
+      [
+        "organizationalUnitName",
+        "second"
+      ]
+    ],
+    [
+      [
+        "commonName",
+        "localhost"
+      ]
+    ],
+    [
+      [
+        "1.2.3.4.5.6.7.8.9.10.11.12.13.14.15.16.17.18.19.20.21.22.23.24.25.26.27.28.29.30.31.32.33.34.35.36.37.38.39.40",
+        "long oid attribute"
+      ]
+    ]
+  ],
+  "issuer": [
+    [
+      [
+        "countryName",
+        "RU"
+      ]
+    ],
+    [
+      [
+        "organizationName",
+        "TLS сертификат"
+      ]
+    ],
+    [
+      [
+        "organizationalUnitName",
+        "first"
+      ],
+      [
+        "organizationalUnitName",
+        "second"
+      ]
+    ],
+    [
+      [
+        "commonName",
+        "localhost"
+      ]
+    ],
+    [
+      [
+        "1.2.3.4.5.6.7.8.9.10.11.12.13.14.15.16.17.18.19.20.21.22.23.24.25.26.27.28.29.30.31.32.33.34.35.36.37.38.39.40",
+        "long oid attribute"
+      ]
+    ]
+  ],
+  "version": 3,
+  "serialNumber": "80",
+  "notBefore": "Oct  3 00:08:54 2026 GMT",
+  "notAfter": "Sep 30 00:08:54 2036 GMT",
+  "subjectAltName": [
+    [
+      "DNS",
+      "localhost"
+    ],
+    [
+      "DNS",
+      "xn--e1afmkfd.xn--p1ai"
+    ],
+    [
+      "IP Address",
+      "127.0.0.1"
+    ],
+    [
+      "IP Address",
+      "2001:DB8:0:0:0:0:0:ABCD"
+    ],
+    [
+      "email",
+      "tls@example.test"
+    ],
+    [
+      "URI",
+      "https://example.test/certificate"
+    ],
+    [
+      "DirName",
+      [
+        [
+          [
+            "countryName",
+            "RU"
+          ]
+        ],
+        [
+          [
+            "organizationName",
+            "SAN directory"
+          ]
+        ],
+        [
+          [
+            "commonName",
+            "alternative directory name"
+          ]
+        ]
+      ]
+    ],
+    [
+      "Registered ID",
+      "1.2.3.4.9"
+    ],
+    [
+      "othername",
+      "<unsupported>"
+    ]
+  ],
+  "OCSP": [
+    "http://ocsp.example.test",
+    "http://second.example.test"
+  ],
+  "caIssuers": [
+    "http://ca.example.test/cert.pem"
+  ],
+  "crlDistributionPoints": [
+    "http://crl.example.test/one.crl",
+    "http://crl.example.test/two.crl"
+  ]
+}
