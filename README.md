@@ -33,6 +33,13 @@ flowchart LR
     Runtime -->|TX-owned host WIT calls| DB[Tarantool database]
 ```
 
+## Guest SDKs
+
+`guests/` contains language-specific SDKs, interpreters, compatibility ports,
+WIT contracts, and tests. The [Python SDK](guests/python/README.md) includes a
+compatibility package and SSL/OpenSSL port; its tests run in a
+[separate CI workflow](.github/workflows/guests-python.yml).
+
 ## Choose an execution model
 
 | API | Instance lifetime | Best suited for |
@@ -55,6 +62,9 @@ state unless a session or interpreter is used.
 Prerequisites are Rust 1.96 or newer, `cargo`, `just`, and a compatible
 Tarantool build. Debug and release recipes build for the native host on Linux
 and macOS.
+
+Default builds also require OpenSSL development libraries (`openssl@3` on
+macOS or `libssl-dev` on Debian/Ubuntu).
 
 ```sh
 git clone https://github.com/tarantool/tarantool-wasm-rs.git
@@ -345,7 +355,7 @@ Large interpreter components are expensive to instantiate. Load them with
 `interpreter = true` to keep one warmed instance per canonical path:
 
 ```lua
-local python = wasm.load('./python-interpreter/adder.wasm', {
+local python = wasm.load('./guests/python/interpreter/adder.wasm', {
     interpreter = true,
     memory_limit = 512 * 1024 * 1024,
     max_instructions = 5 * 1000 * 1000 * 1000,
@@ -395,7 +405,7 @@ Interpreter mode is not a security boundary. WASI inherits the Tarantool
 process environment, standard streams, and network access by default. Disable
 the corresponding `inherit_*` and `allow_*` options unless the executed code
 needs them. Instructions for rebuilding the checked-in Python component are in
-[`python-interpreter/README.md`](python-interpreter/README.md).
+[`guests/python/interpreter/README.md`](guests/python/interpreter/README.md).
 
 ## Background execution
 
