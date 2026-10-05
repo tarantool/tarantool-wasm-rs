@@ -1,6 +1,6 @@
 # TWR Python SDK
 
-`twr-python-sdk` is a wheel with Python compatibility
+`twr-python-sdk` is a wheel with a Python API for Tarantool, compatibility
 ports, WIT contracts and a versioned requirements manifest. Importing it does not
 replace modules; call `twr_python_sdk.install()` explicitly before importing
 libraries that use SSL. The wheel contains a library API and does not depend on a compiler.
@@ -8,6 +8,10 @@ libraries that use SSL. The wheel contains a library API and does not depend on 
 Supported componentize-py is 0.25.0 (embedded CPython 3.14.0), with wasm-tools
 1.245.1. SSL targets Python 3.12; reference tests use CPython 3.12.11.
 The wheel supports Python 3.10+; that does not select the embedded interpreter.
+
+[The Tarantool API](sdk/README.md) wraps all interfaces in
+`tarantool-wit@0.2.0` and the runtime's Lua callbacks. Raw bindings remain
+available through `import _tarantool`. This API does not require `install()`.
 
 ## Standard library support
 
@@ -28,8 +32,8 @@ sh guests/python/build-wheel.sh
 ```
 
 Run from the repository root. The pinned `mandeser0/tarawasm:v0.3.0` image builds
-the wheel, WIT and manifest in `dist/`, plus four stripped, validated components:
-interpreter, HTTPS, stdlib smoke and SSL conformance.
+the wheel, WIT and manifest in `dist/`, plus five stripped, validated components:
+interpreter, HTTPS, stdlib smoke, SSL conformance and Tarantool API checks.
 Packaging dependencies and wheel timestamps are pinned. The Rust host crate
 is compiled into the native module separately.
 
@@ -44,8 +48,8 @@ tarawasm() {
   docker run --rm -v "$PWD:/work" -w /work mandeser0/tarawasm:v0.3.0 "$@"
 }
 tarawasm pip install ./twr_python_sdk-0.1.0-py3-none-any.whl
-mkdir -p wit/deps/twr-ssl
-cp .tarawasm/site-packages/twr_python_sdk/wit/ssl-bio.wit wit/deps/twr-ssl/
+mkdir -p wit/deps/twr-runtime
+cp .tarawasm/site-packages/twr_python_sdk/wit/ssl-bio.wit wit/deps/twr-runtime/
 ```
 
 Add `import docs:adder/ssl-bio@0.1.3;` to the application's WIT world.
@@ -93,8 +97,8 @@ initialization shown above:
 ```sh
 python3 -m pip install ./twr_python_sdk-0.1.0-py3-none-any.whl
 sdk_site=$(python3 -c 'from pathlib import Path; import twr_python_sdk; print(Path(twr_python_sdk.__file__).resolve().parent.parent)')
-mkdir -p wit/deps/twr-ssl
-cp "$sdk_site/twr_python_sdk/wit/ssl-bio.wit" wit/deps/twr-ssl/
+mkdir -p wit/deps/twr-runtime
+cp "$sdk_site/twr_python_sdk/wit/ssl-bio.wit" wit/deps/twr-runtime/
 componentize-py -d wit -w app bindings bindings
 componentize-py -d wit -w app componentize \
   -p . -p bindings -p "$sdk_site" main -o app.wasm
@@ -131,6 +135,7 @@ tests pass in Wasm using that implementation.
 ## Checks
 
 ```sh
+python3 -m pip install msgpack==1.0.3
 python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
 cargo test --locked -p twr-python-ssl-host --lib
 bash guests/python/test.sh

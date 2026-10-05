@@ -10,6 +10,7 @@ interface zlib {
 world adder {
   import zlib;
   import ssl-bio;
+  import lua-callback;
   include tarantool:tarantool/guest@0.2.0;
 
   import wasi:cli/environment@0.2.3;

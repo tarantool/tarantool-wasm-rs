@@ -1,4 +1,4 @@
-"""Python standard-library compatibility ports for Tarantool-Wasm-Rs."""
+"""Python guest API and standard-library ports for Tarantool-Wasm-Rs."""
 from .runtime import install
 
 __version__ = "0.1.0"

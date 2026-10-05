@@ -12,6 +12,7 @@ PYTHON="$python" sh "$sdk_dir/build-wheel.sh" "$build_dir/wheels"
     "$build_dir"/wheels/*.whl -r "$script_dir/requirements-build.txt"
 cp -R "$script_dir/wit" "$build_dir/wit"
 cp "$build_dir/site-packages/twr_python_sdk/wit/ssl-bio.wit" "$build_dir/wit/"
+cp "$build_dir/site-packages/twr_python_sdk/wit/lua-callback.wit" "$build_dir/wit/"
 sed "s#../../../third-party/#$sdk_dir/../../third-party/#" \
     "$script_dir/wkg.toml" > "$build_dir/wkg.toml"
 (cd "$build_dir" && "${WKG:-wkg}" wit fetch --wit-dir wit --type wasm)

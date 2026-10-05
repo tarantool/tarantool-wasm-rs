@@ -5,11 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "twr-python-sdk"
 version = "0.1.0"
-description = "Python compatibility ports for Tarantool-Wasm-Rs"
+description = "Python guest API and compatibility ports for Tarantool-Wasm-Rs"
 requires-python = ">=3.10"
+dependencies = ["msgpack==1.0.3"]
 
 [tool.setuptools]
 package-dir = {"" = "sdk/src"}
+py-modules = ["_tarantool"]
 
 [tool.setuptools.packages.find]
 where = ["sdk/src"]
+
+[tool.setuptools.package-data]
+twr_python_sdk = ["wit/*.wit"]

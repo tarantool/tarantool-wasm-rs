@@ -1,0 +1,9 @@
+package docs:adder@0.1.3;
+
+world sdk-test {
+  include tarantool:tarantool/guest@0.2.0;
+  import lua-callback;
+  import wasi:cli/environment@0.2.3;
+  export check: func(name: string) -> string;
+  export wasi:cli/run@0.2.3;
+}
