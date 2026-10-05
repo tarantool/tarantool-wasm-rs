@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "sdk_version": "0.1.0",
+  "toolchain": {
+    "componentize_py": "0.25.0",
+    "guest_cpython": "3.14.0",
+    "ssl_api_baseline": "3.12",
+    "wasm_tools": "1.245.1"
+  },
+  "ports": {
+    "ssl": {
+      "provider": "sdk",
+      "wit": "docs:adder/ssl-bio@0.1.3",
+      "host_crate": "twr-python-ssl-host",
+      "host_version": "0.1.0",
+      "runtime_feature": "python-ssl-compat"
+    },
+    "asyncio_dns": {
+      "provider": "sdk",
+      "scope": "WASI getaddrinfo; blocking resolver"
+    },
+    "wasi_socket_errors": {
+      "provider": "sdk postprocessing API",
+      "scope": "pinned wasi-libc socket errno correction"
+    }
+  },
+  "native_extensions": "must be supplied as compatible Wasm extensions; native host wheels are not portable",
+  "upstream_ssl_verified": false
+}

@@ -21,4 +21,11 @@ test/**/componentize_py_async_support/
 test/**/componentize_py_runtime.pyi
 test/**/componentize_py_types.py
 test/**/poll_loop.py
-python-interpreter/wit/deps/
+guests/python/interpreter/wit/deps/
+
+# Python SDK build outputs and prepared WIT dependencies.
+guests/python/dist/
+guests/python/build/
+*.egg-info/
+guests/python/**/wit/deps/
+!guests/python/**/*.wasm
