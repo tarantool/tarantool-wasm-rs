@@ -51,7 +51,12 @@ install-module profile="debug":
         target_dir="$target_dir/$CARGO_BUILD_TARGET"
     fi
     mkdir -p .rocks/lib/tarantool
-    cp "$target_dir/$profile/libtarantool_wasm_rs.$extension" ".rocks/lib/tarantool/wasm.$extension"
+    # Replace the inode atomically: overwriting a mapped dylib can leave macOS
+    # with cached code-signing pages and kill the next loader with SIGKILL.
+    module_tmp=".rocks/lib/tarantool/.wasm-$profile.$$.$extension"
+    trap 'rm -f "$module_tmp"' 0
+    cp "$target_dir/$profile/libtarantool_wasm_rs.$extension" "$module_tmp"
+    mv -f "$module_tmp" ".rocks/lib/tarantool/wasm.$extension"
 
 install-luatest:
     if ! command -v luatest > /dev/null; then \
