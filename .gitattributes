@@ -1,0 +1,5 @@
+# Preserve byte-identical, checksum-pinned CPython inputs.
+guests/python/ports/ssl/host/src/ssl_error_data/*.h -whitespace
+guests/python/tests/conformance/upstream/** -whitespace
+# Delimiter whitespace is the input exercised by this regression fixture.
+guests/python/tests/fixtures/ssl/padded-store.pem -whitespace

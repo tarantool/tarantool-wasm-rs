@@ -1,0 +1,54 @@
+[
+  {
+    "id": 50336514,
+    "name": "TLS_AES_256_GCM_SHA384",
+    "protocol": "TLSv1.3",
+    "description": "TLS_AES_256_GCM_SHA384         TLSv1.3 Kx=any      Au=any   Enc=AESGCM(256)            Mac=AEAD",
+    "strength_bits": 256,
+    "alg_bits": 256,
+    "aead": true,
+    "symmetric": "aes-256-gcm",
+    "digest": null,
+    "kea": "kx-any",
+    "auth": "auth-any"
+  },
+  {
+    "id": 50336515,
+    "name": "TLS_CHACHA20_POLY1305_SHA256",
+    "protocol": "TLSv1.3",
+    "description": "TLS_CHACHA20_POLY1305_SHA256   TLSv1.3 Kx=any      Au=any   Enc=CHACHA20/POLY1305(256) Mac=AEAD",
+    "strength_bits": 256,
+    "alg_bits": 256,
+    "aead": true,
+    "symmetric": "chacha20-poly1305",
+    "digest": null,
+    "kea": "kx-any",
+    "auth": "auth-any"
+  },
+  {
+    "id": 50336513,
+    "name": "TLS_AES_128_GCM_SHA256",
+    "protocol": "TLSv1.3",
+    "description": "TLS_AES_128_GCM_SHA256         TLSv1.3 Kx=any      Au=any   Enc=AESGCM(128)            Mac=AEAD",
+    "strength_bits": 128,
+    "alg_bits": 128,
+    "aead": true,
+    "symmetric": "aes-128-gcm",
+    "digest": null,
+    "kea": "kx-any",
+    "auth": "auth-any"
+  },
+  {
+    "id": 50380847,
+    "name": "ECDHE-RSA-AES128-GCM-SHA256",
+    "protocol": "TLSv1.2",
+    "description": "ECDHE-RSA-AES128-GCM-SHA256    TLSv1.2 Kx=ECDH     Au=RSA   Enc=AESGCM(128)            Mac=AEAD",
+    "strength_bits": 128,
+    "alg_bits": 128,
+    "aead": true,
+    "symmetric": "aes-128-gcm",
+    "digest": null,
+    "kea": "kx-ecdhe",
+    "auth": "auth-rsa"
+  }
+]

@@ -1,0 +1,259 @@
+package docs:adder@0.1.3;
+
+/// Transport-independent TLS. Files and sockets remain guest capabilities.
+interface ssl-bio {
+  enum verify-mode { none, optional, required }
+  enum tls-version { tls12, tls13 }
+  enum error-kind { want-read, want-write, zero-return, eof, verification, invalid-input, failure }
+  record tls-error {
+    kind: error-kind,
+    message: string,
+    verify-code: option<s32>,
+  }
+  record error-details {
+    library: option<string>,
+    reason: option<string>,
+  }
+  // Decode the last code in the existing serialized openssl-rs error stack.
+  // Unknown codes and messages without a native error have no symbolic names.
+  describe-error: func(message: string) -> error-details;
+  verification-message: func(code: s32) -> string;
+  record config {
+    server: bool,
+    verify: verify-mode,
+    check-hostname: bool,
+    default-certs: bool,
+    ca-pem: option<list<u8>>,
+    cert-pem: option<list<u8>>,
+    key-pem: option<list<u8>>,
+    alpn: list<string>,
+    minimum: tls-version,
+    maximum: option<tls-version>,
+  }
+  record connection-info {
+    version: option<string>,
+    cipher: option<string>,
+    cipher-bits: u32,
+    alpn: option<string>,
+    peer-cert-der: option<list<u8>>,
+    pending: u32,
+    input-pending: u32,
+  }
+  record connection-settings {
+    verify: verify-mode, check-hostname: bool,
+    minimum: tls-version, maximum: option<tls-version>,
+  }
+  /// Native protocol numbers (SSL3=768, TLS1=769 ... TLS1.3=772); zero is auto.
+  record protocol-settings {
+    verify: verify-mode, check-hostname: bool, minimum: u16, maximum: u16,
+  }
+  variant certificate-name-value { text(string), binary(list<u8>) }
+  record certificate-attribute { name: string, value: certificate-name-value }
+  /// Ordered RDNs; attributes in one inner list belong to the same RDN.
+  type distinguished-name = list<list<certificate-attribute>>;
+  variant alternative-name-value { text(string), name(distinguished-name) }
+  record alternative-name { kind: string, value: alternative-name-value }
+  record certificate-details {
+    subject: distinguished-name,
+    issuer: distinguished-name,
+    version: u32,
+    serial-number: string,
+    not-before: string,
+    not-after: string,
+    subject-alt-name: option<list<alternative-name>>,
+    ocsp: option<list<string>>,
+    ca-issuers: option<list<string>>,
+    crl-distribution-points: option<list<string>>,
+  }
+  variant peer-certificate { unverified, verified(certificate-details) }
+  variant certificate-input { pem(list<u8>), der(list<u8>) }
+  /// An owned native X509 reference, independent of its TLS connection.
+  resource certificate {
+    get-info: func() -> result<certificate-details, tls-error>;
+    public-bytes: func(format: u32) -> result<list<u8>, tls-error>;
+    subject-hash: func() -> result<u32, tls-error>;
+    subject: func() -> result<string, tls-error>;
+    equal: func(other: borrow<certificate>) -> result<bool, tls-error>;
+  }
+  /// Decode only the first ordinary PEM certificate; never open host paths.
+  decode-certificate: func(data: list<u8>) -> result<certificate-details, tls-error>;
+  record credentials { cert-pem: list<u8>, key-pem: list<u8> }
+  variant prepared-credentials { ready(credentials), password-required }
+  record validated-credentials { credentials: credentials, key-type: u32 }
+  variant prepared-policy-credentials { ready(validated-credentials), password-required }
+  record credential-history { credentials: credentials, security-level: u32 }
+  record context-policy {
+    options: u64,
+    verify-flags: u64,
+    ciphers: option<string>,
+    hostname-common-name: bool,
+  }
+  record key-exchange { dh-pem: option<list<u8>>, curve: option<string> }
+  /// One parameter per update; other parameters are retained, not revalidated.
+  variant key-exchange-update { dh-pem(list<u8>), curve(string) }
+  /// Replay a successful prior DH load before restoring the current level.
+  record key-exchange-history { settings: key-exchange, dh-security-level: u32 }
+  record context-history { key-exchange: key-exchange-history, credentials: list<credential-history> }
+  /// Inherited state for private/new contexts; cipher expressions stay intact.
+  record policy-seed { security-level: u32, suiteb-flags: u32 }
+  record seeded-policy { policy: context-policy, seed: policy-seed }
+  record sni-request { server-name: option<string> }
+  record tls13-settings { post-handshake-auth: bool, num-tickets: u64 }
+  record cipher-details {
+    id: u64,
+    name: string,
+    protocol: string,
+    description: string,
+    strength-bits: u32,
+    alg-bits: u32,
+    aead: bool,
+    symmetric: option<string>,
+    digest: option<string>,
+    kea: option<string>,
+    auth: option<string>,
+  }
+  record policy-details { ciphers: list<cipher-details>, security-level: u32 }
+  record shared-cipher { name: string, protocol: string, strength-bits: u32 }
+  record session-info {
+    id: list<u8>, time: s64, timeout: s64, has-ticket: bool, ticket-lifetime-hint: u64,
+  }
+  record session-stats {
+    number: s64, connect: s64, connect-good: s64, connect-renegotiate: s64,
+    accept: s64, accept-good: s64, accept-renegotiate: s64,
+    hits: s64, misses: s64, timeouts: s64, cache-full: s64,
+  }
+  record backend-info { version: string, number: u64 }
+  backend: func() -> backend-info;
+  /// OpenSSL headers used to compile the native module, not the runtime library.
+  compiled-api-version: func() -> u64;
+  /// Python 3.12 default cipher policy used by this adapter's native contexts.
+  default-ciphers: func() -> string;
+  /// Compiled availability, independent of the active security level/policy.
+  protocol-capabilities: func() -> list<u16>;
+  /// Host OpenSSL CSPRNG. Each byte transfer is bounded to 1 MiB.
+  random-bytes: func(size: u32) -> result<list<u8>, tls-error>;
+  random-status: func() -> bool;
+  random-add: func(data: list<u8>, entropy: f64) -> result<_, tls-error>;
+  variant asn1-query { oid(string), name(string), nid(s32) }
+  record asn1-object-info { nid: s32, shortname: string, longname: string, oid: string }
+  lookup-asn1-object: func(query: asn1-query) -> result<asn1-object-info, tls-error>;
+  /// Compiled defaults only: no host environment or filesystem lookup.
+  record verify-path-defaults {
+    cafile-env: string, cafile: list<u8>, capath-env: string, capath: list<u8>,
+  }
+  default-verify-paths: func() -> result<verify-path-defaults, tls-error>;
+  enum store-query { stats, der, decoded }
+  variant store-certificate { der(list<u8>), decoded(certificate-details) }
+  record store-details { x509: u32, x509-ca: u32, crl: u32, certificates: list<store-certificate> }
+  /// Host-configured defaults only; guest paths never cross this interface.
+  record default-trust-sources { file: bool, directory: bool }
+  resource context {
+    /// Replace one native key type; existing SSL objects keep copied credentials.
+    update-credentials: func(value: credentials) -> result<_, tls-error>;
+    /// Consult current and original context policy at each server ClientHello.
+    update-sni: func(enabled: bool) -> result<_, tls-error>;
+    update-alpn: func(protocols: list<string>) -> result<_, tls-error>;
+    /// Length-prefixed binary protocol names; valid entries and 1 MiB total.
+    update-alpn-wire: func(protocols: list<u8>) -> result<_, tls-error>;
+    /// Raw X509 hostname flags, copied into future SSL objects.
+    update-host-flags: func(mask: u32) -> result<_, tls-error>;
+    update-key-exchange: func(settings: key-exchange-update) -> result<_, tls-error>;
+    /// Change defaults for future SSL objects, retaining session ticket keys.
+    update-tls13: func(settings: tls13-settings) -> result<_, tls-error>;
+    /// Retain context identity; SSL_new copies verification and version bounds.
+    update-settings: func(settings: connection-settings) -> result<_, tls-error>;
+    update-protocol-settings: func(settings: protocol-settings) -> result<_, tls-error>;
+    inspect-policy: func() -> result<policy-details, tls-error>;
+    /// Mutate context policy without replacing its trust store/session state.
+    update-policy: func(policy: context-policy) -> result<_, tls-error>;
+    /// Update the same native trust store; cached anchors and sessions survive.
+    update-trust: func(pem: option<list<u8>>, default-certs: bool, directories: list<trust-directory>) -> result<_, tls-error>;
+    /// Add selected defaults to the retained store; existing anchors survive.
+    load-default-trust: func(sources: default-trust-sources) -> result<_, tls-error>;
+    inspect-store: func(query: store-query) -> result<store-details, tls-error>;
+    wrap: func(server-name: option<string>) -> result<connection, tls-error>;
+    /// Select each SSL object's role without replacing the retained context.
+    wrap-with-role: func(server-side: bool, server-name: option<string>) -> result<connection, tls-error>;
+    /// CPython's private BIO constructor permits no name even when its context
+    /// has hostname checking enabled. Chain verification still follows mode.
+    wrap-private-bio: func(server-side: bool, server-name: option<string>) -> result<connection, tls-error>;
+    session-stats: func() -> result<session-stats, tls-error>;
+  }
+  /// Opaque OpenSSL session. Secrets remain host-owned; info exposes metadata.
+  resource session {
+    info: func() -> result<session-info, tls-error>;
+  }
+  /// Native protocol events only; application plaintext is never reported.
+  record tls-message { write: bool, version: s32, content-type: s32, data: list<u8> }
+  resource connection {
+    /// Append encrypted input; bounded to 1 MiB until TLS consumes it.
+    feed: func(data: list<u8>) -> result<_, tls-error>;
+    feed-eof: func() -> result<_, tls-error>;
+    /// Remove encrypted output, at most 1 MiB per call.
+    drain: func(size: u32) -> result<list<u8>, tls-error>;
+    handshake: func() -> result<_, tls-error>;
+    read: func(size: u32) -> result<list<u8>, tls-error>;
+    write: func(data: list<u8>) -> result<u32, tls-error>;
+    shutdown: func() -> result<_, tls-error>;
+    info: func() -> result<connection-info, tls-error>;
+    /// Preserve the negotiated bytes; a protocol name has at most 255 bytes.
+    selected-alpn-bytes: func() -> result<option<list<u8>>, tls-error>;
+    cipher-info: func() -> result<option<cipher-details>, tls-error>;
+    /// Negotiated TLS compression name, or none if inactive/unavailable.
+    compression: func() -> result<option<string>, tls-error>;
+    /// Python's tls-unique binding: the first Finished message of the session.
+    channel-binding: func() -> result<option<list<u8>>, tls-error>;
+    /// Server preference order; none before offers arrive or on client peers.
+    shared-ciphers: func() -> result<option<list<shared-cipher>>, tls-error>;
+    get-session: func() -> result<option<session>, tls-error>;
+    set-session: func(value: borrow<session>) -> result<_, tls-error>;
+    session-reused: func() -> result<bool, tls-error>;
+    /// Available only when a server handshake waits for a guest SNI callback.
+    pending-sni: func() -> result<option<sni-request>, tls-error>;
+    resolve-sni: func(alert: option<u8>) -> result<_, tls-error>;
+    set-context: func(value: borrow<context>) -> result<_, tls-error>;
+    /// Queue a TLS 1.3 client certificate request; subsequent I/O sends it.
+    verify-client-post-handshake: func() -> result<_, tls-error>;
+    /// Opt in to bounded NSS-format TLS secret capture; no host file is opened.
+    keylog-enabled: func(enabled: bool) -> result<_, tls-error>;
+    take-keylog: func() -> result<list<u8>, tls-error>;
+    /// Disabled by default. Bounded by 1 MiB and 4096 events between drains.
+    messages-enabled: func(enabled: bool) -> result<_, tls-error>;
+    take-messages: func() -> result<list<tls-message>, tls-error>;
+    /// Requires a completed handshake; none means the peer sent no certificate.
+    /// Current parent-context CERT_NONE produces Python's empty dictionary;
+    /// decoded output alone does not prove the SSL performed verification.
+    peer-certificate: func() -> result<option<peer-certificate>, tls-error>;
+    /// Native verified or peer-supplied chain; 256 certificates/1 MiB DER total.
+    /// No verification is performed by this metadata accessor.
+    certificate-chain: func(verified: bool) -> result<option<list<certificate>>, tls-error>;
+  }
+  create-context: func(options: config) -> result<context, tls-error>;
+  create-context-with-policy: func(options: config, policy: context-policy) -> result<context, tls-error>;
+  create-context-with-key-exchange: func(options: config, policy: context-policy, settings: key-exchange) -> result<context, tls-error>;
+  create-context-with-sni: func(options: config, policy: context-policy, settings: key-exchange, enabled: bool) -> result<context, tls-error>;
+  create-context-with-tls13: func(options: config, policy: context-policy, settings: key-exchange, enabled: bool, tls13: tls13-settings) -> result<context, tls-error>;
+  /// Guest snapshots of hashed directories. Names are basenames, never paths.
+  record trust-file { name: string, data: list<u8> }
+  record trust-directory { files: list<trust-file> }
+  create-context-with-directories: func(options: config, policy: context-policy, settings: key-exchange, enabled: bool, tls13: tls13-settings, directories: list<trust-directory>) -> result<context, tls-error>;
+  create-context-with-seeded-policy: func(options: config, policy: seeded-policy, settings: key-exchange, enabled: bool, tls13: tls13-settings, directories: list<trust-directory>) -> result<context, tls-error>;
+  create-context-with-key-exchange-history: func(options: config, policy: seeded-policy, history: key-exchange-history, enabled: bool, tls13: tls13-settings, directories: list<trust-directory>) -> result<context, tls-error>;
+  create-context-with-history: func(options: config, policy: seeded-policy, history: context-history, enabled: bool, tls13: tls13-settings, directories: list<trust-directory>) -> result<context, tls-error>;
+  prepare-key-exchange-seeded: func(settings: key-exchange, policy: seeded-policy) -> result<key-exchange, tls-error>;
+  inspect-seeded-policy: func(policy: seeded-policy) -> result<policy-details, tls-error>;
+  /// Validate guest parameter bytes and the current cipher security level.
+  prepare-key-exchange: func(settings: key-exchange, policy: context-policy) -> result<key-exchange, tls-error>;
+  inspect-policy: func(policy: context-policy) -> result<policy-details, tls-error>;
+  /// Validate guest-supplied bytes, returning normalized PEM. No host paths.
+  prepare-ca: func(data: certificate-input) -> result<list<u8>, tls-error>;
+  /// File-style PEM trust bundles may contain certificates, AUX trust and CRLs.
+  prepare-store-pem: func(data: list<u8>) -> result<list<u8>, tls-error>;
+  inspect-store: func(data: option<list<u8>>, default-certs: bool, query: store-query) -> result<store-details, tls-error>;
+  inspect-store-with-default-sources: func(data: option<list<u8>>, sources: default-trust-sources, query: store-query) -> result<store-details, tls-error>;
+  /// A password callback runs in the guest only after password-required.
+  /// Returned key PEM is unencrypted; callers must treat it as secret data.
+  prepare-credentials: func(cert: list<u8>, key: list<u8>, password: option<list<u8>>) -> result<prepared-credentials, tls-error>;
+  /// Validate certificate security before requesting a guest password callback.
+  prepare-policy-credentials: func(cert: list<u8>, key: list<u8>, password: option<list<u8>>, policy: seeded-policy) -> result<prepared-policy-credentials, tls-error>;
+}

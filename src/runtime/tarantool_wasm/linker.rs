@@ -91,5 +91,8 @@ pub(super) fn build_runtime_linker(engine: &Engine) -> Linker<SyncWasmStates> {
     let _ =
         lua_callback::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
     let _ = zlib::add_to_linker::<SyncWasmStates, SyncWasmStates>(&mut linker, |state| state);
+    #[cfg(feature = "python-ssl-compat")]
+    twr_python_ssl_host::add_to_linker(&mut linker)
+        .expect("SSL BIO linker registration must succeed");
     linker
 }
