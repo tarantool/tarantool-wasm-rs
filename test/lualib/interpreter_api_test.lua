@@ -10,7 +10,9 @@ local g = t.group('interpreter_api')
 local wasm_path = fio.pathjoin(
     utils.get_test_dir(),
     '..',
-    'python-interpreter',
+    'guests',
+    'python',
+    'interpreter',
     'adder.wasm'
 )
 

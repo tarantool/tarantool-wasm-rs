@@ -33,6 +33,15 @@ build: && (install-module "debug")
 build-release: && (install-module "release")
     cargo build --release
 
+# Language SDK artifacts and their separately maintained compatibility suite.
+python-sdk:
+    bash guests/python/build-artifacts.sh
+
+test-python:
+    python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
+    cargo test -p twr-python-ssl-host --lib
+    bash guests/python/test.sh
+
 # Install the native library built for the selected Cargo profile.
 install-module profile="debug":
     #!/usr/bin/env sh
