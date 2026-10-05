@@ -1,0 +1,2 @@
+include sdk-manifest.json
+recursive-include ports *.py *.wit
