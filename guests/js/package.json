@@ -1,0 +1,57 @@
+{
+  "name": "twr-js-sdk",
+  "version": "0.1.0",
+  "description": "JavaScript guest API for Tarantool-Wasm-Rs",
+  "type": "module",
+  "license": "BSD-2-Clause",
+  "files": [
+    "src",
+    "wit/*.wit",
+    "wit/runtime",
+    "sdk-manifest.json",
+    "wkg.lock",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./_tarantool": {
+      "types": "./src/_tarantool.d.ts",
+      "default": "./src/_tarantool.js"
+    },
+    "./lua-callback": {
+      "types": "./src/lua-callback.d.ts",
+      "default": "./src/lua-callback.js"
+    },
+    "./testing": {
+      "types": "./src/testing.d.ts",
+      "default": "./src/testing.js"
+    },
+    "./codec": {
+      "types": "./src/codec.d.ts",
+      "default": "./src/codec.js"
+    },
+    "./sdk-manifest.json": "./sdk-manifest.json",
+    "./wit/*": "./wit/*",
+    "./_zlib": {
+      "types": "./src/_zlib.d.ts",
+      "default": "./src/_zlib.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/unit/*.test.js",
+    "test:types": "tsc -p tests/types/tsconfig.json",
+    "test:coverage": "node tests/check-coverage.js",
+    "test:style": "node tests/style.js",
+    "format": "node tests/style.js --fix"
+  },
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "5.10.0",
+    "clang-format": "1.8.0",
+    "eslint": "10.12.0",
+    "eslint-config-google": "0.14.0",
+    "typescript": "5.9.3"
+  }
+}
