@@ -1,0 +1,7 @@
+package twr:js-builtins-probe@0.1.0;
+world probe {
+  export features: func() -> string;
+  export compress: func(format: string, data: list<u8>) -> list<u8>;
+  export decompress: func(format: string, data: list<u8>) -> list<u8>;
+  export fetch-url: func(url: string) -> string;
+}
