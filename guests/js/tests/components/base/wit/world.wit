@@ -1,0 +1,9 @@
+package twr:js-tests@0.1.0;
+
+world sdk-test {
+  include tarantool:tarantool/guest@0.2.0;
+  export check: func(name: string) -> string;
+  export schema: func() -> u32;
+  export roundtrip: func(data: list<u8>) -> list<u8>;
+  export wasi:cli/run@0.2.12;
+}
