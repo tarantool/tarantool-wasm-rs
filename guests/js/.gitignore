@@ -1,0 +1,14 @@
+node_modules/
+dist/
+wit/deps/
+tests/components/**/wit/deps/
+tests/components/**/internal/
+tests/components/**/.tarawasm/
+tests/components/**/node_modules/
+tests/components/**/*.wasm
+tests/components/**/wit_world/
+tests/components/**/componentize_py_types.py
+tests/components/**/poll_loop.py
+tests/components/**/componentize_py_runtime.pyi
+tests/components/**/componentize_py_async_support/
+tests/components/**/__pycache__/

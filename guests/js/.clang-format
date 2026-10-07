@@ -1,0 +1,7 @@
+BasedOnStyle: Google
+Language: JavaScript
+ColumnLimit: 80
+InsertBraces: true
+InsertTrailingCommas: Wrapped
+BinPackArguments: false
+JavaScriptWrapImports: false

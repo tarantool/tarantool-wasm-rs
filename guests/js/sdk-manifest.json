@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "sdk_version": "0.1.0",
+  "api": {
+    "tarantool_wit": "tarantool:tarantool@0.2.0",
+    "lua_callback": "docs:adder/lua-callback@0.1.3",
+    "zlib": "docs:adder/zlib@0.1.3",
+    "wasi": "0.2.12"
+  },
+  "toolchain": {
+    "tarawasm_image": "mandeser0/tarawasm:latest",
+    "unit_node": "25.9.0",
+    "typescript": "5.9.3",
+    "wasm_verified": true,
+    "componentize_js": "0.23.0",
+    "jco": "1.37.0",
+    "wasm_tools": "1.261.0",
+    "jco_std": "0.7.0",
+    "preview2_shim": "0.17.8",
+    "component_node": "24.21.0",
+    "wkg": "0.16.1",
+    "componentize_py": "0.25.1",
+    "verified_on": "2026-10-08",
+    "host_tarantool": "3.7.0-0-g78b01ac",
+    "rolldown": "1.2.13"
+  },
+  "stages": {
+    "implemented": [
+      "database",
+      "lua-callback"
+    ],
+    "deferred": [
+      "standard-library-ports",
+      "tls",
+      "interpreter"
+    ],
+    "raw_only": [
+      "zlib"
+    ]
+  },
+  "raw_interfaces": {
+    "zlib": "twr-js-sdk/_zlib"
+  }
+}

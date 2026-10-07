@@ -1,0 +1,12 @@
+export * as boxTuple from 'tarantool:tarantool/box-tuple@0.2.0';
+export * as database from 'tarantool:tarantool/database@0.2.0';
+export * as error from 'tarantool:tarantool/error@0.2.0';
+export * as index from 'tarantool:tarantool/index@0.2.0';
+export * as keyDef from 'tarantool:tarantool/key-def@0.2.0';
+export * as log from 'tarantool:tarantool/log@0.2.0';
+export * as metrics from 'tarantool:tarantool/metrics@0.2.0';
+export * as msgpack from 'tarantool:tarantool/msgpack@0.2.0';
+export * as sequence from 'tarantool:tarantool/sequence@0.2.0';
+export * as session from 'tarantool:tarantool/session@0.2.0';
+export * as transaction from 'tarantool:tarantool/transaction@0.2.0';
+export * as tupleFormat from 'tarantool:tarantool/tuple-format@0.2.0';

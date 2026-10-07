@@ -1,0 +1,6 @@
+package twr:js-sdk@0.1.0;
+
+/// Application worlds may include this world; it has no exports.
+world guest {
+  include tarantool:tarantool/guest@0.2.0;
+}
