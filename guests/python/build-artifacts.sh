@@ -37,7 +37,8 @@ cp -R /workspace/guests/python/tests/components/tarantool/wit /tmp/tarantool-app
 cp /tmp/sdk-installed/twr_python_sdk/wit/lua-callback.wit /tmp/tarantool-app/wit/
 cd /tmp/tarantool-app
 wkg wit fetch --wit-dir wit --type wasm
-componentize-py -q -d wit -w sdk-test componentize \
+python3 /workspace/guests/python/scripts/prepare-wit.py wit /tmp/tarantool-wit sdk-test
+componentize-py -q -d /tmp/tarantool-wit -w sdk-test componentize \
     -p . -p /tmp/sdk-installed main -o /tmp/tarantool.wasm
 PYTHONPATH=/tmp/sdk-installed python3 /workspace/guests/python/scripts/finalize-component.py /tmp/tarantool.wasm
 cp /tmp/tarantool.wasm /workspace/guests/python/tests/components/tarantool/
