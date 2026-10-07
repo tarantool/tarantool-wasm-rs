@@ -408,7 +408,10 @@ fn lua_msgpack_module(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
     require.call("msgpack")
 }
 
-fn lua_value_to_rmpv_via_msgpack(lua: &mlua::Lua, val: &mlua::Value) -> mlua::Result<rmpv::Value> {
+pub(crate) fn lua_value_to_rmpv_via_msgpack(
+    lua: &mlua::Lua,
+    val: &mlua::Value,
+) -> mlua::Result<rmpv::Value> {
     let msgpack = lua_msgpack_module(lua)?;
     let encode: mlua::Function = msgpack.get("encode")?;
     let encoded: mlua::LuaString = encode.call(val.clone())?;
@@ -416,7 +419,10 @@ fn lua_value_to_rmpv_via_msgpack(lua: &mlua::Lua, val: &mlua::Value) -> mlua::Re
     msgpack_bytes_to_rmpv(bytes.as_ref()).map_err(mlua::Error::external)
 }
 
-fn rmpv_to_lua_via_msgpack(lua: &mlua::Lua, val: &rmpv::Value) -> mlua::Result<mlua::Value> {
+pub(crate) fn rmpv_to_lua_via_msgpack(
+    lua: &mlua::Lua,
+    val: &rmpv::Value,
+) -> mlua::Result<mlua::Value> {
     let mut normalized = val.clone();
     normalize_msgpack_ext_for_tarantool(&mut normalized).map_err(mlua::Error::external)?;
     let encoded = rmpv_to_msgpack_bytes(&normalized).map_err(mlua::Error::external)?;

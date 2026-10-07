@@ -312,6 +312,10 @@ def callbacks():
             "text": "hello",
         }
         assert callback(None) is None
+        assert callback([1, None, 3]) == [1, None, 3]
+        assert callback({}) == {}
+        assert callback([]) == []
+        assert callback({1: None}) == {1: None}
     raises(box.ClosedResourceError, callback, 1)
     with box.lua_callback("sdk_failure") as callback:
         failure = raises(box.LuaCallbackError, callback, 1)
@@ -322,7 +326,7 @@ def callbacks():
     with box.lua_callback("sdk_binary") as callback:
         assert callback(b"\x00\xff") == b"\x00\xff"
     with box.lua_callback("sdk_plain_binary") as callback:
-        raises(box.LuaCallbackError, callback, b"\x00\xff")
+        assert callback(b"\x00\xff") == b"\x00\xff"
     with box.lua_callback("sdk_nulls") as callback:
         assert callback() == [1, None, 3]
 

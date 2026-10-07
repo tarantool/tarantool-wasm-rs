@@ -187,10 +187,10 @@ with box.lua_callback("echo") as echo:
 One call passes one MessagePack value and returns one value. Callback failures
 raise `LuaCallbackError`. The host resolves the registered name on every call,
 so replacement/unregistration affects an already-open callback.
-The runtime converts requests into Lua values: `bytes` become Lua strings and
-`None` becomes `nil`, which removes table entries. For binary responses use
-Tarantool `varbinary`; for null entries use `box.NULL`. Plain Lua response strings
-must be valid UTF-8, and an untyped empty Lua table becomes a Python list.
+MessagePack requests preserve arrays/maps, `bytes` as Lua `varbinary`, and
+`None` as `box.NULL`, including inside tables. Use `varbinary` for binary
+responses; Lua strings are text. A top-level Lua nil encodes as null. Lua-created
+tables use Tarantool's serialization metadata to distinguish arrays/maps.
 
 ## Raw bindings and custom worlds
 

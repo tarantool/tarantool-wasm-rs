@@ -11,7 +11,10 @@ use std::{
 use crate::bindings::docs::adder::lua_callback;
 use crate::bindings::helpers::debug_assert_tx_thread;
 use crate::bindings::LuaCallbackHandler;
-use crate::runtime::convert::{from_rmpv, msgpack_bytes_to_rmpv, rmpv_to_msgpack_bytes, to_rmpv};
+use crate::runtime::convert::{
+    lua_value_to_rmpv_via_msgpack, msgpack_bytes_to_rmpv, rmpv_to_lua_via_msgpack,
+    rmpv_to_msgpack_bytes,
+};
 use crate::runtime::lifecycle::{self, RuntimeLifecycle};
 use crate::runtime::metrics;
 use crate::runtime::tarantool_wasm::install_call_chain;
@@ -113,7 +116,8 @@ fn invoke_callback_inner(
     let request = msgpack_bytes_to_rmpv(&payload)
         .inspect_err(|_| metrics::observe_conversion_error("callback_request"))
         .map_err(|err| format!("invalid MessagePack callback payload: {err:#}"))?;
-    let lua_request = from_rmpv(lua, &request)
+    // Tarantool msgpack preserves nil elements, binary values and array/map metadata.
+    let lua_request = rmpv_to_lua_via_msgpack(lua, &request)
         .inspect_err(|_| metrics::observe_conversion_error("callback_request"))
         .map_err(|err| format!("failed to convert callback payload to Lua: {err}"))?;
 
@@ -162,7 +166,7 @@ fn invoke_callback_inner(
             .map_err(|err| format!("Lua callback `{name}` failed: {err}"))?;
     }
 
-    let response = to_rmpv(lua, &lua_response)
+    let response = lua_value_to_rmpv_via_msgpack(lua, &lua_response)
         .inspect_err(|_| metrics::observe_conversion_error("callback_response"))
         .map_err(|err| format!("failed to convert Lua callback response: {err}"))?;
     rmpv_to_msgpack_bytes(&response)
