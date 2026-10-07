@@ -1,0 +1,2 @@
+package twr:js-node-zlib-probe@0.1.0;
+world probe { export check: func() -> string; }

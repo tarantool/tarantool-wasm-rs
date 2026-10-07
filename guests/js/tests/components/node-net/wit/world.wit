@@ -1,0 +1,2 @@
+package twr:js-node-net-probe@0.1.0;
+world probe { export exchange: func(port: u16) -> string; }
