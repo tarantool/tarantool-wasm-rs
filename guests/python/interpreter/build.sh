@@ -16,8 +16,9 @@ cp "$build_dir/site-packages/twr_python_sdk/wit/lua-callback.wit" "$build_dir/wi
 sed "s#../../../third-party/#$sdk_dir/../../third-party/#" \
     "$script_dir/wkg.toml" > "$build_dir/wkg.toml"
 (cd "$build_dir" && "${WKG:-wkg}" wit fetch --wit-dir wit --type wasm)
+"$python" "$sdk_dir/scripts/prepare-wit.py" "$build_dir/wit" "$build_dir/resolved-wit" adder
 "$python" -c 'from componentize_py import script; raise SystemExit(script())' \
-    -q -d "$build_dir/wit" -w adder --features tls componentize \
+    -q -d "$build_dir/resolved-wit" -w adder --features tls componentize \
     -p "$script_dir" -p "$build_dir/site-packages" main -o "$output"
 PYTHONPATH="$build_dir/site-packages" "$python" \
     "$sdk_dir/scripts/finalize-component.py" "$output"
