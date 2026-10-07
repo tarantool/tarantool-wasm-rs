@@ -166,11 +166,14 @@ mv users.strip.wasm users.wasm
 wasm-tools validate users.wasm
 ```
 
-Verified component builds used Node.js 24.21.0, Jco 1.37.0, ComponentizeJS 0.23.0,
+Verified Docker/direct builds used Node.js 24.21.0; local tarawasm builds and
+unit/declaration checks used Node.js 25.9.0. Both build profiles used Jco 1.37.0,
+ComponentizeJS 0.23.0,
 preview2-shim 0.17.8, Jco standard adapters 0.7.0, Rolldown 1.2.13, `wkg` 0.16.1 and
-`wasm-tools` 1.261.0. Unit and declaration checks used Node.js 25.9.0 and
-TypeScript 5.9.3. `sdk-manifest.json` records compatibility versions; tarawasm is
-selected by its `latest` tag. WIT dependency locks are kept separately.
+`wasm-tools` 1.261.0. Declaration checks used TypeScript 5.9.3.
+`sdk-manifest.json` records compatibility versions. Docker examples use
+tarawasm's `latest` tag; CI uses the latest Git `master` with local tools.
+WIT dependency locks are kept separately.
 
 ## Lua callbacks and raw bindings
 
@@ -291,7 +294,14 @@ signatures are maintained in TypeScript declarations. `tests/check-coverage.js`
 checks every released WIT function against its SDK method after fetching WIT.
 
 `tests/build-components.sh` builds, strips and validates guests importing the
-installed archive. `tests/test-runtime.sh` runs them in Tarantool-Wasm-Rs,
+installed archive with local tools. CI checks out the latest tarawasm `master`
+and prepares only its JS toolchain and the Python compiler for the exchange
+test. For local build checks, set `PYTHONPATH` to that checkout, prepare
+`toolchain setup js` and `toolchain setup python` in local mode, and expose the
+managed tool paths in `PATH`. `TWR_JS_PYTHON` can select the Python interpreter
+that has tarawasm's CLI dependencies installed.
+
+`tests/test-runtime.sh` runs the components in Tarantool-Wasm-Rs,
 including the MessagePack exchange with a Python guest. The separate capability
 audit uses `tests/build-capability-probes.sh` and
 `tests/integration/capabilities_test.lua`. Optional external HTTPS checks use

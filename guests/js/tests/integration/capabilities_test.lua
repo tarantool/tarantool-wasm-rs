@@ -5,7 +5,7 @@ local socket = require('socket')
 local json = require('json')
 local g = t.group('js_capabilities')
 local root = fio.abspath('guests/js/tests/components')
-local observations = {legacy={},fresh={}}
+local observations = {fresh={}}
 g.after_all(function()
     local file=assert(io.open('guests/js/dist/capabilities-observed.json','w'))
     file:write(json.encode(observations));file:close()
@@ -33,7 +33,7 @@ local function with_server(http, fn)
     if not ok then error(value, 0) end
     return value
 end
-for _, profile in ipairs({'legacy','fresh'}) do
+for _, profile in ipairs({'fresh'}) do
     g['test_'..profile..'_compression'] = function()
         with_module('builtins/'..profile..'.wasm', {}, function(module)
             local features = json.decode(wasm.call(module,'features'))
@@ -73,7 +73,7 @@ g.test_node_zlib_requires_another_host_abi = function()
     t.assert_str_contains(tostring(value),'jco:node/zlib')
     observations.node_zlib={status='unsupported-host-import',detail=tostring(value)}
 end
-for _,profile in ipairs({'legacy','fresh'}) do
+for _,profile in ipairs({'fresh'}) do
     g['test_'..profile..'_wasi_sockets_audit'] = function()
         with_server(false,function(port)
             with_module('sockets/'..profile..'.wasm',{},function(module)

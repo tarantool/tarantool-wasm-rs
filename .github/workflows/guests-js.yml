@@ -1,0 +1,128 @@
+name: JavaScript SDK
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/.js-ci-tarawasm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25.9.0'
+          cache: npm
+          cache-dependency-path: guests/js/package-lock.json
+      - name: Checkout tarawasm latest
+        uses: actions/checkout@v4
+        with:
+          repository: mandesero/tarawasm
+          ref: master
+          path: .js-ci-tarawasm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare local toolchain environment
+        run: |
+          printf '%s\n' \
+            "TARAWASM_CONFIG_HOME=$RUNNER_TEMP/js-tarawasm-config" \
+            "TARAWASM_DATA_HOME=$RUNNER_TEMP/js-tarawasm-tools" \
+            "WKG_CONFIG_FILE=$RUNNER_TEMP/js-wkg.toml" >> "$GITHUB_ENV"
+      - name: Prepare local JS toolchain and Python exchange compiler
+        run: |
+          python3 -m pip install -r .js-ci-tarawasm/requirements.txt
+          python3 -m tarawasm.cli toolchain setup js --mode local --install --yes --upgrade
+          python3 -m tarawasm.cli toolchain setup python --mode local --install --yes --upgrade
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import sys
+          from tarawasm.toolchains.discovery import managed_environment
+          print(f"TWR_JS_PYTHON={sys.executable}")
+          print(f"PATH={managed_environment()['PATH']}")
+          PY
+      - name: Check local toolchains and WIT registry
+        run: |
+          "$TWR_JS_PYTHON" -m tarawasm.cli doctor --lang js --json
+          "$TWR_JS_PYTHON" -m tarawasm.cli doctor --lang python --json
+          bash scripts/add_tarantool_registry.sh
+      - name: Unit tests and declarations
+        working-directory: guests/js
+        run: |
+          npm ci --ignore-scripts
+          npm run test:style
+          npm test
+          npm run test:types
+          bash tests/pack.sh
+      - name: Build, strip and validate installed-package components
+        run: bash guests/js/tests/build-components.sh
+      - name: Check current standard capabilities
+        run: bash guests/js/tests/build-capability-probes.sh
+      - name: Released WIT coverage
+        run: |
+          cd guests/js
+          wkg fetch --type wit
+          npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: js-sdk
+          path: |
+            guests/js/dist/
+            guests/js/tests/components/*/*.wasm
+          if-no-files-found: error
+  runtime:
+    needs: sdk
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      WKG_CONFIG_FILE: ${{ github.workspace }}/.js-ci-wkg.toml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Dependencies
+        run: sudo sh scripts/install_openssl_dependencies.sh
+      - uses: tarantool/setup-tarantool@v3
+        with:
+          tarantool-version: '3.6'
+      - name: tt
+        run: |
+          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
+          sudo apt-get install -y tt
+      - uses: ./.github/actions/wit-setup
+        with:
+          rustflags: ''
+      - name: Build host
+        run: |
+          cargo build --locked --release
+          mkdir -p .rocks/lib/tarantool
+          cp target/release/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
+          tt rocks install luatest
+      - uses: actions/download-artifact@v4
+        with:
+          name: js-sdk
+          path: guests/js/
+      - name: JS SDK in Wasm (including Python exchange)
+        run: bash guests/js/tests/test-runtime.sh
+      - name: JS standard capability audit
+        run: |
+          export PATH="$PWD/.rocks/bin:$PATH"
+          timeout --kill-after=10s 300s luatest -v -l luatest.log guests/js/tests/integration/capabilities_test.lua
+      - name: Full Lua regression suite
+        run: |
+          export PATH="$PWD/.rocks/bin:$PATH"
+          timeout --kill-after=10s 1800s luatest -v -l luatest.log test/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: js-sdk-runtime-observations
+          path: |
+            guests/js/dist/capabilities-observed.json
+            luatest.log
+          if-no-files-found: warn

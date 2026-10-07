@@ -18,6 +18,7 @@
     "jco_std": "0.7.0",
     "preview2_shim": "0.17.8",
     "component_node": "24.21.0",
+    "local_component_node": "25.9.0",
     "wkg": "0.16.1",
     "componentize_py": "0.25.1",
     "verified_on": "2026-10-08",

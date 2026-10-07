@@ -1,6 +1,7 @@
 import {execFileSync} from 'node:child_process';
 import {existsSync, readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 const jcoRoot = dirname(dirname(
     realpathSync(execFileSync('which', ['jco'], {encoding: 'utf8'}).trim())));
@@ -28,10 +29,9 @@ const observed = {
           .version,
   rolldown: read(dependency('rolldown', jcoRoot)).version,
   jco_std: read(dependency('@bytecodealliance/jco-std', jcoRoot)).version,
-  wasm_tools: execFileSync('wasm-tools', ['--version'], {encoding: 'utf8'})
-                  .trim()
-                  .split(' ')
-                  .at(-1),
+  wasm_tools: execFileSync('wasm-tools', ['--version'], {
+                encoding: 'utf8',
+              }).match(/\b\d+\.\d+\.\d+\b/)[0],
   wkg: execFileSync('wkg', ['--version'], {encoding: 'utf8'})
            .trim()
            .split(' ')
@@ -43,5 +43,5 @@ const observed = {
           .at(-1),
 };
 writeFileSync(
-    '/workspace/guests/js/dist/toolchain-observed.json',
+    fileURLToPath(new URL('../dist/toolchain-observed.json', import.meta.url)),
     JSON.stringify(observed, null, 2));
