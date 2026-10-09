@@ -8,7 +8,9 @@ permissions:
   contents: read
 jobs:
   sdk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
     timeout-minutes: 45
     env:
       PYTHONPATH: ${{ github.workspace }}/.js-ci-tarawasm
@@ -42,13 +44,22 @@ jobs:
           python3 -m tarawasm.cli toolchain setup js --mode local --install --yes --upgrade
           python3 -m tarawasm.cli toolchain setup python --mode local --install --yes --upgrade
           python3 - <<'PY' >> "$GITHUB_ENV"
+          import os
           import sys
           from tarawasm.toolchains.discovery import managed_environment
           print(f"TWR_JS_PYTHON={sys.executable}")
-          print(f"PATH={managed_environment()['PATH']}")
+          # Container jobs rebuild PATH; register tools through GITHUB_PATH.
+          # The runner prepends entries in reverse order.
+          with open(os.environ['GITHUB_PATH'], 'a') as path_file:
+              for path in reversed(managed_environment()['PATH'].split(os.pathsep)):
+                  if path:
+                      print(path, file=path_file)
           PY
       - name: Check local toolchains and WIT registry
         run: |
+          for tool in wkg wasm-tools node jco componentize-py; do
+            command -v "$tool" || exit 1
+          done
           "$TWR_JS_PYTHON" -m tarawasm.cli doctor --lang js --json
           "$TWR_JS_PYTHON" -m tarawasm.cli doctor --lang python --json
           bash scripts/add_tarantool_registry.sh
@@ -78,7 +89,9 @@ jobs:
           if-no-files-found: error
   runtime:
     needs: sdk
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
     timeout-minutes: 90
     env:
       WKG_CONFIG_FILE: ${{ github.workspace }}/.js-ci-wkg.toml
