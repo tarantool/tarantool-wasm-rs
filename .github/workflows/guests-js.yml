@@ -3,11 +3,16 @@ on:
   push:
     branches: [master]
   pull_request:
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   sdk:
+    if: >-
+      ${{ github.event_name != 'pull_request' ||
+          contains(github.event.pull_request.labels.*.name, 'full-ci') ||
+          contains(github.event.pull_request.labels.*.name, 'sdk-ci') }}
     runs-on: ubuntu-20.04-self-hosted
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy

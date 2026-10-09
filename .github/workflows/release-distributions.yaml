@@ -5,11 +5,15 @@ on:
     branches:
       - master
   pull_request:
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
 
 jobs:
   linux-release:
     name: test release (${{ matrix.distribution }})
+    if: >-
+      ${{ github.event_name != 'pull_request' ||
+          contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     runs-on: ubuntu-20.04-self-hosted
     timeout-minutes: 90
 
