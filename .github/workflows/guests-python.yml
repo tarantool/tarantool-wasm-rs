@@ -62,6 +62,9 @@ jobs:
     runs-on: ubuntu-20.04-self-hosted
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy
+      # WASI keylogs append via pwritev2(RWF_APPEND) on Linux. Keep temporary
+      # files off the runner's container filesystem, which can overwrite logs.
+      options: --tmpfs /tmp:rw,exec,mode=1777
     timeout-minutes: 90
     env:
       WKG_CONFIG_FILE: ${{ github.workspace }}/.python-ci-wkg.toml
@@ -72,6 +75,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12.11'
+      - name: Check temporary file append
+        run: |
+          python3 - <<'PY'
+          import errno
+          import os
+          import platform
+          import tempfile
+
+          print(f'Kernel: {platform.release()}; temp dir: {tempfile.gettempdir()}')
+          with tempfile.TemporaryFile() as file:
+              file.write(b'first-long-record\n')
+              file.flush()
+              try:
+                  os.pwritev(file.fileno(), [b'next\n'], 0, os.RWF_APPEND)
+              except OSError as error:
+                  if error.errno not in (errno.ENOSYS, errno.EOPNOTSUPP):
+                      raise
+                  print('RWF_APPEND unavailable; WASI uses the O_APPEND fallback')
+              else:
+                  file.seek(0)
+                  assert file.read() == b'first-long-record\nnext\n', \
+                      'Temporary filesystem overwrites files instead of appending'
+          PY
       - name: Linux deps
         run: sudo sh scripts/install_openssl_dependencies.sh
       - uses: tarantool/setup-tarantool@v3
