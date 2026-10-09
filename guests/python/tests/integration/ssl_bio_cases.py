@@ -3558,8 +3558,10 @@ def _keylog_lines(path):
     with open(path, 'rb') as file:
         content = file.read()
     lines = [line.split() for line in content.splitlines() if line and not line.startswith(b'#')]
-    assert all(len(parts) == 3 and len(parts[1]) == 64 and len(parts[2]) in (64, 96)
-               for parts in lines)
+    for number, parts in enumerate(lines, 1):
+        lengths = tuple(len(part) for part in parts)
+        assert len(parts) == 3 and len(parts[1]) == 64 and len(parts[2]) in (64, 96), \
+            f'{path}: keylog record {number} has invalid field lengths {lengths}'
     for _, random, secret in lines:
         bytes.fromhex(random.decode('ascii'))
         bytes.fromhex(secret.decode('ascii'))
@@ -3595,17 +3597,27 @@ def keylog_exchange(cert_dir, temp_dir, tls12=False, switch=False):
         handshake(pair)
         client.write(b'keylog exchange')
         transfer(pair[3], pair[4])
-        assert server.read(100) == b'keylog exchange'
+        assert server.read(100) == b'keylog exchange', 'keylog application data exchange failed'
         client_lines, server_lines = _keylog_lines(client_path), _keylog_lines(server_path)
-        assert client_lines == server_lines and client_lines
+        mode = f'{client.version()} (switch={switch})'
+        assert client_lines, f'{mode}: client keylog is empty'
+        assert server_lines, f'{mode}: server keylog is empty'
+        # Report labels only; keylog records contain TLS secrets.
+        assert client_lines == server_lines, (
+            f'{mode}: client/server keylogs differ; '
+            f'client labels={sorted(line[0] for line in client_lines)!r}, '
+            f'server labels={sorted(line[0] for line in server_lines)!r}, '
+            f'unmatched labels={sorted(line[0] for line in client_lines ^ server_lines)!r}')
         labels = {line[0] for line in client_lines}
         if tls12:
-            assert labels == {b'CLIENT_RANDOM'}
+            assert labels == {b'CLIENT_RANDOM'}, f'{mode}: unexpected keylog labels {sorted(labels)!r}'
         else:
             assert {b'CLIENT_HANDSHAKE_TRAFFIC_SECRET', b'SERVER_HANDSHAKE_TRAFFIC_SECRET',
-                    b'CLIENT_TRAFFIC_SECRET_0', b'SERVER_TRAFFIC_SECRET_0'} <= labels
+                    b'CLIENT_TRAFFIC_SECRET_0', b'SERVER_TRAFFIC_SECRET_0'} <= labels, \
+                f'{mode}: incomplete keylog labels {sorted(labels)!r}'
         if switch:
-            assert not _keylog_lines(temp_dir + '/original.log')
+            assert not _keylog_lines(temp_dir + '/original.log'), \
+                f'{mode}: original context received keylog records after SNI switch'
     finally:
         client.context.keylog_filename = server.context.keylog_filename = None
         original.keylog_filename = None
