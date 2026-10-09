@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+    types: [opened, reopened, synchronize, labeled]
   workflow_dispatch:
 
 permissions:
@@ -12,6 +13,10 @@ permissions:
 jobs:
   sdk:
     name: Build
+    if: >-
+      ${{ github.event_name != 'pull_request' ||
+          contains(github.event.pull_request.labels.*.name, 'full-ci') ||
+          contains(github.event.pull_request.labels.*.name, 'sdk-ci') }}
     # build-artifacts.sh runs Docker with bind mounts from the runner checkout.
     runs-on: ubuntu-20.04-self-hosted
     timeout-minutes: 45
