@@ -1,0 +1,13 @@
+dist/
+.tarawasm/
+**/.tarawasm/
+**/wit/deps/
+**/sdk.wasm
+**/direct.wasm
+**/latest.wasm
+**/internal/
+**/node_modules/
+**/componentize_py_async_support/
+**/componentize_py_runtime.pyi
+**/componentize_py_types.py
+**/poll_loop.py

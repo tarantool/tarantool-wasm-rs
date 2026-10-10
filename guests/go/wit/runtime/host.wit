@@ -1,0 +1,20 @@
+package docs:adder@0.1.3;
+
+interface zlib {
+  compress: func(data: list<u8>, level: u32) -> list<u8>;
+  decompress: func(data: list<u8>) -> list<u8>;
+  crc32: func(data: list<u8>) -> u32;
+  adler32: func(data: list<u8>) -> u32;
+}
+
+/// Calls Lua closures registered by the embedding Tarantool application.
+/// Request and response values use MessagePack to preserve Lua value types.
+interface lua-callback {
+  resource handler {
+    call: func(payload: list<u8>) -> result<list<u8>, string>;
+  }
+
+  /// Creates a stable guest handle. The Lua closure is resolved by name on
+  /// every call, so registration and replacement remain dynamic.
+  open: func(name: string) -> result<handler, string>;
+}
