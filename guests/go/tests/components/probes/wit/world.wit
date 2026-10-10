@@ -1,0 +1,8 @@
+package example:go-probes@0.1.0;
+
+world sdk-test {
+  include wasi:cli/imports@0.2.12;
+  export check: func(name: string) -> string;
+  export roundtrip: func(data: list<u8>) -> list<u8>;
+  export wasi:cli/run@0.2.12;
+}

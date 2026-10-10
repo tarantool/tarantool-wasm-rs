@@ -1,0 +1,11 @@
+package another:go-extras@0.1.0;
+
+world sdk-test {
+  include wasi:cli/imports@0.2.12;
+  include tarantool:tarantool/guest@0.2.0;
+  import docs:adder/lua-callback@0.1.3;
+  import docs:adder/zlib@0.1.3;
+  export check: func(name: string) -> string;
+  export roundtrip: func(data: list<u8>) -> list<u8>;
+  export wasi:cli/run@0.2.12;
+}

@@ -1,0 +1,1 @@
+{"language": "js", "world": "peer", "wit": {"path": "wit", "package": "twr:go-js-peer@0.1.0"}, "source": "main.js", "output": "sdk.wasm"}
