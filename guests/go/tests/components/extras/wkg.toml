@@ -1,0 +1,3 @@
+# Keep dependency locks local to this fixture.
+[overrides]
+"docs:adder" = { path = "../../../wit/runtime" }

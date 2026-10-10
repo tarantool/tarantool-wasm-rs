@@ -1,0 +1,2 @@
+# Keep dependency locks local to this fixture.
+[overrides]

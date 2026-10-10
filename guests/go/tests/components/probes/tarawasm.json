@@ -1,0 +1,1 @@
+{"language": "go", "world": "sdk-test", "wit": {"path": "wit", "package": "example:go-probes@0.1.0"}, "source": ".", "output": "sdk.wasm"}
