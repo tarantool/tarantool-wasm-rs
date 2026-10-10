@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "sdk_version": "0.1.0",
+  "api": {
+    "tarantool_wit": "tarantool:tarantool@0.2.0",
+    "lua_callback": "docs:adder/lua-callback@0.1.3",
+    "zlib": "docs:adder/zlib@0.1.3",
+    "wasi": "0.2.12"
+  },
+  "toolchain": {
+    "tarawasm": "latest",
+    "go": "1.27.2",
+    "tinygo": "0.43.0",
+    "wit_bindgen_go": "0.7.0",
+    "cm": "0.3.0",
+    "wasm_tools": "1.261.0",
+    "wkg": "0.16.1",
+    "wasm_opt": "133",
+    "host_tarantool": "3.7.0",
+    "verified_on": "2026-10-19",
+    "wasm_verified": true,
+    "required_flags": [
+      "-scheduler=none",
+      "-panic-unwind=explicit"
+    ],
+    "tinygo_0_42": "Compiles, but does not unwind Wasm panics; not supported for SDK resource guarantees.",
+    "verification_platform": "macOS arm64",
+    "self_hosted_ci": "not-verified: updated workflow has not executed on self-hosted runners",
+    "tarawasm_source": "Git master with native TinyGo 0.43 and managed Binaryen 133 support",
+    "tarawasm_setup": "toolchain setup go --mode local --install --yes --upgrade"
+  },
+  "capabilities": {
+    "compression": {
+      "status": "works",
+      "scenario": "flate, gzip, zlib, crc32, adler32; compile and runtime"
+    },
+    "dns": {
+      "status": "known-limitation",
+      "runtime": "lookup localhost: Netdev not set",
+      "compiled": true
+    },
+    "tcp": {
+      "status": "known-limitation",
+      "runtime": "Lookup of host name '127.0.0.1' failed: Netdev not set",
+      "compiled": true,
+      "endpoint": "local-loopback"
+    },
+    "http": {
+      "status": "known-limitation",
+      "runtime": "Lookup of host name '127.0.0.1' failed: Netdev not set",
+      "compiled": true,
+      "endpoint": "local-loopback"
+    },
+    "tls": {
+      "tls_handshake": "not-checked: connection fails before handshake",
+      "status": "known-limitation",
+      "runtime": "Netdev not set",
+      "compiled": true,
+      "endpoint": "local-loopback"
+    },
+    "external_https": {
+      "status": "skipped",
+      "reason": "No external service in reproducible tests."
+    },
+    "go_range_functions": {
+      "status": "not-checked",
+      "reason": "SDK uses explicit synchronous iterator helpers."
+    },
+    "network_policy": {
+      "status": "not-checked",
+      "reason": "Toolchain fails before host socket imports."
+    },
+    "network_imports": {
+      "status": "works",
+      "scenario": "Import inspection completed: capability component emits no wasi:sockets or wasi:tls imports; compilation does not imply network support."
+    }
+  },
+  "features": {
+    "implemented": [
+      "database",
+      "lua-callback"
+    ],
+    "raw_only": [
+      "zlib"
+    ],
+    "not_implemented": [
+      "standard-library-ports",
+      "tls",
+      "interpreter"
+    ]
+  }
+}
