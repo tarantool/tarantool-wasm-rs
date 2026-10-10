@@ -1,0 +1,1947 @@
+package tarantool:tarantool@0.2.0;
+
+@since(version = 0.2.0)
+interface metrics {
+  /// Returns the current uptime of the instance in seconds.
+  ///
+  /// Corresponds to `box.info.uptime`.
+  ///
+  /// ### Returns
+  /// - Uptime in seconds as a floating-point value (`f64`).
+  @since(version = 0.2.0)
+  uptime: func() -> f64;
+}
+
+@since(version = 0.2.0)
+interface types {
+  /// Exactly one complete MessagePack value encoded as bytes.
+  ///
+  /// The byte sequence must contain one value and no trailing bytes. Functions
+  /// further constrain its shape where required, for example to an array or a
+  /// map. Values returned by the host are copied into guest-owned memory.
+  @since(version = 0.2.0)
+  type msgpack-value = list<u8>;
+
+  /// Numeric Tarantool error code.
+  ///
+  /// This is the original unsigned code reported by Tarantool, including codes
+  /// unknown to this version of the WIT package. Consumers must preserve and
+  /// accept any `u32` value. Symbolic `ER_*` names belong to the Tarantool
+  /// version that produced the error and are not part of this contract.
+  @since(version = 0.2.0)
+  type error-code = u32;
+
+  /// Represents an error returned by Tarantool operations.
+  ///
+  /// The numeric code is preserved exactly as reported by Tarantool. Consumers
+  /// must handle codes they do not recognize. No closed error category is
+  /// included because Tarantool's error set and classifications may evolve.
+  @since(version = 0.2.0)
+  record box-error {
+    /// Raw IPROTO or internal Tarantool error code.
+    code: error-code,
+    /// Human-readable error message.
+    message: string,
+    /// Host-provided error type, for example "ClientError" or "SocketError".
+    error-type: string,
+    /// Source file where the error originated (if available).
+    file: option<string>,
+    /// Line number in the source file where the error was raised.
+    line: option<u32>,
+  }
+
+  /// Identifies a Tarantool space by its numeric ID.
+  @since(version = 0.2.0)
+  record space {
+    /// Unique identifier of the space.
+    id: u32,
+  }
+
+  /// Identifies a Tarantool index and its parent space.
+  @since(version = 0.2.0)
+  record index {
+    /// Index ID within its parent space.
+    id: u32,
+    /// Numeric ID of the parent space.
+    space-id: u32,
+  }
+
+  /// Optional guest source location attached to a log message.
+  @since(version = 0.2.0)
+  record log-context {
+    /// Name of the source file generating the log.
+    file: string,
+    /// Line number in the source file generating the log.
+    line: u32,
+  }
+
+  /// Defines the severity levels used in Tarantool logging.
+  ///
+  /// See <https://www.tarantool.io/en/doc/latest/reference/reference_capi/say/>.
+  @since(version = 0.2.0)
+  enum log-level {
+    /// Recoverable error.
+    error,
+    /// Severe error.
+    critical,
+    /// Warning.
+    warning,
+    /// Informational message.
+    info,
+    /// Verbose message.
+    verbose,
+    /// Debug-level message.
+    debug,
+  }
+
+  /// Represents a client session in Tarantool by its ID.
+  @since(version = 0.2.0)
+  record session {
+    /// Unique session identifier.
+    id: u64,
+  }
+
+  /// Isolation levels available for Tarantool transactions.
+  @since(version = 0.2.0)
+  enum transaction-isolation {
+    /// Use Tarantool's configured default isolation level.
+    default,
+    /// Let Tarantool choose the isolation level for the transaction.
+    best-effort,
+    /// Read only committed, but not unconfirmed changes.
+    read-committed,
+    /// Read only confirmed changes.
+    read-confirmed,
+    /// Read only changes confirmed on any cluster node.
+    linearizable,
+  }
+
+  /// Iterator types for index scans in Tarantool.
+  ///
+  /// See <https://www.tarantool.io/en/doc/latest/reference/reference_capi/box_index/>.
+  @since(version = 0.2.0)
+  enum iterator-type {
+    /// Equal.
+    equal,
+    /// Reverse equal.
+    reverse-equal,
+    /// Full scan (all tuples).
+    all,
+    /// Less than.
+    less-than,
+    /// Less than or equal.
+    less-than-or-equal,
+    /// Greater than or equal.
+    greater-than-or-equal,
+    /// Greater than.
+    greater-than,
+    /// Bitmask: all bits set.
+    bits-all-set,
+    /// Bitmask: any bit set.
+    bits-any-set,
+    /// Bitmask: all bits not set.
+    bits-all-not-set,
+    /// Range overlaps.
+    overlaps,
+    /// Spatial index neighbor.
+    neighbor,
+    /// Next prefix in ascending order.
+    next-prefix,
+    /// Previous prefix in descending order.
+    previous-prefix,
+  }
+
+  /// Identifies a sequence that already exists in Tarantool.
+  ///
+  /// The WIT interface changes sequence state but does not create schema
+  /// objects. See
+  /// <https://www.tarantool.io/en/doc/latest/platform/ddl_dml/sequences/>.
+  @since(version = 0.2.0)
+  record sequence {
+    /// Numeric identifier of the sequence in Tarantool.
+    id: u32,
+  }
+
+  /// Flags used to modify behavior of key parts in index definitions.
+  @since(version = 0.2.0)
+  flags key-part-flags {
+    /// Allows NULL values in this key part.
+    is-nullable,
+    /// Exclude NULL values when comparing key parts.
+    exclude-null,
+  }
+
+  /// Built-in Tarantool collation identifiers supported by this contract.
+  ///
+  /// Case ordinals correspond to the built-in IDs in Tarantool's `_collation`
+  /// system space. User-defined collations are outside this closed enum.
+  @since(version = 0.2.0)
+  enum collation {
+    none,
+    /// 0
+    unicode,
+    /// 1
+    unicode-ci,
+    /// 2
+    binary,
+    /// 3
+    unicode-af-s1,
+    /// 4
+    unicode-af-s2,
+    /// 5
+    unicode-af-s3,
+    /// 6
+    unicode-am-s1,
+    /// 7
+    unicode-am-s2,
+    /// 8
+    unicode-am-s3,
+    /// 9
+    unicode-ar-s1,
+    /// 10
+    unicode-ar-s2,
+    /// 11
+    unicode-ar-s3,
+    /// 12
+    unicode-as-s1,
+    /// 13
+    unicode-as-s2,
+    /// 14
+    unicode-as-s3,
+    /// 15
+    unicode-az-s1,
+    /// 16
+    unicode-az-s2,
+    /// 17
+    unicode-az-s3,
+    /// 18
+    unicode-be-s1,
+    /// 19
+    unicode-be-s2,
+    /// 20
+    unicode-be-s3,
+    /// 21
+    unicode-bn-s1,
+    /// 22
+    unicode-bn-s2,
+    /// 23
+    unicode-bn-s3,
+    /// 24
+    unicode-bs-s1,
+    /// 25
+    unicode-bs-s2,
+    /// 26
+    unicode-bs-s3,
+    /// 27
+    unicode-bs-cyrl-s1,
+    /// 28
+    unicode-bs-cyrl-s2,
+    /// 29
+    unicode-bs-cyrl-s3,
+    /// 30
+    unicode-ca-s1,
+    /// 31
+    unicode-ca-s2,
+    /// 32
+    unicode-ca-s3,
+    /// 33
+    unicode-cs-s1,
+    /// 34
+    unicode-cs-s2,
+    /// 35
+    unicode-cs-s3,
+    /// 36
+    unicode-cy-s1,
+    /// 37
+    unicode-cy-s2,
+    /// 38
+    unicode-cy-s3,
+    /// 39
+    unicode-da-s1,
+    /// 40
+    unicode-da-s2,
+    /// 41
+    unicode-da-s3,
+    /// 42
+    unicode-de-phonebook-s1,
+    /// 43 (de__phonebook)
+    unicode-de-phonebook-s2,
+    /// 44
+    unicode-de-phonebook-s3,
+    /// 45
+    unicode-de-at-phonebook-s1,
+    /// 46
+    unicode-de-at-phonebook-s2,
+    /// 47
+    unicode-de-at-phonebook-s3,
+    /// 48
+    unicode-dsb-s1,
+    /// 49
+    unicode-dsb-s2,
+    /// 50
+    unicode-dsb-s3,
+    /// 51
+    unicode-ee-s1,
+    /// 52
+    unicode-ee-s2,
+    /// 53
+    unicode-ee-s3,
+    /// 54
+    unicode-eo-s1,
+    /// 55
+    unicode-eo-s2,
+    /// 56
+    unicode-eo-s3,
+    /// 57
+    unicode-es-s1,
+    /// 58
+    unicode-es-s2,
+    /// 59
+    unicode-es-s3,
+    /// 60
+    unicode-es-traditional-s1,
+    /// 61 (es__traditional)
+    unicode-es-traditional-s2,
+    /// 62
+    unicode-es-traditional-s3,
+    /// 63
+    unicode-et-s1,
+    /// 64
+    unicode-et-s2,
+    /// 65
+    unicode-et-s3,
+    /// 66
+    unicode-fa-s1,
+    /// 67
+    unicode-fa-s2,
+    /// 68
+    unicode-fa-s3,
+    /// 69
+    unicode-fi-s1,
+    /// 70
+    unicode-fi-s2,
+    /// 71
+    unicode-fi-s3,
+    /// 72
+    unicode-fi-phonebook-s1,
+    /// 73 (fi__phonebook)
+    unicode-fi-phonebook-s2,
+    /// 74
+    unicode-fi-phonebook-s3,
+    /// 75
+    unicode-fil-s1,
+    /// 76
+    unicode-fil-s2,
+    /// 77
+    unicode-fil-s3,
+    /// 78
+    unicode-fo-s1,
+    /// 79
+    unicode-fo-s2,
+    /// 80
+    unicode-fo-s3,
+    /// 81
+    unicode-fr-ca-s1,
+    /// 82
+    unicode-fr-ca-s2,
+    /// 83
+    unicode-fr-ca-s3,
+    /// 84
+    unicode-gu-s1,
+    /// 85
+    unicode-gu-s2,
+    /// 86
+    unicode-gu-s3,
+    /// 87
+    unicode-ha-s1,
+    /// 88
+    unicode-ha-s2,
+    /// 89
+    unicode-ha-s3,
+    /// 90
+    unicode-haw-s1,
+    /// 91
+    unicode-haw-s2,
+    /// 92
+    unicode-haw-s3,
+    /// 93
+    unicode-he-s1,
+    /// 94
+    unicode-he-s2,
+    /// 95
+    unicode-he-s3,
+    /// 96
+    unicode-hi-s1,
+    /// 97
+    unicode-hi-s2,
+    /// 98
+    unicode-hi-s3,
+    /// 99
+    unicode-hr-s1,
+    /// 100
+    unicode-hr-s2,
+    /// 101
+    unicode-hr-s3,
+    /// 102
+    unicode-hu-s1,
+    /// 103
+    unicode-hu-s2,
+    /// 104
+    unicode-hu-s3,
+    /// 105
+    unicode-hy-s1,
+    /// 106
+    unicode-hy-s2,
+    /// 107
+    unicode-hy-s3,
+    /// 108
+    unicode-ig-s1,
+    /// 109
+    unicode-ig-s2,
+    /// 110
+    unicode-ig-s3,
+    /// 111
+    unicode-is-s1,
+    /// 112
+    unicode-is-s2,
+    /// 113
+    unicode-is-s3,
+    /// 114
+    unicode-ja-s1,
+    /// 115
+    unicode-ja-s2,
+    /// 116
+    unicode-ja-s3,
+    /// 117
+    unicode-kk-s1,
+    /// 118
+    unicode-kk-s2,
+    /// 119
+    unicode-kk-s3,
+    /// 120
+    unicode-kl-s1,
+    /// 121
+    unicode-kl-s2,
+    /// 122
+    unicode-kl-s3,
+    /// 123
+    unicode-kn-s1,
+    /// 124
+    unicode-kn-s2,
+    /// 125
+    unicode-kn-s3,
+    /// 126
+    unicode-ko-s1,
+    /// 127
+    unicode-ko-s2,
+    /// 128
+    unicode-ko-s3,
+    /// 129
+    unicode-kok-s1,
+    /// 130
+    unicode-kok-s2,
+    /// 131
+    unicode-kok-s3,
+    /// 132
+    unicode-ky-s1,
+    /// 133
+    unicode-ky-s2,
+    /// 134
+    unicode-ky-s3,
+    /// 135
+    unicode-lkt-s1,
+    /// 136
+    unicode-lkt-s2,
+    /// 137
+    unicode-lkt-s3,
+    /// 138
+    unicode-ln-s1,
+    /// 139
+    unicode-ln-s2,
+    /// 140
+    unicode-ln-s3,
+    /// 141
+    unicode-lt-s1,
+    /// 142
+    unicode-lt-s2,
+    /// 143
+    unicode-lt-s3,
+    /// 144
+    unicode-lv-s1,
+    /// 145
+    unicode-lv-s2,
+    /// 146
+    unicode-lv-s3,
+    /// 147
+    unicode-mk-s1,
+    /// 148
+    unicode-mk-s2,
+    /// 149
+    unicode-mk-s3,
+    /// 150
+    unicode-ml-s1,
+    /// 151
+    unicode-ml-s2,
+    /// 152
+    unicode-ml-s3,
+    /// 153
+    unicode-mr-s1,
+    /// 154
+    unicode-mr-s2,
+    /// 155
+    unicode-mr-s3,
+    /// 156
+    unicode-mt-s1,
+    /// 157
+    unicode-mt-s2,
+    /// 158
+    unicode-mt-s3,
+    /// 159
+    unicode-nb-s1,
+    /// 160
+    unicode-nb-s2,
+    /// 161
+    unicode-nb-s3,
+    /// 162
+    unicode-nn-s1,
+    /// 163
+    unicode-nn-s2,
+    /// 164
+    unicode-nn-s3,
+    /// 165
+    unicode-nso-s1,
+    /// 166
+    unicode-nso-s2,
+    /// 167
+    unicode-nso-s3,
+    /// 168
+    unicode-om-s1,
+    /// 169
+    unicode-om-s2,
+    /// 170
+    unicode-om-s3,
+    /// 171
+    unicode-or-s1,
+    /// 172
+    unicode-or-s2,
+    /// 173
+    unicode-or-s3,
+    /// 174
+    unicode-pa-s1,
+    /// 175
+    unicode-pa-s2,
+    /// 176
+    unicode-pa-s3,
+    /// 177
+    unicode-pl-s1,
+    /// 178
+    unicode-pl-s2,
+    /// 179
+    unicode-pl-s3,
+    /// 180
+    unicode-ro-s1,
+    /// 181
+    unicode-ro-s2,
+    /// 182
+    unicode-ro-s3,
+    /// 183
+    unicode-sa-s1,
+    /// 184
+    unicode-sa-s2,
+    /// 185
+    unicode-sa-s3,
+    /// 186
+    unicode-se-s1,
+    /// 187
+    unicode-se-s2,
+    /// 188
+    unicode-se-s3,
+    /// 189
+    unicode-si-s1,
+    /// 190
+    unicode-si-s2,
+    /// 191
+    unicode-si-s3,
+    /// 192
+    unicode-si-dictionary-s1,
+    /// 193 (si__dictionary)
+    unicode-si-dictionary-s2,
+    /// 194
+    unicode-si-dictionary-s3,
+    /// 195
+    unicode-sk-s1,
+    /// 196
+    unicode-sk-s2,
+    /// 197
+    unicode-sk-s3,
+    /// 198
+    unicode-sl-s1,
+    /// 199
+    unicode-sl-s2,
+    /// 200
+    unicode-sl-s3,
+    /// 201
+    unicode-sq-s1,
+    /// 202
+    unicode-sq-s2,
+    /// 203
+    unicode-sq-s3,
+    /// 204
+    unicode-sr-s1,
+    /// 205
+    unicode-sr-s2,
+    /// 206
+    unicode-sr-s3,
+    /// 207
+    unicode-sr-latn-s1,
+    /// 208
+    unicode-sr-latn-s2,
+    /// 209
+    unicode-sr-latn-s3,
+    /// 210
+    unicode-sv-s1,
+    /// 211
+    unicode-sv-s2,
+    /// 212
+    unicode-sv-s3,
+    /// 213
+    unicode-sv-reformed-s1,
+    /// 214 (sv__reformed)
+    unicode-sv-reformed-s2,
+    /// 215
+    unicode-sv-reformed-s3,
+    /// 216
+    unicode-ta-s1,
+    /// 217
+    unicode-ta-s2,
+    /// 218
+    unicode-ta-s3,
+    /// 219
+    unicode-te-s1,
+    /// 220
+    unicode-te-s2,
+    /// 221
+    unicode-te-s3,
+    /// 222
+    unicode-th-s1,
+    /// 223
+    unicode-th-s2,
+    /// 224
+    unicode-th-s3,
+    /// 225
+    unicode-tn-s1,
+    /// 226
+    unicode-tn-s2,
+    /// 227
+    unicode-tn-s3,
+    /// 228
+    unicode-to-s1,
+    /// 229
+    unicode-to-s2,
+    /// 230
+    unicode-to-s3,
+    /// 231
+    unicode-tr-s1,
+    /// 232
+    unicode-tr-s2,
+    /// 233
+    unicode-tr-s3,
+    /// 234
+    unicode-ug-cyrl-s1,
+    /// 235
+    unicode-ug-cyrl-s2,
+    /// 236
+    unicode-ug-cyrl-s3,
+    /// 237
+    unicode-uk-s1,
+    /// 238
+    unicode-uk-s2,
+    /// 239
+    unicode-uk-s3,
+    /// 240
+    unicode-ur-s1,
+    /// 241
+    unicode-ur-s2,
+    /// 242
+    unicode-ur-s3,
+    /// 243
+    unicode-vi-s1,
+    /// 244
+    unicode-vi-s2,
+    /// 245
+    unicode-vi-s3,
+    /// 246
+    unicode-vo-s1,
+    /// 247
+    unicode-vo-s2,
+    /// 248
+    unicode-vo-s3,
+    /// 249
+    unicode-wae-s1,
+    /// 250
+    unicode-wae-s2,
+    /// 251
+    unicode-wae-s3,
+    /// 252
+    unicode-wo-s1,
+    /// 253
+    unicode-wo-s2,
+    /// 254
+    unicode-wo-s3,
+    /// 255
+    unicode-yo-s1,
+    /// 256
+    unicode-yo-s2,
+    /// 257
+    unicode-yo-s3,
+    /// 258
+    unicode-zh-s1,
+    /// 259
+    unicode-zh-s2,
+    /// 260
+    unicode-zh-s3,
+    /// 261
+    unicode-zh-big5han-s1,
+    /// 262 (zh__big5han)
+    unicode-zh-big5han-s2,
+    /// 263
+    unicode-zh-big5han-s3,
+    /// 264
+    unicode-zh-gb2312han-s1,
+    /// 265 (zh__gb2312han)
+    unicode-zh-gb2312han-s2,
+    /// 266
+    unicode-zh-gb2312han-s3,
+    /// 267
+    unicode-zh-pinyin-s1,
+    /// 268 (zh__pinyin)
+    unicode-zh-pinyin-s2,
+    /// 269
+    unicode-zh-pinyin-s3,
+    /// 270
+    unicode-zh-stroke-s1,
+    /// 271 (zh__stroke)
+    unicode-zh-stroke-s2,
+    /// 272
+    unicode-zh-stroke-s3,
+    /// 273
+    unicode-zh-zhuyin-s1,
+    /// 274 (zh__zhuyin)
+    unicode-zh-zhuyin-s2,
+    /// 275
+    unicode-zh-zhuyin-s3,
+  }
+
+  /// Field types supported by key definitions.
+  @since(version = 0.2.0)
+  enum field-type {
+    boolean,
+    integer,
+    unsigned,
+    double,
+    number,
+    decimal,
+    %string,
+    varbinary,
+    uuid,
+    datetime,
+    array,
+    %map,
+    scalar,
+  }
+
+  /// Definition of a single key part in a Tarantool index.
+  @since(version = 0.2.0)
+  record key-part {
+    /// Field index in the tuple (0-based).
+    field-no: u32,
+    /// Type required for the selected field.
+    field-type: field-type,
+    /// Optional collation name for string comparison.
+    collation: option<collation>,
+    /// JSON path for multikey indexes (if applicable). If set, `field-type`
+    /// refers to the nested field type.
+    path: option<string>,
+    /// Nullable/exclude-null flags for this key part.
+    %flags: key-part-flags,
+  }
+
+  /// Opaque host-issued handle to a Tarantool tuple.
+  ///
+  /// The handle is meaningful only in the component instance that created it.
+  /// Consumers must not construct or modify handle values. Each returned
+  /// handle owns one reference unless documented otherwise and must be
+  /// released with the public `release` function from the
+  /// `tarantool:tarantool/box-tuple` interface. This is an interface function,
+  /// not a method on this record.
+  @since(version = 0.2.0)
+  record box-tuple {
+    /// Opaque value resolved by the host.
+    handle: u64,
+  }
+
+  /// Opaque host-issued handle to a Tarantool key definition.
+  ///
+  /// The handle is meaningful only in the component instance that created it.
+  /// Consumers must not construct or modify handle values. Each returned
+  /// handle is owned and must be released with the public `release` function
+  /// from the `tarantool:tarantool/key-def` interface. This is an interface
+  /// function, not a method on this record.
+  @since(version = 0.2.0)
+  record key-def {
+    /// Opaque value resolved by the host.
+    handle: u64,
+  }
+
+  /// Opaque host-issued handle to a Tarantool tuple format.
+  ///
+  /// Each `box-tuple` has an associated `tuple-format`. The default format
+  /// (see `tarantool:tarantool/tuple-format::default`) is used for tuples not
+  /// attached to any space.
+  ///
+  /// The handle is meaningful only in the component instance that created it.
+  /// Consumers must not construct or modify handle values. Each returned
+  /// handle owns one reference unless documented otherwise and must be
+  /// released with the public `release` function from the
+  /// `tarantool:tarantool/tuple-format` interface. This is an interface
+  /// function, not a method on this record.
+  @since(version = 0.2.0)
+  record tuple-format {
+    /// Opaque value resolved by the host.
+    handle: u64,
+  }
+
+  /// A copied tuple field encoded as one complete MessagePack value.
+  @since(version = 0.2.0)
+  type tuple-field = msgpack-value;
+}
+
+@since(version = 0.2.0)
+interface box-tuple {
+  @since(version = 0.2.0)
+  use types.{box-error, box-tuple, tuple-field, tuple-format, key-def, msgpack-value};
+
+  /// Stateful traversal over the top-level fields of one tuple.
+  @since(version = 0.2.0)
+  resource iterator {
+    /// Creates a new iterator over the fields of a tuple.
+    ///
+    /// This allows sequential or random access to MessagePack fields within
+    /// the tuple.
+    ///
+    /// ### Parameters
+    /// - `tuple`: Borrowed for this call. The returned iterator retains the
+    ///   tuple independently, so the caller may release its tuple handle
+    ///   after this function returns.
+    ///
+    /// ### Returns
+    /// - A new `iterator` resource, or a `box-error`. Dropping the
+    ///   iterator releases its retained tuple reference.
+    ///
+    /// ### Errors
+    /// - A `box-error` describing the failure.
+    @since(version = 0.2.0)
+    new: static func(%tuple: box-tuple) -> result<iterator, box-error>;
+    /// Returns the current iterator position (index of the next field).
+    ///
+    /// ### Returns
+    /// - The next field index (zero-based).
+    @since(version = 0.2.0)
+    position: func() -> u32;
+    /// Rewinds the iterator to the beginning of the tuple.
+    ///
+    /// After this call, the next field will be the first.
+    @since(version = 0.2.0)
+    rewind: func();
+    /// Seeks to and returns a field at the given tuple index.
+    ///
+    /// After a successful call, `position` points to the following field,
+    /// so the next call to `next` continues after the returned value.
+    ///
+    /// ### Parameters
+    /// - `pos`: Zero-based field index to seek to.
+    ///
+    /// ### Returns
+    /// - `some` with a copied field, or `none` if `pos` is outside the
+    ///   tuple.
+    ///
+    /// ### Errors
+    /// - A `box-error` describing the failure.
+    @since(version = 0.2.0)
+    seek: func(pos: u32) -> result<option<tuple-field>, box-error>;
+    /// Returns the next field in the tuple.
+    ///
+    /// Returns `none` if there are no more fields.
+    ///
+    /// ### Returns
+    /// - `some` containing a copied `tuple-field`, or `none` when the
+    ///   iterator is exhausted.
+    ///
+    /// ### Errors
+    /// - A `box-error` describing the failure.
+    @since(version = 0.2.0)
+    next: func() -> result<option<tuple-field>, box-error>;
+  }
+
+  /// Creates a new tuple from MessagePack data using the default tuple format.
+  ///
+  /// The data must be a MessagePack-encoded array (for example,
+  /// `[1, "abc", {"x": 42}]`).
+  ///
+  /// ### Parameters
+  /// - `data`: One complete MessagePack array containing the tuple fields.
+  ///
+  /// ### Returns
+  /// - A new owned `box-tuple` handle, or `box-error`. The caller must
+  ///   eventually release it with the public `release` function in this
+  ///   interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  new: func(data: msgpack-value) -> result<box-tuple, box-error>;
+
+  /// Increases the reference count of the tuple.
+  ///
+  /// Call this to acquire one additional ownership reference for the same
+  /// handle. Copying the handle alone does not acquire a reference.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to retain.
+  @since(version = 0.2.0)
+  retain: func(t: box-tuple);
+
+  /// Decreases the reference count of the tuple.
+  ///
+  /// If the count reaches zero, the handle and all of its aliases become
+  /// stale. Releasing a stale handle traps.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to release.
+  @since(version = 0.2.0)
+  release: func(t: box-tuple);
+
+  /// Returns the number of fields in the tuple (i.e., array size).
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - Field count as `u32`.
+  @since(version = 0.2.0)
+  field-count: func(t: box-tuple) -> u32;
+
+  /// Returns the byte size of the internal MessagePack data.
+  ///
+  /// Useful for buffer allocations.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - Number of bytes used as `u64`.
+  @since(version = 0.2.0)
+  byte-size: func(t: box-tuple) -> u64;
+
+  /// Serializes the tuple to a MessagePack byte array.
+  ///
+  /// This data can be passed to the public `to-json` function from the
+  /// `tarantool:tarantool/msgpack` interface or to another MessagePack
+  /// decoder.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - One complete MessagePack array containing the tuple fields.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  to-bytes: func(t: box-tuple) -> result<msgpack-value, box-error>;
+
+  /// Returns the format object associated with the tuple.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  ///
+  /// ### Returns
+  /// - An owned handle to the `tuple-format` used to construct the tuple.
+  ///   The caller must eventually release it with the public `release`
+  ///   function from the `tarantool:tarantool/tuple-format` interface.
+  @since(version = 0.2.0)
+  format: func(t: box-tuple) -> tuple-format;
+
+  /// Returns the field at the specified index (zero-based).
+  ///
+  /// The returned value contains one complete copied MessagePack value.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  /// - `idx`: Field index (starting from 0).
+  ///
+  /// ### Returns
+  /// - `some` with a copied field, or `none` if `idx` is out of range.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  field: func(t: box-tuple, idx: u32) -> result<option<tuple-field>, box-error>;
+
+  /// Returns a copied field selected by a JSON path expression.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  /// - `path`: Path expression (e.g., `"[2].x"`).
+  /// Array indexes in the path are zero-based.
+  ///
+  /// ### Returns
+  /// - `some` with a copied field, or `none` if the path selects no field.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  field-by-path: func(t: box-tuple, path: string) -> result<option<tuple-field>, box-error>;
+
+  /// Updates fields in a tuple using the given update expression.
+  ///
+  /// The expression must be a MessagePack array of operation arrays, for
+  /// example `[["=", 1, "new_value"]]`. Operation field indexes are
+  /// zero-based. The original tuple is unchanged.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to update.
+  /// - `expr`: One complete MessagePack array whose items are update-operation
+  ///   arrays.
+  ///
+  /// ### Returns
+  /// - A new owned `box-tuple` handle with applied updates, or a `box-error`.
+  ///   The caller must eventually release it with the public `release`
+  ///   function in this interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  update: func(t: box-tuple, expr: msgpack-value) -> result<box-tuple, box-error>;
+
+  /// Applies update operations while ignoring client-operation errors.
+  ///
+  /// Valid operations are applied to a copy of the tuple. Invalid operations,
+  /// such as a type mismatch or missing field, are skipped and may be logged
+  /// by Tarantool. System failures still return `box-error`. Despite its
+  /// name, this function does not insert a tuple into a space. The original
+  /// tuple is unchanged.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple.
+  /// - `expr`: One complete MessagePack array whose items are update-operation
+  ///   arrays.
+  ///
+  /// ### Returns
+  /// - A new owned `box-tuple` handle with the result, or a `box-error`.
+  ///   The caller must eventually release it with the public `release`
+  ///   function in this interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  upsert: func(t: box-tuple, expr: msgpack-value) -> result<box-tuple, box-error>;
+
+  /// Validates a tuple against the given format.
+  ///
+  /// Checks field types and nullability constraints.
+  ///
+  /// ### Parameters
+  /// - `t`: The tuple to validate.
+  /// - `format`: Tuple format to validate against.
+  ///
+  /// ### Returns
+  /// - `ok` if the tuple conforms to the format.
+  ///
+  /// A tuple that does not conform is returned as a `box-error`; it is not a
+  /// normal boolean result.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  validate: func(t: box-tuple, format: tuple-format) -> result<_, box-error>;
+
+  /// Compares two tuples using a given key definition.
+  ///
+  /// The comparison is lexicographical by key fields.
+  ///
+  /// ### Parameters
+  /// - `key-def`: Definition of fields to compare.
+  /// - `left`: First tuple.
+  /// - `right`: Second tuple.
+  ///
+  /// ### Returns
+  /// - `0` if equal
+  /// - `<0` if `left < right`
+  /// - `>0` if `left > right`
+  @since(version = 0.2.0)
+  compare: func(key-def: key-def, left: box-tuple, right: box-tuple) -> s32;
+
+  /// Compares a tuple with a key using the given key definition.
+  ///
+  /// ### Parameters
+  /// - `tuple`: Tuple to compare.
+  /// - `key`: One complete MessagePack array of key parts.
+  /// - `key-def`: Key definition.
+  ///
+  /// ### Returns
+  /// - `0` if key matches tuple
+  /// - `<0` if tuple < key
+  /// - `>0` if tuple > key
+  ///
+  /// ### Errors
+  /// - A `box-error` if `key` is malformed, does not match the key
+  ///   definition, or cannot be compared.
+  @since(version = 0.2.0)
+  compare-with-key: func(%tuple: box-tuple, key: msgpack-value, key-def: key-def) -> result<s32, box-error>;
+}
+
+@since(version = 0.2.0)
+interface database {
+  @since(version = 0.2.0)
+  use types.{space, box-error, index, box-tuple, msgpack-value};
+
+  /// Returns the current schema version of the database.
+  ///
+  /// The version changes when Tarantool modifies schema objects such as
+  /// spaces or indexes.
+  ///
+  /// ### Returns
+  /// - The current unsigned schema version.
+  @since(version = 0.2.0)
+  schema-version: func() -> u32;
+
+  /// Retrieves a space object by its name.
+  ///
+  /// The returned record contains a catalog ID and does not own host state.
+  ///
+  /// ### Parameters
+  /// - `name`: The name of the space to retrieve.
+  ///
+  /// ### Returns
+  /// - `some` with the space, or `none` if no space has this name.
+  @since(version = 0.2.0)
+  space-by-name: func(name: string) -> result<option<space>, box-error>;
+
+  /// Retrieves an index object by name within a space.
+  ///
+  /// The returned record contains catalog IDs and does not own host state.
+  ///
+  /// ### Parameters
+  /// - `space`: The space to search within.
+  /// - `name`: The name of the index to retrieve.
+  ///
+  /// ### Returns
+  /// - `some` with the index, or `none` if the space has no index with this
+  ///   name.
+  @since(version = 0.2.0)
+  index-by-name: func(space: space, name: string) -> result<option<index>, box-error>;
+
+  /// Inserts a new tuple into a space.
+  ///
+  /// The tuple must be one complete MessagePack array:
+  /// `[field1, field2, ...]`.
+  ///
+  /// ### Parameters
+  /// - `space`: The target space.
+  /// - `tup`: One complete MessagePack array containing the tuple fields.
+  ///
+  /// ### Returns
+  /// - An owned handle to the inserted tuple. The caller must eventually
+  ///   release it with the public `release` function from the
+  ///   `tarantool:tarantool/box-tuple` interface.
+  @since(version = 0.2.0)
+  insert: func(space: space, tup: msgpack-value) -> result<box-tuple, box-error>;
+
+  /// Updates an existing tuple by key in the specified index.
+  ///
+  /// - `key` must be a MessagePack array identifying the tuple, for example
+  ///   `[1]`.
+  /// - `ops` must be a MessagePack array of operations, for example
+  ///   `[["=", 2, 30]]`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to use for locating the tuple.
+  /// - `key`: One complete MessagePack array containing exactly one item per
+  ///   index part.
+  /// - `ops`: One complete MessagePack array whose items are update-operation
+  ///   arrays.
+  ///
+  /// ### Returns
+  /// - `some` with an owned handle to the updated tuple, or `none` if no tuple
+  ///   matches the key. The caller must release a returned handle with the
+  ///   public `release` function from the `tarantool:tarantool/box-tuple`
+  ///   interface.
+  @since(version = 0.2.0)
+  update: func(index: index, key: msgpack-value, ops: msgpack-value) -> result<option<box-tuple>, box-error>;
+
+  /// Replaces an existing tuple or inserts a new one.
+  ///
+  /// ### Parameters
+  /// - `space`: The space to operate on.
+  /// - `tup`: One complete MessagePack array containing the new tuple fields.
+  ///
+  /// ### Returns
+  /// - An owned handle to the replaced tuple. The caller must eventually
+  ///   release it with the public `release` function from the
+  ///   `tarantool:tarantool/box-tuple` interface.
+  @since(version = 0.2.0)
+  replace: func(space: space, tup: msgpack-value) -> result<box-tuple, box-error>;
+
+  /// Performs an UPSERT operation: update if exists, insert otherwise.
+  ///
+  /// ### Parameters
+  /// - `index`: The index used for key lookup.
+  /// - `tup`: One complete MessagePack tuple array to insert.
+  /// - `ops`: One complete MessagePack array whose items are update-operation
+  ///   arrays.
+  ///
+  /// ### Returns
+  /// - `ok(())` after Tarantool applies the upsert.
+  ///
+  /// ### Errors
+  /// - A `box-error` if the tuple, key, or operations are invalid, or if the
+  ///   operation otherwise fails.
+  @since(version = 0.2.0)
+  upsert: func(index: index, tup: msgpack-value, ops: msgpack-value) -> result<_, box-error>;
+
+  /// Deletes a tuple by key from the specified index.
+  ///
+  /// The key must be encoded as a MessagePack array, for example `[1]`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index used for key lookup.
+  /// - `key`: One complete MessagePack array containing exactly one item per
+  ///   index part.
+  ///
+  /// ### Returns
+  /// - `some` with an owned handle to the deleted tuple, or `none` if no tuple
+  ///   matches the key. The caller must release a returned handle with the
+  ///   public `release` function from the `tarantool:tarantool/box-tuple`
+  ///   interface.
+  @since(version = 0.2.0)
+  delete: func(index: index, key: msgpack-value) -> result<option<box-tuple>, box-error>;
+
+  /// Removes all tuples from the space.
+  ///
+  /// This operation is equivalent to SQL's `TRUNCATE TABLE`.
+  ///
+  /// ### Parameters
+  /// - `space`: The target space to truncate.
+  ///
+  /// ### Returns
+  /// - `ok(())` after the space is empty.
+  @since(version = 0.2.0)
+  truncate: func(space: space) -> result<_, box-error>;
+}
+
+@since(version = 0.2.0)
+interface error {
+  use types.{box-error, error-code};
+
+  /// Creates a copied error value.
+  ///
+  /// Corresponds to `box.error.new{ ... }`.
+  ///
+  /// ### Parameters
+  /// - `code`: Raw numeric Tarantool error code. Codes unknown to this WIT
+  ///   package are accepted without remapping.
+  /// - `message`: The error message.
+  ///
+  /// ### Returns
+  /// - A new `box-error` value.
+  @since(version = 0.2.0)
+  new: func(code: error-code, message: string) -> box-error;
+
+  /// Creates a copied error value with a source location.
+  ///
+  /// Corresponds to `box.error.new{ ... }`.
+  ///
+  /// ### Parameters
+  /// - `code`: Raw numeric Tarantool error code. Codes unknown to this WIT
+  ///   package are accepted without remapping.
+  /// - `message`: The error message.
+  /// - `file`: File name.
+  /// - `line`: Line number in file.
+  ///
+  /// ### Returns
+  /// - A new `box-error` value.
+  @since(version = 0.2.0)
+  new-with-location: func(code: error-code, message: string, file: option<string>, line: option<u32>) -> box-error;
+
+  /// Sets the given error as the current "last error".
+  ///
+  /// Corresponds to `box.error.set(err)`.
+  ///
+  /// ### Parameters
+  /// - `err`: The error to set.
+  @since(version = 0.2.0)
+  set: func(err: box-error);
+
+  /// Returns a copy of the last error in the current execution context.
+  ///
+  /// Corresponds to `box.error.last()`.
+  /// Returns `none` if no error is currently set.
+  @since(version = 0.2.0)
+  last: func() -> option<box-error>;
+
+  /// Clears the last error.
+  ///
+  /// Corresponds to `box.error.clear()`.
+  @since(version = 0.2.0)
+  clear: func();
+
+  /// Formats a `box-error` value for diagnostics.
+  ///
+  /// Equivalent to `tostring(err)` in Tarantool.
+  ///
+  /// ### Parameters
+  /// - `err`: The error to stringify.
+  ///
+  /// ### Returns
+  /// - A human-readable string describing the error.
+  @since(version = 0.2.0)
+  to-string: func(err: box-error) -> string;
+}
+
+@since(version = 0.2.0)
+interface index {
+  @since(version = 0.2.0)
+  use types.{index, box-error, box-tuple, iterator-type, msgpack-value};
+
+  /// Index iterator resource for scanning tuples.
+  @since(version = 0.2.0)
+  resource iterator {
+    /// Allocates an iterator for the given index.
+    ///
+    /// - `index`: The index to scan.
+    /// - `mode`: Scan mode (see `tarantool:tarantool/types::iterator-type`).
+    /// - `key`: MessagePack array containing zero or more key parts.
+    ///
+    /// Dropping the returned resource releases its host iterator state.
+    @since(version = 0.2.0)
+    new: static func(index: index, mode: iterator-type, key: msgpack-value) -> result<iterator, box-error>;
+    /// Advance the iterator and return the next tuple.
+    ///
+    /// Returns `some` with an owned tuple handle, or `none` when the
+    /// iterator is exhausted. The caller must release a returned handle
+    /// with the public `release` function from the
+    /// `tarantool:tarantool/box-tuple` interface.
+    @since(version = 0.2.0)
+    next: func() -> result<option<box-tuple>, box-error>;
+  }
+
+  /// Returns the number of tuples stored in the index.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to query.
+  ///
+  /// ### Returns
+  /// - The number of tuples in the index, or a `box-error` on failure.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  tuple-count: func(index: index) -> result<u64, box-error>;
+
+  /// Returns the memory size of the index in bytes.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to inspect.
+  ///
+  /// ### Returns
+  /// - Size in bytes, or a `box-error`.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  memory-size: func(index: index) -> result<u64, box-error>;
+
+  /// Returns a random tuple from the index.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to read from.
+  /// - `rnd`: A random seed value.
+  ///
+  /// ### Returns
+  /// - `some` with an owned tuple handle, or `none` if the index is empty.
+  ///   The caller must release a returned handle with the public `release`
+  ///   function from the `tarantool:tarantool/box-tuple` interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  random: func(index: index, rnd: u32) -> result<option<box-tuple>, box-error>;
+
+  /// Gets a tuple by key from the index.
+  ///
+  /// The key must be one complete MessagePack array, for example `[1]`.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to search.
+  /// - `key`: MessagePack array containing exactly one item per index part.
+  ///
+  /// ### Returns
+  /// - `some` with an owned tuple handle, or `none` if no tuple matches.
+  ///   The caller must release a returned handle with the public `release`
+  ///   function from the `tarantool:tarantool/box-tuple` interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  get: func(index: index, key: msgpack-value) -> result<option<box-tuple>, box-error>;
+
+  /// Finds the minimal tuple matching the given key.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to search.
+  /// - `key`: MessagePack array containing zero or more key parts.
+  ///
+  /// ### Returns
+  /// - `some` with an owned tuple handle, or `none` if no tuple matches.
+  ///   The caller must release a returned handle with the public `release`
+  ///   function from the `tarantool:tarantool/box-tuple` interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  min: func(index: index, key: msgpack-value) -> result<option<box-tuple>, box-error>;
+
+  /// Finds the maximal tuple matching the given key.
+  ///
+  /// ### Parameters
+  /// - `index`: The index to search.
+  /// - `key`: MessagePack array containing zero or more key parts.
+  ///
+  /// ### Returns
+  /// - `some` with an owned tuple handle, or `none` if no tuple matches.
+  ///   The caller must release a returned handle with the public `release`
+  ///   function from the `tarantool:tarantool/box-tuple` interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  max: func(index: index, key: msgpack-value) -> result<option<box-tuple>, box-error>;
+
+  /// Counts tuples matching a key and iterator mode.
+  ///
+  /// ### Parameters
+  /// - `index`: Index to query.
+  /// - `mode`: Iterator mode used to match tuples.
+  /// - `key`: MessagePack array containing zero or more key parts.
+  ///
+  /// ### Returns
+  /// - Count of matching tuples, or an error.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  count: func(index: index, mode: iterator-type, key: msgpack-value) -> result<u64, box-error>;
+}
+
+@since(version = 0.2.0)
+interface key-def {
+  @since(version = 0.2.0)
+  use types.{box-error, box-tuple, key-def, key-part, msgpack-value};
+
+  /// Creates a new key definition from a list of parts.
+  ///
+  /// Each key part selects a tuple field and defines its type, optional
+  /// collation, optional path, and flags.
+  ///
+  /// ### Parameters
+  /// - `parts`: List of `key-part` objects.
+  ///
+  /// ### Returns
+  /// - A new owned `key-def` handle on success. The caller must eventually
+  ///   release it with the public `release` function in this interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  new: func(parts: list<key-part>) -> result<key-def, box-error>;
+
+  /// Creates a deep copy of the given key definition.
+  ///
+  /// The returned `key-def` is independent of the original and owns one
+  /// reference.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition to duplicate.
+  ///
+  /// ### Returns
+  /// - A new owned `key-def` handle independent of the original. The caller
+  ///   must eventually release it with the public `release` function in this
+  ///   interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  duplicate: func(key-def: key-def) -> result<key-def, box-error>;
+
+  /// Merges two key definitions into one.
+  ///
+  /// Fields from the right-hand side are appended when they do not duplicate
+  /// fields from the left-hand side.
+  ///
+  /// ### Parameters
+  /// - `left`: The base key definition.
+  /// - `right`: The key definition to append fields from.
+  ///
+  /// ### Returns
+  /// - A new owned `key-def` handle. The caller must eventually release it
+  ///   with the public `release` function in this interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  merge: func(left: key-def, right: key-def) -> result<key-def, box-error>;
+
+  /// Releases a key definition and invalidates all aliases of its handle.
+  ///
+  /// Call this once for every key definition returned by `new`,
+  /// `duplicate`, or `merge`. Releasing a stale handle traps.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition to release.
+  @since(version = 0.2.0)
+  release: func(key-def: key-def);
+
+  /// Returns a list of key parts from a given key definition.
+  ///
+  /// The returned list is copied into guest-owned memory.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition to inspect.
+  ///
+  /// ### Returns
+  /// - List of `key-part` objects.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  dump-parts: func(key-def: key-def) -> result<list<key-part>, box-error>;
+
+  /// Validates whether a given key conforms to the key definition.
+  ///
+  /// Checks the number of fields and their types, allowing partial matches
+  /// (e.g. prefix of the full key).
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition to validate against.
+  /// - `key`: One complete MessagePack array of key parts.
+  ///
+  /// ### Returns
+  /// - `ok` if the key conforms to the definition.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  validate-key: func(key-def: key-def, key: msgpack-value) -> result<_, box-error>;
+
+  /// Validates whether a key **fully** matches the key definition.
+  ///
+  /// Differs from `validate-key` by requiring exact number of parts.
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition to validate against.
+  /// - `key`: One complete MessagePack array with exactly one item per key
+  ///   part.
+  ///
+  /// ### Returns
+  /// - `ok` if the key fully conforms to the definition.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  validate-full-key: func(key-def: key-def, key: msgpack-value) -> result<_, box-error>;
+
+  /// Returns the number of parts in the key definition.
+  ///
+  /// Each part corresponds to one field used in index comparison or validation.
+  ///
+  /// ### Parameters
+  /// - `key-def`: The key definition.
+  ///
+  /// ### Returns
+  /// - Number of parts as `u32`.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  part-count: func(key-def: key-def) -> result<u32, box-error>;
+
+  /// Extracts a key from a given tuple based on the key definition.
+  ///
+  /// The result is a MessagePack-encoded byte buffer representing the key,
+  /// constructed by selecting fields from the input tuple as defined
+  /// by the provided key definition.
+  ///
+  /// This buffer can be decoded using a MessagePack decoder and will contain
+  /// an array of fields corresponding to the key parts.
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition describing how to extract fields.
+  /// - `tuple`: Source `box-tuple`.
+  ///
+  /// ### Returns
+  /// - One complete MessagePack array containing the extracted key fields.
+  ///
+  /// ### Errors
+  /// - Returns a `box-error` if the tuple is invalid or extraction fails.
+  @since(version = 0.2.0)
+  extract-key: func(key-def: key-def, %tuple: box-tuple) -> result<msgpack-value, box-error>;
+
+  /// Validates whether the tuple contains all required fields
+  /// and types as specified by the key definition.
+  ///
+  /// This is useful to check if a `box-tuple` is compatible with an index.
+  ///
+  /// ### Parameters
+  /// - `key-def`: Key definition to validate against.
+  /// - `tuple`: A `box-tuple` to validate.
+  ///
+  /// ### Returns
+  /// - `ok` if the tuple satisfies the key definition.
+  ///
+  /// A tuple that does not satisfy the definition is returned as a
+  /// `box-error`; it is not a normal boolean result.
+  @since(version = 0.2.0)
+  validate-tuple: func(key-def: key-def, %tuple: box-tuple) -> result<_, box-error>;
+}
+
+@since(version = 0.2.0)
+interface log {
+  @since(version = 0.2.0)
+  use types.{log-level, log-context};
+
+  /// Writes a message to the Tarantool log.
+  ///
+  /// The interface exposes non-terminating log levels only. Formatting and
+  /// level-specific convenience helpers belong in guest libraries.
+  ///
+  /// ### Parameters
+  /// - `level`: Message severity.
+  /// - `message`: Message text.
+  /// - `context`: Optional guest source location.
+  @since(version = 0.2.0)
+  write: func(level: log-level, message: string, context: option<log-context>);
+}
+
+@since(version = 0.2.0)
+interface msgpack {
+  @since(version = 0.2.0)
+  use types.{box-error, msgpack-value};
+
+  /// Converts a JSON value to MessagePack.
+  ///
+  /// The input must contain one JSON value. The output contains the equivalent
+  /// value encoded as one complete MessagePack value.
+  ///
+  /// ### Parameters
+  /// - `json`: A string containing one valid JSON value.
+  ///
+  /// ### Returns
+  /// - The corresponding MessagePack value.
+  ///
+  /// ### Errors
+  /// - A `box-error` if `json` is malformed or cannot be represented.
+  @since(version = 0.2.0)
+  from-json: func(json: string) -> result<msgpack-value, box-error>;
+
+  /// Converts a MessagePack value to JSON.
+  ///
+  /// Only values representable by the JSON data model are accepted. MessagePack
+  /// extension values, binary values, and maps with non-string keys may fail.
+  /// The returned JSON is not a canonical serialization.
+  ///
+  /// ### Parameters
+  /// - `value`: One complete MessagePack value.
+  ///
+  /// ### Returns
+  /// - A string containing the equivalent JSON value.
+  ///
+  /// ### Errors
+  /// - A `box-error` if `value` is malformed or has no JSON representation.
+  @since(version = 0.2.0)
+  to-json: func(value: msgpack-value) -> result<string, box-error>;
+}
+
+@since(version = 0.2.0)
+interface sequence {
+  @since(version = 0.2.0)
+  use types.{sequence, box-error};
+
+  /// Generates the next value of the specified sequence.
+  ///
+  /// This updates the state of the sequence.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  ///
+  /// ### Returns
+  /// - The next value of the sequence as `s64`.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  next: func(seq: sequence) -> result<s64, box-error>;
+
+  /// Returns the current value of the specified sequence.
+  ///
+  /// Unlike `next`, this does not increment the sequence. It returns an error
+  /// if the sequence has not been advanced or set since creation or reset.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  ///
+  /// ### Returns
+  /// - The current value of the sequence as `s64`.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  current: func(seq: sequence) -> result<s64, box-error>;
+
+  /// Sets the sequence to a specific value.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  /// - `value`: The new value to assign.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  set: func(seq: sequence, value: s64) -> result<_, box-error>;
+
+  /// Resets the sequence to its initial state.
+  ///
+  /// This clears the current value. After a reset, `current` returns an error
+  /// until `next` or `set` assigns another value.
+  ///
+  /// ### Parameters
+  /// - `seq`: The target sequence object.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  reset: func(seq: sequence) -> result<_, box-error>;
+}
+
+@since(version = 0.2.0)
+interface session {
+  @since(version = 0.2.0)
+  use types.{session, box-error, msgpack-value};
+
+  /// Returns the current session.
+  ///
+  /// The record identifies the connection or execution context from which
+  /// the current code runs. It does not own the session.
+  ///
+  /// ### Returns
+  /// - A `session` object representing the current session.
+  @since(version = 0.2.0)
+  current: func() -> session;
+
+  /// Broadcasts a message to all watchers subscribed to the given key.
+  ///
+  /// `value` is a Lua expression whose evaluated value is passed to
+  /// `box.broadcast`. It is not JSON. Invalid expressions return an error;
+  /// callers must not interpolate untrusted text into the expression.
+  ///
+  /// ### Parameters
+  /// - `key`: A string event name to broadcast on.
+  /// - `value`: A Lua expression, for example `"{a = 1}"`.
+  ///
+  /// ### Returns
+  /// - `ok` on success, or a `box-error` on failure.
+  ///
+  /// ### Errors
+  /// - A `box-error` if the key or Lua expression is invalid or broadcast
+  ///   fails.
+  @since(version = 0.2.0)
+  broadcast: func(key: string, value: string) -> result<_, box-error>;
+
+  /// Sends a raw IPROTO packet to a specific session.
+  ///
+  /// The header must be one complete MessagePack map. The optional body, when
+  /// present, must also be one complete MessagePack map.
+  ///
+  /// ### Parameters
+  /// - `session`: Target session to send to.
+  /// - `header`: MessagePack map containing the request header.
+  /// - `body`: `some` with a MessagePack map, or `none` to omit the body.
+  ///
+  /// ### Returns
+  /// - `ok(())` after the packet is accepted for sending.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  iproto-send: func(session: session, header: msgpack-value, body: option<msgpack-value>) -> result<_, box-error>;
+}
+
+@since(version = 0.2.0)
+interface transaction {
+  @since(version = 0.2.0)
+  use types.{box-error, transaction-isolation};
+
+  /// Returns the current transaction ID.
+  ///
+  /// A transaction ID is a non-persistent identifier of the current
+  /// transaction. Returns `none` if no transaction is active.
+  ///
+  /// ### Returns
+  /// - `some` with the unsigned transaction ID, or `none`.
+  @since(version = 0.2.0)
+  id: func() -> option<u64>;
+
+  /// Returns the isolation level of the current transaction.
+  ///
+  /// Returns `none` if there is no active transaction.
+  ///
+  /// ### Returns
+  /// - `some` with the current isolation level, or `none`.
+  @since(version = 0.2.0)
+  isolation: func() -> option<transaction-isolation>;
+
+  /// Begins a new transaction.
+  ///
+  /// Fails if the current execution context already has an active
+  /// transaction.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  begin: func() -> result<_, box-error>;
+
+  /// Commits the current transaction.
+  ///
+  /// Finalizes the transaction and applies its changes.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  commit: func() -> result<_, box-error>;
+
+  /// Rolls back the current transaction.
+  ///
+  /// Discards all changes made within the current transaction.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  rollback: func() -> result<_, box-error>;
+
+  /// Sets the isolation level for the current transaction.
+  ///
+  /// Call this before the first DML operation in the transaction.
+  ///
+  /// ### Parameters
+  /// - `isolation`: A `transaction-isolation` value.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  set-isolation: func(isolation: transaction-isolation) -> result<_, box-error>;
+
+  /// Requires synchronous replication for the current transaction.
+  ///
+  /// Commit waits for the configured synchronous replication acknowledgements.
+  /// This function has no effect when no transaction is active.
+  @since(version = 0.2.0)
+  make-synchronous: func();
+}
+
+@since(version = 0.2.0)
+interface tuple-format {
+  @since(version = 0.2.0)
+  use types.{key-def, box-error, tuple-format};
+
+  /// Returns the default tuple format.
+  ///
+  /// This format is used to create tuples not bound to any specific space.
+  ///
+  /// ### Returns
+  /// - An owned `tuple-format` handle. The caller must eventually release it
+  ///   with the public `release` function in this interface.
+  @since(version = 0.2.0)
+  default: func() -> tuple-format;
+
+  /// Creates a new tuple format based on a list of key definitions.
+  ///
+  /// Key definitions supply field types, paths, collations, and nullability
+  /// constraints.
+  ///
+  /// ### Parameters
+  /// - `key-defs`: Borrowed key-definition handles used only for this call.
+  ///   The returned format remains valid after the inputs are released.
+  ///
+  /// ### Returns
+  /// - A new owned `tuple-format` handle. The caller must eventually release
+  ///   it with the public `release` function in this interface.
+  ///
+  /// ### Errors
+  /// - A `box-error` describing the failure.
+  @since(version = 0.2.0)
+  new: func(key-defs: list<key-def>) -> result<tuple-format, box-error>;
+
+  /// Increments the reference counter of the tuple format.
+  ///
+  /// Call this to acquire one additional ownership reference for the same
+  /// handle. Copying the handle alone does not acquire a reference.
+  ///
+  /// ### Parameters
+  /// - `tf`: Tuple format to retain.
+  @since(version = 0.2.0)
+  retain: func(tf: tuple-format);
+
+  /// Decrements the reference counter of the tuple format.
+  ///
+  /// Must be called once for every owned reference. The final `release`
+  /// invalidates all aliases of the handle. Releasing a stale handle traps.
+  ///
+  /// ### Parameters
+  /// - `tf`: Tuple format to release.
+  @since(version = 0.2.0)
+  release: func(tf: tuple-format);
+}
+
+/// Aggregate imports for components running inside Tarantool.
+///
+/// Consumers may include this world for the complete host API or import
+/// individual interfaces directly to keep their contract minimal.
+@since(version = 0.2.0)
+world guest {
+  @since(version = 0.2.0)
+  import types;
+  @since(version = 0.2.0)
+  import metrics;
+  @since(version = 0.2.0)
+  import msgpack;
+  @since(version = 0.2.0)
+  import database;
+  @since(version = 0.2.0)
+  import log;
+  @since(version = 0.2.0)
+  import error;
+  @since(version = 0.2.0)
+  import session;
+  @since(version = 0.2.0)
+  import transaction;
+  @since(version = 0.2.0)
+  import index;
+  @since(version = 0.2.0)
+  import sequence;
+  @since(version = 0.2.0)
+  import key-def;
+  @since(version = 0.2.0)
+  import tuple-format;
+  @since(version = 0.2.0)
+  import box-tuple;
+}
