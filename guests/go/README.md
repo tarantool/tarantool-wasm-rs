@@ -6,7 +6,8 @@ SDK encodes MessagePack directly and releases temporary tuples. It runs inside
 Tarantool-Wasm-Rs; it is not a network client for standalone Go applications.
 The SDK covers spaces and indexes, CRUD and iteration, tuples and key definitions,
 transactions, sequences, sessions and iproto, diagnostics, logging and metrics.
-It includes raw Tarantool bindings and optional Lua callbacks. Zlib is available
+It includes raw Tarantool bindings, optional Lua callbacks and a WASI network
+adapter for TinyGo's `net` and `net/http`. Zlib is available
 only as raw WIT API. The repository license applies.
 
 ## Install the archive
@@ -225,12 +226,80 @@ Memtx data transactions need `memtx_use_mvcc_engine=true` because host calls yie
 Vinyl retains its runtime semantics. Applications must configure MVCC themselves.
 The SDK never changes runtime policy, network permissions or database settings.
 
+## Optional networking
+
+TinyGo 0.43.0 needs a driver to connect `net` to WASI sockets. Enable the SDK's
+optional driver explicitly before the first network operation:
+
+```go
+import (
+    "io"
+    "net/http"
+    "time"
+
+    "github.com/tarantool/tarantool-wasm-rs/guests/go/network"
+)
+
+func Fetch(url string) ([]byte, error) {
+    if err := network.Enable(network.Options{Timeout: 2 * time.Second}); err != nil {
+        return nil, err
+    }
+    response, err := http.Get(url)
+    if err != nil {
+        return nil, err
+    }
+    defer response.Body.Close()
+    return io.ReadAll(response.Body)
+}
+```
+
+The application world must include `wasi:cli/imports@0.2.12`, as in
+`tests/components/probes`. Its socket imports provide name resolution and outgoing
+TCP. The SDK ships its own bindings; application-generated `internal` packages
+are not dependencies. Importing `network` and calling `Enable` create no host
+resources. Repeating the same configuration is safe; changing it is rejected.
+Without `Enable`, TinyGo retains its `Netdev not set` placeholder.
+
+For `net/http`, use TinyGo's default **asyncify** scheduler. Build the network
+fixture with either build recipe above, omitting
+`-scheduler=none -panic-unwind=explicit`.
+
+Asyncify and explicit panic unwinding are incompatible in this toolchain.
+The database SDK's panic cleanup and transaction guarantees require its synchronous
+build mode; do not rely on those guarantees in an asyncify network component.
+
+The adapter supports `net.LookupHost`, outgoing TCP reads/writes, deadlines set
+before an operation, `Close`, keepalive options, and plain HTTP using Go's transport. DNS returns
+the first address because TinyGo's netdev hook accepts one address. It does not
+support UDP, listening sockets, scoped IPv6 addresses or TLS. Native Go does not
+need this driver; `Enable` there returns `network.ErrUnsupported`.
+The hook is tied to the verified TinyGo version and must be rechecked on upgrades.
+
+`Options.Timeout` bounds each DNS lookup and TCP connection attempt (default five
+seconds). TinyGo's hook does not forward `net.Dialer` contexts/deadlines, nor
+deadline changes made during a pending read/write. Read/write timeouts can be
+identified with `errors.As` into `interface{ Timeout() bool }`; TinyGo's
+`net.OpError` lacks the deprecated `Temporary` method required by `net.Error`.
+TinyGo 0.43's `http.Client.Timeout` and request cancellation do not bound HTTP
+I/O. A server that accepts TCP but never responds can leave `Get` waiting
+indefinitely. Some HTTP transport
+error paths also leave the underlying connection open until `wasm.drop`; success
+requires `response.Body.Close`. Applications that need bounded HTTP I/O and
+reliable connection cleanup on transport errors cannot rely on this TinyGo
+transport.
+
+Host permissions still apply: `inherit_network`, `allow_tcp`,
+`allow_ip_name_lookup`, `allowed_ips` and `allowed_ports`. The SDK never changes
+them. A denied DNS lookup returns the host's `permanent-resolver-failure`; denied
+TCP/IP/port access returns `access-denied`.
 
 ## Compatibility
 
 Go's `compress/flate`, `compress/gzip`, `compress/zlib`, `hash/crc32` and
 `hash/adler32` work in guest memory with Go stream and error semantics. The raw
 host zlib API instead copies WIT byte buffers and uses the host's libz.
-See `sdk-manifest.json` for compiled/runtime results, verified platforms and tool
-versions. Python and JavaScript are used only by compatibility tests and are not
-SDK runtime dependencies.
+DNS, TCP and HTTP work with the optional driver and emit WASI socket imports.
+IPv6 TCP is unverified; external HTTPS checks are skipped. TLS, UDP and listening
+sockets are unsupported. See `sdk-manifest.json` for compiled/runtime results,
+verified platforms and tool versions. Python and JavaScript are used only by
+compatibility tests and are not SDK runtime dependencies.

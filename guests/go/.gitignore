@@ -6,6 +6,8 @@ dist/
 **/direct.wasm
 **/latest.wasm
 **/internal/
+!network/internal/
+!network/internal/**
 **/node_modules/
 **/componentize_py_async_support/
 **/componentize_py_runtime.pyi

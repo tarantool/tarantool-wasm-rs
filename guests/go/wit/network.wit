@@ -1,0 +1,9 @@
+package twr:go-sdk@0.1.0;
+
+// Maintenance world for the optional TinyGo netdev bindings.
+world network {
+  import wasi:sockets/instance-network@0.2.12;
+  import wasi:sockets/ip-name-lookup@0.2.12;
+  import wasi:sockets/tcp-create-socket@0.2.12;
+  import wasi:sockets/tcp@0.2.12;
+}

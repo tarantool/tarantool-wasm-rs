@@ -43,17 +43,29 @@ for task_fixture in base extras probes; do
  cp sdk.wasm "$task_template/"
  cp wkg.lock go.sum "$task_template/"
  wasm-tools component wit sdk.wasm > "$task_sdk_root/dist/$task_fixture.component.wit"
- if [[ "$task_fixture" == base ]]; then
+ if [[ "$task_fixture" == base || "$task_fixture" == probes ]]; then
   go tool wit-bindgen-go generate --versioned --world sdk-test -o internal wit
-  tinygo build -target=wasip2 -scheduler=none -panic-unwind=explicit \
-   --wit-package wit --wit-world sdk-test -o direct.wasm .
+  if [[ "$task_fixture" == base ]]; then
+   tinygo build -target=wasip2 -scheduler=none -panic-unwind=explicit \
+    --wit-package wit --wit-world sdk-test -o direct.wasm .
+  else
+   tinygo build -target=wasip2 --wit-package wit --wit-world sdk-test -o direct.wasm .
+  fi
   wasm-tools strip direct.wasm -o direct.wasm
   wasm-tools validate direct.wasm
   cp direct.wasm "$task_template/"
  fi
 done
-if grep -Eq 'docs:adder/|wasi:tls' "$task_sdk_root/dist/base.component.wit"; then
+if grep -Eq 'import (docs:adder/|wasi:tls|wasi:sockets/)' "$task_sdk_root/dist/base.component.wit"; then
  echo 'Base SDK imports optional host interfaces' >&2; exit 1
+fi
+for task_import in instance-network ip-name-lookup tcp tcp-create-socket; do
+ if ! grep -q "import wasi:sockets/$task_import@0.2.12" "$task_sdk_root/dist/probes.component.wit"; then
+  echo "Network fixture is missing $task_import" >&2; exit 1
+ fi
+done
+if grep -q 'network-error-code' "$task_sdk_root/dist/probes.component.wit"; then
+ echo 'Network fixture imports an unstable WASI function' >&2; exit 1
 fi
 if ! grep -q 'docs:adder/lua-callback@0.1.3' "$task_sdk_root/dist/extras.component.wit" || \
    ! grep -q 'docs:adder/zlib@0.1.3' "$task_sdk_root/dist/extras.component.wit"; then
