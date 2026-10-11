@@ -26,6 +26,7 @@
     "tinygo_0_42": "Compiles, but does not unwind Wasm panics; not supported for SDK resource guarantees.",
     "verification_platform": "macOS arm64",
     "self_hosted_ci": "not-verified: updated workflow has not executed on self-hosted runners",
+    "network_scheduler": "asyncify (TinyGo default); database panic/transaction guarantees do not apply",
     "tarawasm_source": "Git master with native TinyGo 0.43 and managed Binaryen 133 support",
     "tarawasm_setup": "toolchain setup go --mode local --install --yes --upgrade"
   },
@@ -35,26 +36,28 @@
       "scenario": "flate, gzip, zlib, crc32, adler32; compile and runtime"
     },
     "dns": {
-      "status": "known-limitation",
-      "runtime": "lookup localhost: Netdev not set",
-      "compiled": true
+      "status": "works",
+      "compiled": true,
+      "runtime": "localhost resolves to a loopback address",
+      "limitation": "TinyGo hook returns the first resolved address"
     },
     "tcp": {
-      "status": "known-limitation",
-      "runtime": "Lookup of host name '127.0.0.1' failed: Netdev not set",
+      "status": "works",
       "compiled": true,
-      "endpoint": "local-loopback"
+      "endpoint": "local-loopback",
+      "scenario": "Echo, partial reads, EOF, read deadline, concurrent close, repeated connections in one component, keepalive hooks and reset under write backpressure"
     },
     "http": {
-      "status": "known-limitation",
-      "runtime": "Lookup of host name '127.0.0.1' failed: Netdev not set",
+      "status": "works",
       "compiled": true,
-      "endpoint": "local-loopback"
+      "endpoint": "local-loopback",
+      "runtime": "pong",
+      "transport": "Go net/http over optional WASI TCP driver"
     },
     "tls": {
       "tls_handshake": "not-checked: connection fails before handshake",
       "status": "known-limitation",
-      "runtime": "Netdev not set",
+      "runtime": "network: operation not supported (adapter explicitly rejects TLS sockets)",
       "compiled": true,
       "endpoint": "local-loopback"
     },
@@ -67,18 +70,48 @@
       "reason": "SDK uses explicit synchronous iterator helpers."
     },
     "network_policy": {
-      "status": "not-checked",
-      "reason": "Toolchain fails before host socket imports."
+      "status": "works",
+      "scenario": "Host DNS, TCP, IP and port restrictions enforced"
     },
     "network_imports": {
       "status": "works",
-      "scenario": "Import inspection completed: capability component emits no wasi:sockets or wasi:tls imports; compilation does not imply network support."
+      "scenario": "Network component emits WASI 0.2.12 sockets and streams; base component has no sockets, callbacks, host zlib or TLS imports; unstable network-error-code is not imported"
+    },
+    "ipv6_tcp": {
+      "status": "not-checked",
+      "reason": "Runtime TCP fixtures use IPv4 loopback; IPv6 conversion is implemented"
+    },
+    "udp_and_listen": {
+      "status": "known-limitation",
+      "reason": "Adapter supports outgoing TCP only"
+    },
+    "network_deadlines": {
+      "status": "known-limitation",
+      "reason": "Options.Timeout bounds each DNS/connect operation; TinyGo does not forward Dialer contexts/deadlines or changes to deadlines during pending I/O"
+    },
+    "network_build_modes": {
+      "status": "works",
+      "scenario": "Archive-installed SDK: DNS, TCP and HTTP compiled and executed through tarawasm and direct wit-bindgen-go/TinyGo builds"
+    },
+    "lua_server_after_wasm_dns": {
+      "status": "known-limitation",
+      "reason": "On the checked macOS host, immediate Lua coio server creation after a Wasm DNS export could time out; test controller yields once before setup. Host runtime unchanged."
+    },
+    "http_timeout": {
+      "status": "known-limitation",
+      "scenario": "TinyGo 0.43 Client.Timeout does not bound HTTP I/O; delayed local server responds after the configured timeout. Options.Timeout bounds DNS/connect only."
+    },
+    "http_transport_error_cleanup": {
+      "status": "known-limitation",
+      "verification": "source-inspected; runtime malformed-response scenario not-checked",
+      "reason": "Some TinyGo transport error paths do not close the connection; host handles remain until wasm.drop."
     }
   },
   "features": {
     "implemented": [
       "database",
-      "lua-callback"
+      "lua-callback",
+      "optional-wasi-network"
     ],
     "raw_only": [
       "zlib"

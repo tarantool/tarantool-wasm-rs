@@ -10,8 +10,8 @@ trap 'rm -rf "$task_stage"' EXIT
 task_module="$task_stage/twr-go-sdk-$task_version"
 mkdir -p "$task_module/wit"
 cp ./*.go go.mod go.sum README.md sdk-manifest.json "$task_module/"
-cp -R bindings codec luacallback raw "$task_module/"
-cp wit/sdk.wit "$task_module/wit/"
+cp -R bindings codec luacallback network raw "$task_module/"
+cp wit/*.wit "$task_module/wit/"
 cp -R wit/runtime wit/contracts "$task_module/wit/"
 tar -czf "dist/twr-go-sdk-$task_version.tar.gz" -C "$task_stage" "twr-go-sdk-$task_version"
 # Installation has no source checkout or application internal dependency.
@@ -26,12 +26,17 @@ for task_name in first.example/app second.example/different; do
   cat > main.go <<'GO'
 package main
 import (
+ "errors"
  "fmt"
  twr "github.com/tarantool/tarantool-wasm-rs/guests/go"
  "github.com/tarantool/tarantool-wasm-rs/guests/go/codec"
+ "github.com/tarantool/tarantool-wasm-rs/guests/go/network"
 )
 func main() {
  twr.Box.Space("users").Index("primary") // Construction must not call the host.
+ if err := network.Enable(network.Options{}); !errors.Is(err, network.ErrUnsupported) {
+  panic("WASI driver unexpectedly enabled in a native application")
+ }
  b, err := twr.Pack(codec.Decimal{Digits:"12345678901234567890",Scale:5})
  if err != nil { panic(err) }
  if _, err := twr.Unpack(b); err != nil { panic(err) }
