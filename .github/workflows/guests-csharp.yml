@@ -1,0 +1,103 @@
+name: C# SDK
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sdk:
+    if: >-
+      ${{ github.event_name != 'pull_request' ||
+          contains(github.event.pull_request.labels.*.name, 'full-ci') ||
+          contains(github.event.pull_request.labels.*.name, 'sdk-ci') }}
+
+    runs-on: ubuntu-20.04-self-hosted
+    timeout-minutes: 90
+
+    env:
+      TWR_CSHARP_IMAGE: tarawasm:csharp-sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: mandesero/tarawasm
+          ref: 2225d8f0bdbbb0a025ec81dbb660ec45f34e9a1d
+          path: .csharp-ci-tarawasm
+
+      - uses: docker/setup-buildx-action@v3
+        with:
+          version: v0.38.0
+          driver: docker
+
+      # Use the runner's Docker runtime with its Ubuntu 20.04 kernel.
+      - name: C# toolchain
+        run: |
+          docker buildx build --builder "$(docker context show)" \
+            --platform linux/amd64 --load \
+            --target csharp --tag "$TWR_CSHARP_IMAGE" .csharp-ci-tarawasm
+
+      - name: Codec tests, NuGet package and installed-package components
+        run: |
+          bash guests/csharp/build.sh
+          bash guests/csharp/tests/build-components.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: csharp-sdk
+          path: guests/csharp/dist/
+          if-no-files-found: error
+
+  runtime:
+    needs: sdk
+
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    timeout-minutes: 60
+
+    env:
+      WKG_CONFIG_FILE: ${{ github.workspace }}/.csharp-ci-wkg.toml
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Dependencies
+        run: sudo sh scripts/install_openssl_dependencies.sh
+
+      - uses: tarantool/setup-tarantool@v3
+        with:
+          tarantool-version: '3.7'
+
+      - name: tt
+        run: |
+          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
+          sudo apt-get install -y tt
+
+      - uses: ./.github/actions/wit-setup
+        with:
+          rustflags: ''
+
+      - name: Build host
+        run: |
+          cargo build --locked --release
+          mkdir -p .rocks/lib/tarantool
+          cp target/release/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
+          tt rocks install luatest
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: csharp-sdk
+          path: guests/csharp/dist/
+
+      - name: C# SDK in Tarantool
+        run: bash guests/csharp/tests/test-runtime.sh
