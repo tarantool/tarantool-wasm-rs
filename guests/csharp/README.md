@@ -164,4 +164,6 @@ just build
 bash guests/csharp/tests/test-runtime.sh
 ```
 
-`build.sh` also runs the standalone codec tests.
+`build.sh` also runs the standalone codec tests. The [C# SDK workflow](../../.github/workflows/guests-csharp.yml)
+runs package, component and Tarantool integration checks. Pull requests require
+the `sdk-ci` or `full-ci` label; it can also be started manually.
