@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/.tarawasm/
+**/wit/deps/
+dist/
+**/*.wasm
+**/*.log

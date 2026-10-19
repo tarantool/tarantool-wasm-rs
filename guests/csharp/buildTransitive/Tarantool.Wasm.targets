@@ -1,0 +1,5 @@
+<Project>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'wasi-wasm'">
+    <CustomLinkerArg Include="-Wl,--component-type,&quot;$(MSBuildThisFileDirectory)Tarantool.Wasm.wit&quot;" />
+  </ItemGroup>
+</Project>

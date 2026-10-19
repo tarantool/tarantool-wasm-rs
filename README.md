@@ -7,7 +7,7 @@ and provides a small Lua API for component lifecycle and calls.
 
 Use it when application logic should run close to Tarantool data but needs to
 be written in a language other than Lua. Components can currently be built
-from Python, JavaScript, Go, Rust, or C/C++ with
+from Python, JavaScript, Go, Rust, C/C++, or C# with
 [`tarawasm`](https://github.com/mandesero/tarawasm).
 
 ## What this project provides
@@ -39,6 +39,9 @@ flowchart LR
 WIT contracts, and tests. The [Python SDK](guests/python/README.md) includes a
 compatibility package and SSL/OpenSSL port; its tests run in a
 [separate CI workflow](.github/workflows/guests-python.yml).
+The [C# SDK](guests/csharp/README.md) provides synchronous database operations,
+owned tuples and Tarantool MessagePack types. C# requires tarawasm's experimental
+C# backend and a Linux amd64 build environment.
 
 ## Choose an execution model
 

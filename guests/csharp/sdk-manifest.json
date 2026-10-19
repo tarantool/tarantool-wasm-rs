@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "sdk_version": "0.1.0",
+  "package": "Tarantool.Wasm",
+  "api": {
+    "tarantool_wit": "tarantool:tarantool@0.2.0",
+    "contract_sha256": "be9ece2f2e93357e54be8421922ae2643e0cb53f781939979166a26957470b2d"
+  },
+  "toolchain": {
+    "dotnet": "10.0.402",
+    "componentize_dotnet": "0.8.0-preview00011",
+    "nativeaot_llvm": "10.0.0-rc.1.26306.1",
+    "wit_bindgen": "0.58.0",
+    "wasi_sdk": "29.0",
+    "build_platform": "linux/amd64",
+    "tarawasm_source_commit": "2225d8f0bdbbb0a025ec81dbb660ec45f34e9a1d",
+    "experimental": true
+  }
+}

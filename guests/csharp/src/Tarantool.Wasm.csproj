@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>Tarantool.Wasm</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>tarantool-wasm-rs contributors</Authors>
+    <Description>Synchronous C# guest API for Tarantool WebAssembly components.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <BindingsDir>$(MSBuildProjectDirectory)/obj/bindings</BindingsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(BindingsDir)/**/*.cs" />
+    <None Include="../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../sdk-manifest.json" Pack="true" PackagePath="/" />
+    <None Include="../buildTransitive/Tarantool.Wasm.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="$(BindingsDir)/TarantoolSdkWorld_component_type.wit" Pack="true" PackagePath="buildTransitive/Tarantool.Wasm.wit" />
+  </ItemGroup>
+
+  <Target Name="CheckBindings" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(BindingsDir)/TarantoolSdk.cs')" Text="Generate the pinned SDK bindings using guests/csharp/build.sh before compiling or packing." />
+  </Target>
+</Project>
