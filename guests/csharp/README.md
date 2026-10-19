@@ -153,3 +153,15 @@ to 128. Tarantool may reject extension values outside its supported ranges.
 
 Transactions, sessions, callbacks, logging and network adapters are outside
 this SDK.
+
+## Run tests
+
+With `TWR_CSHARP_IMAGE` set and the package built, run from the repository root:
+
+```sh
+bash guests/csharp/tests/build-components.sh
+just build
+bash guests/csharp/tests/test-runtime.sh
+```
+
+`build.sh` also runs the standalone codec tests.

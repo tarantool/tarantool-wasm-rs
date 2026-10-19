@@ -1,0 +1,4 @@
+package independent:consumer@0.2.0;
+world secondary {
+  export create: func(id: u32, name: string) -> string;
+}
