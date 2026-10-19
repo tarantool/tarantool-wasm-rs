@@ -1,0 +1,8 @@
+package example:csharp-sdk@0.1.0;
+world sdk-test {
+  export check: func(name: string) -> string;
+  export roundtrip: func(data: list<u8>) -> list<u8>;
+  export space-id: func() -> u32;
+  export index-id: func() -> u32;
+  export error-details: func() -> list<u8>;
+}
