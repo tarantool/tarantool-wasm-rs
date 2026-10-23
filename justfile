@@ -64,6 +64,13 @@ csharp-sdk: patch-wkg-config
     {{ csharp_run }} {{ csharp_bindgen }} c-sharp wit --world tarantool-sdk --runtime native-aot --with-wit-results --internal --out-dir src/obj/bindings
     {{ csharp_run }} dotnet pack src/Tarantool.Wasm.csproj -c Release -o dist
 
+js-sdk: patch-wkg-config
+    rm -rf guests/js/wit/deps
+    cd guests/js && {{ wkg_fetch }}
+    mkdir -p guests/js/dist
+    wasm-tools component wit guests/js/wit/deps/tarantool-tarantool-0.2.0.wasm > guests/js/dist/released-tarantool.wit
+    cd guests/js && npm pack --ignore-scripts --pack-destination dist
+
 # Install the native library built for the selected Cargo profile.
 install-module profile="debug":
     #!/usr/bin/env sh

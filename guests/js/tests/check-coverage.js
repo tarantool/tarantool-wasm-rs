@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readdirSync, readFileSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
 import {Index, IndexIterator, Space} from '../src/database.js';
@@ -127,11 +127,7 @@ const coverage = Object.fromEntries(
       return Object.entries(methods).map(
           ([method, sdk]) => [`${name}/${method}@${version}`, sdk]);
     }));
-const dependency =
-    readdirSync(root + 'wit/deps').find((x) => x.startsWith('tarantool'));
-assert.ok(dependency, 'fetch released WIT before checking coverage');
-const source =
-    readFileSync(root + 'wit/deps/' + dependency + '/package.wit', 'utf8');
+const source = readFileSync(root + 'dist/released-tarantool.wit', 'utf8');
 assert.match(source, /package tarantool:tarantool@0\.2\.0;/);
 const runtime = readFileSync(root + 'wit/runtime/host.wit', 'utf8');
 function functions(text, packageName, version) {

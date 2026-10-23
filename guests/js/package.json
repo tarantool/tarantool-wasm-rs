@@ -9,6 +9,7 @@
     "wit/*.wit",
     "wit/runtime",
     "sdk-manifest.json",
+    "wkg.toml",
     "wkg.lock",
     "README.md"
   ],
