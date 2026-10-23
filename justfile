@@ -37,6 +37,12 @@ build-release: && (install-module "release")
 python-sdk:
     bash guests/python/build-artifacts.sh
 
+rust-sdk: patch-wkg-config
+    rm -rf guests/rust/wit/deps
+    cd guests/rust && {{ wkg_fetch }}
+    cargo build --locked --manifest-path guests/rust/Cargo.toml
+    cargo package --locked --allow-dirty --manifest-path guests/rust/Cargo.toml
+
 test-python:
     python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
     cargo test -p twr-python-ssl-host --lib

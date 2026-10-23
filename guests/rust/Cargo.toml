@@ -1,0 +1,17 @@
+[package]
+name = "tarantool-wasm"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96.0"
+license = "BSD-2-Clause"
+description = "Minimal Rust guest SDK for Tarantool WebAssembly components"
+repository = "https://github.com/tarantool/tarantool-wasm-rs"
+include = ["src/**", "wit/sdk.wit", "wit/deps/*.wasm", "wkg.lock", "README.md"]
+
+[workspace]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+rmp-serde = "1.3"
+rmpv = { version = "1.3", features = ["with-serde"] }
+wit-bindgen = "=0.58.0"
