@@ -35,6 +35,7 @@ g.after_all(function(cg)
     if cg.component ~= nil then
         wasm.drop(cg.component)
     end
+
     if cg.space ~= nil then
         cg.space:drop()
     end
@@ -49,6 +50,7 @@ end
 
 g.test_persistent_session = function(cg)
     local session = wasm.open_session(cg.component)
+
     local ok, err = pcall(function()
         for _ = 1, 8 do
             t.assert_equals(wasm.session_call(session, 'check'), 'ok')
