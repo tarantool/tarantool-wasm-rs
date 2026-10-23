@@ -35,13 +35,22 @@ flowchart LR
 
 ## Guest SDKs
 
-`guests/` contains language-specific SDKs, interpreters, compatibility ports,
-WIT contracts, and tests. The [Python SDK](guests/python/README.md) includes a
-compatibility package and SSL/OpenSSL port; its tests run in a
-[separate CI workflow](.github/workflows/guests-python.yml).
-The [C# SDK](guests/csharp/README.md) provides synchronous database operations,
-owned tuples and Tarantool MessagePack types. C# requires tarawasm's experimental
-C# backend and a Linux amd64 build environment.
+`guests/` contains SDKs for WebAssembly components running inside Tarantool.
+They expose database operations through the released
+`tarantool:tarantool@0.2.0` WIT contract and support Tarantool MessagePack types.
+
+| SDK | Features | Build from the repository root |
+| --- | --- | --- |
+| [Rust](guests/rust/README.md) | Database API and owned tuples | `just rust-sdk` |
+| [Python](guests/python/README.md) | Database API, compatibility ports and SSL/OpenSSL support | `just python-sdk` |
+| [JavaScript](guests/js/README.md) | Database API, Lua callbacks and TypeScript declarations | `just js-sdk` |
+| [Go](guests/go/README.md) | Database API, Lua callbacks and WASI networking for TinyGo | `just go-sdk` |
+| [C#](guests/csharp/README.md) | Synchronous database API and owned tuples | `just csharp-sdk` |
+
+The build recipes fetch WIT dependencies from the registry using each SDK's
+lock file and produce an installable package. Each SDK's README describes its
+toolchain requirements, package usage and manual test commands. C# requires
+tarawasm's experimental C# backend and a Linux amd64 build environment.
 
 ## Choose an execution model
 

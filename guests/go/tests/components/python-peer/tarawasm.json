@@ -1,1 +1,0 @@
-{"language": "python", "world": "peer", "wit": {"path": "wit", "package": "twr:go-python-peer@0.1.0"}, "source": "main.py", "output": "sdk.wasm"}

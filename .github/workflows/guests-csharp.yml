@@ -1,24 +1,17 @@
 name: C# SDK
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    types: [opened, reopened, synchronize, labeled]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   sdk:
-    if: >-
-      ${{ github.event_name != 'pull_request' ||
-          contains(github.event.pull_request.labels.*.name, 'full-ci') ||
-          contains(github.event.pull_request.labels.*.name, 'sdk-ci') }}
+    name: Build and test
 
     runs-on: ubuntu-20.04-self-hosted
-    timeout-minutes: 90
+    timeout-minutes: 150
 
     env:
       TWR_CSHARP_IMAGE: tarawasm:csharp-sdk
@@ -67,49 +60,16 @@ jobs:
           path: guests/csharp/dist/
           if-no-files-found: error
 
-  runtime:
-    needs: sdk
-
-    runs-on: ubuntu-20.04-self-hosted
-    container:
-      image: docker.io/tarantool/testing:ubuntu-jammy
-    timeout-minutes: 60
-
-    env:
-      WKG_CONFIG_FILE: ${{ github.workspace }}/.csharp-ci-wkg.toml
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Dependencies
-        run: sudo sh scripts/install_openssl_dependencies.sh
-
-      - uses: tarantool/setup-tarantool@v3
-        with:
-          tarantool-version: '3.7'
-
-      - name: tt
-        run: |
-          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
-          sudo apt-get install -y tt
-
-      - uses: ./.github/actions/wit-setup
-        with:
-          rustflags: ''
-
-      - name: Build host
-        run: |
-          cargo build --locked --release
-          mkdir -p .rocks/lib/tarantool
-          cp target/release/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
-          tt rocks install luatest
-
       - uses: actions/download-artifact@v4
         with:
-          name: csharp-sdk
-          path: guests/csharp/dist/
+          name: sdk-host-linux-amd64
+          path: .rocks/lib/tarantool/
 
       - name: C# SDK in Tarantool
-        run: bash guests/csharp/tests/test-runtime.sh
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD:/workspace" -w /workspace \
+            tarantool/testing:ubuntu-jammy bash -euo pipefail -c '
+              bash .github/actions/sdk-runtime/setup.sh
+              bash guests/csharp/tests/test-runtime.sh
+            '

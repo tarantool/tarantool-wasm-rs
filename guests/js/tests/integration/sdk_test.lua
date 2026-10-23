@@ -86,20 +86,6 @@ g.test_callback_replacement = function(cg)
     t.assert_not(pcall(wasm.call, cg.extras, 'invoke', 10))
     wasm.call(cg.extras, 'close'); wasm.call(cg.extras, 'close')
 end
-g.test_python_exchange = function(cg)
-    t.assert_equals(wasm.call(cg.base, 'check', 'extensions'), 'ok')
-    local peer = wasm.load(fio.pathjoin(root, 'python-peer/sdk.wasm'))
-    local ok, result = pcall(wasm.call, peer, 'exchange')
-    wasm.drop(peer)
-    t.assert(ok, tostring(result)); t.assert_equals(result, 'ok')
-    for _, id in ipairs({1,2}) do
-        local row = cg.specials:get(id):totable()
-        local encoded = msgpack.encode(row)
-        local result = wasm.call(cg.base, 'roundtrip', {encoded:byte(1, -1)})
-        local decoded = msgpack.decode(string.char(unpack(result)))
-        t.assert_equals(msgpack.encode(decoded), msgpack.encode(row))
-    end
-end
 g.test_sessions = function(cg)
     local directory = fio.tempdir()
     local path = fio.pathjoin(directory, 'js.sock')

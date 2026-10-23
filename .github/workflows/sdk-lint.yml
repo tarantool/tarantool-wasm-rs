@@ -1,0 +1,134 @@
+name: SDK linters
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust lint
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: OpenSSL dependencies
+        run: sudo sh scripts/install_openssl_dependencies.sh
+      - uses: ./.github/actions/wit-setup
+      - name: Rust tools
+        run: |
+          rustup component add clippy rustfmt
+          rustup target add wasm32-wasip2
+
+      - name: Setup SDK WIT
+        run: cd guests/rust && wkg wit fetch --type wasm
+
+      - name: Check Python SSL host
+        run: |
+          cargo fmt --package twr-python-ssl-host -- --check
+          cargo clippy --locked --package twr-python-ssl-host --all-targets --all-features -- -D warnings
+
+      - name: Check Rust SDK
+        run: |
+          cargo fmt --manifest-path guests/rust/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path guests/rust/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Check Rust test component
+        run: |
+          cargo fmt --manifest-path guests/rust/tests/component/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path guests/rust/tests/component/Cargo.toml --target wasm32-wasip2 --all-targets --all-features -- -D warnings
+
+  go:
+    name: Go lint
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: guests/go/go.sum
+      - name: Format all Go sources in guests
+        shell: bash
+        run: |
+          mapfile -d '' files < <(git ls-files -z 'guests/**/*.go')
+          gofmt -l "${files[@]}" > "$RUNNER_TEMP/gofmt-files"
+          cat "$RUNNER_TEMP/gofmt-files"
+          test ! -s "$RUNNER_TEMP/gofmt-files"
+      - name: Go SDK static checks
+        working-directory: guests/go
+        run: go vet ./...
+
+  js:
+    name: JavaScript lint
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25.9.0'
+          cache: npm
+          cache-dependency-path: guests/js/package-lock.json
+      - name: Formatting and lint
+        working-directory: guests/js
+        run: |
+          npm ci --ignore-scripts
+          npm run test:style
+
+  python:
+    name: Python lint
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.11'
+      - name: Install Ruff
+        run: python3 -m pip install ruff==0.15.4
+      - name: Check maintained Python sources in guests
+        run: |
+          git ls-files -z 'guests/**/*.py' | xargs -0 ruff check --force-exclude
+
+  csharp:
+    name: C# lint
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: mcr.microsoft.com/dotnet/sdk:10.0.402
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check maintained C# sources in guests
+        shell: bash
+        run: |
+          mapfile -d '' files < <(git ls-files -z 'guests/**/*.cs')
+          dotnet format whitespace --folder . --verify-no-changes --include "${files[@]}"
+
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: |
+          archive=actionlint_1.7.12_linux_amd64.tar.gz
+          release=https://github.com/rhysd/actionlint/releases/download/v1.7.12
+          curl --fail --location --retry 3 "$release/$archive" -o "$RUNNER_TEMP/$archive"
+          curl --fail --location --retry 3 "$release/actionlint_1.7.12_checksums.txt" -o "$RUNNER_TEMP/actionlint-checksums.txt"
+          (cd "$RUNNER_TEMP" && sha256sum --check --ignore-missing actionlint-checksums.txt)
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Check workflows
+        run: actionlint -config-file .github/actionlint.yaml

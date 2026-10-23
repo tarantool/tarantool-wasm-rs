@@ -174,6 +174,6 @@ conformance. Test applications build outside the checkout from the installed
 wheel. It does not rebuild the SDK. The interpreter build can also be run alone
 with `sh guests/python/interpreter/build.sh` in the same toolchain.
 
-[guests-python.yml](../../.github/workflows/guests-python.yml) builds installed-wheel
-consumers and runs native/guest checks on macOS and Linux, preserving conformance
+[SDK workflow](../../.github/workflows/sdk.yml) runs these checks
+on Linux against the shared native-module artifact and preserves conformance
 JSON reports. Generic interpreter API tests stay in `test/lualib`.

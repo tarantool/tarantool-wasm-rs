@@ -14,7 +14,6 @@ for (const [name, value] of Object.entries(google.rules)) {
 
 export default [{
   files: ['src/*.js', 'tests/**/*.js', 'eslint.config.js'],
-  ignores: ['tests/components/python-peer/**'],
   plugins: {'@stylistic': stylistic},
   languageOptions: {ecmaVersion: 'latest', sourceType: 'module'},
   rules: {

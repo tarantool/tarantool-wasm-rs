@@ -2,17 +2,20 @@ name: Clippy check
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  clippy_check:
+  library:
+    name: Main library lint
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy
 
@@ -29,22 +32,9 @@ jobs:
       - name: Rust tools
         run: |
           rustup component add clippy rustfmt
-          rustup target add wasm32-wasip2
 
-      - name: Setup SDK WIT
-        run: cd guests/rust && wkg wit fetch --type wasm
-
-      - name: Check workspace
+      - name: Check main library
         run: |
-          cargo fmt --all -- --check
-          cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-
-      - name: Check Rust SDK
-        run: |
-          cargo fmt --manifest-path guests/rust/Cargo.toml -- --check
-          cargo clippy --locked --manifest-path guests/rust/Cargo.toml --all-targets --all-features -- -D warnings
-
-      - name: Check Rust test component
-        run: |
-          cargo fmt --manifest-path guests/rust/tests/component/Cargo.toml -- --check
-          cargo clippy --locked --manifest-path guests/rust/tests/component/Cargo.toml --target wasm32-wasip2 --all-targets --all-features -- -D warnings
+          cargo fmt --package tarantool-wasm-rs -- --check
+          cargo clippy --locked --package tarantool-wasm-rs --all-targets --all-features -- -D warnings
+          cargo clippy --locked --package tarantool-wasm-rs --all-targets --no-default-features -- -D warnings

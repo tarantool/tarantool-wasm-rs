@@ -1,0 +1,16 @@
+name: SDK runtime
+description: Install the shared Linux host artifact and its test dependencies.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: sdk-host-linux-amd64
+        path: .rocks/lib/tarantool/
+
+    - name: Prepare runtime and load shared host
+      run: |
+        bash .github/actions/sdk-runtime/setup.sh
+        echo "$PWD/.rocks/bin" >> "$GITHUB_PATH"
+      shell: bash

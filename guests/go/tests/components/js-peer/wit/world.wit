@@ -1,6 +1,0 @@
-package twr:go-js-peer@0.1.0;
-world peer {
-  include tarantool:tarantool/guest@0.2.0;
-  export exchange: func() -> string;
-  export roundtrip: func(data: list<u8>) -> list<u8>;
-}

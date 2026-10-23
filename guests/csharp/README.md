@@ -179,6 +179,6 @@ the NuGet package into two unrelated application worlds outside the checkout,
 builds, strips and validates them. `test-runtime.sh` executes those components
 in Tarantool using the native module installed by `just build`.
 
-The [C# SDK workflow](../../.github/workflows/guests-csharp.yml)
+The [SDK workflow](../../.github/workflows/sdk.yml)
 runs package, component and Tarantool integration checks. Pull requests require
 the `sdk-ci` or `full-ci` label; it can also be started manually.
