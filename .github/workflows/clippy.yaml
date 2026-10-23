@@ -27,9 +27,24 @@ jobs:
         uses: ./.github/actions/wit-setup
 
       - name: Rust tools
-        run: rustup component add clippy rustfmt
+        run: |
+          rustup component add clippy rustfmt
+          rustup target add wasm32-wasip2
 
-      - name: Check
+      - name: Setup SDK WIT
+        run: cd guests/rust && wkg wit fetch --type wasm
+
+      - name: Check workspace
         run: |
           cargo fmt --all -- --check
           cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+      - name: Check Rust SDK
+        run: |
+          cargo fmt --manifest-path guests/rust/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path guests/rust/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Check Rust test component
+        run: |
+          cargo fmt --manifest-path guests/rust/tests/component/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path guests/rust/tests/component/Cargo.toml --target wasm32-wasip2 --all-targets --all-features -- -D warnings
