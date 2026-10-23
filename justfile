@@ -71,6 +71,27 @@ js-sdk: patch-wkg-config
     wasm-tools component wit guests/js/wit/deps/tarantool-tarantool-0.2.0.wasm > guests/js/dist/released-tarantool.wit
     cd guests/js && npm pack --ignore-scripts --pack-destination dist
 
+go-sdk: patch-wkg-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd guests/go
+    rm -rf wit/deps
+    {{ wkg_fetch }}
+    mkdir -p dist
+    wasm-tools component wit wit/deps/tarantool-tarantool-0.2.0.wasm > dist/released-tarantool.wit
+    go build ./...
+
+    task_stage=$(mktemp -d)
+    trap 'rm -rf "$task_stage"' EXIT
+    task_module="$task_stage/twr-go-sdk-0.1.0"
+    mkdir -p "$task_module/wit"
+
+    cp ./*.go go.mod go.sum README.md sdk-manifest.json wkg.toml wkg.lock ../../LICENSE "$task_module/"
+    cp -R bindings codec luacallback network raw "$task_module/"
+    cp wit/*.wit "$task_module/wit/"
+    cp -R wit/runtime "$task_module/wit/"
+    COPYFILE_DISABLE=1 tar --no-xattrs --exclude='*_test.go' -czf dist/twr-go-sdk-0.1.0.tar.gz -C "$task_stage" twr-go-sdk-0.1.0
+
 # Install the native library built for the selected Cargo profile.
 install-module profile="debug":
     #!/usr/bin/env sh

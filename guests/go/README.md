@@ -12,8 +12,21 @@ only as raw WIT API. The repository license applies.
 
 ## Install the archive
 
-Use `dist/twr-go-sdk-0.1.0.tar.gz` from Go SDK CI, or package the module with
-`bash guests/go/tests/pack.sh`.
+Install Go 1.27 or newer, `wkg`, `wasm-tools` and `just`. From the repository root:
+
+```sh
+just go-sdk
+```
+
+This configures the registry, fetches dependencies with the versions and digests
+in `wkg.lock`, builds the Go library and creates
+`guests/go/dist/twr-go-sdk-0.1.0.tar.gz`. The database WIT comes from the released
+`tarantool:tarantool@0.2.0` package; downloaded dependencies remain build outputs.
+The archive includes the SDK worlds, lock and raw bindings, so installing it
+does not require WIT tools or the source checkout. Building the SDK archive
+does not run tests or compile application components.
+
+Use this archive or the one from Go SDK CI.
 Extract it beside your project and add:
 
 ```sh
@@ -303,3 +316,50 @@ IPv6 TCP is unverified; external HTTPS checks are skipped. TLS, UDP and listenin
 sockets are unsupported. See `sdk-manifest.json` for compiled/runtime results,
 verified platforms and tool versions. Python and JavaScript are used only by
 compatibility tests and are not SDK runtime dependencies.
+
+## Run tests
+
+Build the SDK with `just go-sdk` first. From `guests/go`, with Go and the WIT
+tools on PATH, run the native checks and installed-archive test manually:
+
+```sh
+go test -race ./...
+bash tests/pack.sh
+```
+
+`TestReleasedWITCoverage` reads `dist/released-tarantool.wit`, rendered by the
+SDK build from the locked registry dependency. `TWR_GO_WIT` can select another
+rendered contract. `tests/pack.sh` only tests the existing archive; it does not
+build or repack it. It installs the archive in two unrelated Go modules.
+
+To build Wasm consumers, put the verified Go/TinyGo toolchain above on PATH and
+set `PYTHONPATH` to the tarawasm checkout. `TWR_GO_PYTHON` may select a Python
+interpreter with tarawasm's CLI dependencies. From the repository root:
+
+```sh
+bash guests/go/tests/build-components.sh
+bash guests/go/tests/build-peers.sh
+just build
+bash guests/go/tests/test-runtime.sh
+```
+
+The component script builds, strips and validates archive-installed database,
+callback/zlib and network consumers through tarawasm and, for base and network,
+directly through TinyGo. The peer script needs Python and JS compilers plus npm;
+it prepares the two guests used in MessagePack exchange tests. Runtime tests
+use the native module installed by `just build` and require `luatest`.
+
+Run the separate standard-library and network capability checks with:
+
+```sh
+PATH="$PWD/.rocks/bin:$PATH" luatest -v -l luatest.log \
+  guests/go/tests/integration/capabilities_test.lua
+```
+
+Formatting and static checks are separate from functional tests:
+
+```sh
+cd guests/go
+test -z "$(gofmt -l .)"
+go vet ./...
+```

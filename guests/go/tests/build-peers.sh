@@ -4,8 +4,8 @@ set -euo pipefail
 task_repo_root=$(cd -- "$(dirname -- "$0")/../../.." && pwd)
 task_python=${TWR_GO_PYTHON:-python3}
 tarawasm() { "$task_python" -m tarawasm.cli --non-interactive "$@"; }
-PYTHON="$task_python" sh "$task_repo_root/guests/python/build-wheel.sh" "$task_repo_root/guests/python/dist"
-(cd "$task_repo_root/guests/js" && npm ci --ignore-scripts && mkdir -p dist && npm pack --pack-destination dist)
+PYTHON="$task_python" just --justfile "$task_repo_root/justfile" python-sdk
+just --justfile "$task_repo_root/justfile" js-sdk
 for task_language in python js; do
  task_dir="$task_repo_root/guests/go/tests/components/$task_language-peer"
  cd "$task_dir"
