@@ -6,10 +6,10 @@
     "lua_callback": "docs:adder/lua-callback@0.1.3"
   },
   "toolchain": {
-    "componentize_py": "0.25.0",
+    "componentize_py": "0.25.1",
     "guest_cpython": "3.14.0",
     "ssl_api_baseline": "3.12",
-    "wasm_tools": "1.245.1"
+    "wasm_tools": "1.261.0"
   },
   "ports": {
     "ssl": {

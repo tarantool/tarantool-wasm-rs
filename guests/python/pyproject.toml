@@ -17,4 +17,4 @@ py-modules = ["_tarantool"]
 where = ["sdk/src"]
 
 [tool.setuptools.package-data]
-twr_python_sdk = ["wit/*.wit"]
+twr_python_sdk = ["wit/*.wit", "wit/sdk/*"]

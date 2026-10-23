@@ -21,6 +21,11 @@ class BuildPy(build_py):
         contract = package / "wit"
         contract.mkdir(exist_ok=True)
         shutil.copy2(ROOT / "ports/ssl/wit/ssl-bio.wit", contract / "ssl-bio.wit")
+        sdk_contract = contract / "sdk"
+        sdk_contract.mkdir(exist_ok=True)
+        for source in (ROOT / "wit/sdk.wit", ROOT / "wkg.toml", ROOT / "wkg.lock"):
+            shutil.copy2(source, sdk_contract / source.name)
+
         shutil.copy2(ROOT / "sdk-manifest.json", package / "sdk-manifest.json")
 
 

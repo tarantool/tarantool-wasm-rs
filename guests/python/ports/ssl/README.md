@@ -86,7 +86,8 @@ has already consumed input or accepted output.
 
 ```sh
 cargo test --locked -p twr-python-ssl-host --lib
-bash guests/python/build-artifacts.sh
+just python-sdk
+# Build components using the Docker command in the SDK README.
 bash guests/python/test.sh
 ```
 
