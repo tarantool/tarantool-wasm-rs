@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
-# Build the local module archive and test installation outside the checkout.
+# Test installation of the archive built by just go-sdk outside the checkout.
 set -euo pipefail
 task_sdk_root=$(cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$task_sdk_root"
-mkdir -p dist
-task_version=0.1.0
 task_stage=$(mktemp -d)
 trap 'rm -rf "$task_stage"' EXIT
-task_module="$task_stage/twr-go-sdk-$task_version"
-mkdir -p "$task_module/wit"
-cp ./*.go go.mod go.sum README.md sdk-manifest.json "$task_module/"
-cp -R bindings codec luacallback network raw "$task_module/"
-cp wit/*.wit "$task_module/wit/"
-cp -R wit/runtime wit/contracts "$task_module/wit/"
-tar -czf "dist/twr-go-sdk-$task_version.tar.gz" -C "$task_stage" "twr-go-sdk-$task_version"
+
 # Installation has no source checkout or application internal dependency.
 for task_name in first.example/app second.example/different; do
- task_project=$(mktemp -d)
- tar -xzf "$task_sdk_root/dist/twr-go-sdk-$task_version.tar.gz" -C "$task_project"
+ task_project=$(mktemp -d "$task_stage/consumer.XXXXXX")
+ tar -xzf "$task_sdk_root/dist/twr-go-sdk-0.1.0.tar.gz" -C "$task_project"
  (
   cd "$task_project"
   go mod init "$task_name"

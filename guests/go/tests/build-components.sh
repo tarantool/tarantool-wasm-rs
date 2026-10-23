@@ -27,9 +27,6 @@ for task_fixture in base extras probes; do
   printf '[overrides]\n"docs:adder" = { path = "runtime-wit" }\n' > wkg.toml
  fi
  wkg fetch --type wasm
- if [[ "$task_fixture" == base ]]; then
-  wasm-tools component wit wit/deps/tarantool-tarantool-0.2.0.wasm > "$task_sdk_root/dist/released-tarantool.wit"
- fi
  tarawasm bind --execution local -- --versioned
  if [[ "$task_fixture" == probes ]]; then
   # Capability audit only: asyncify remains necessary for net/http's internal goroutines.

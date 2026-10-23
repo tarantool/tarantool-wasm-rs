@@ -155,11 +155,12 @@ func witFunctions(t *testing.T, source string) map[string]bool {
 	}
 	return out
 }
+
 func TestReleasedWITCoverage(t *testing.T) {
-	// CI supplies a fresh wasm-tools rendering of the repository's released WIT.
+	// SDK builds render the locked registry dependency for this coverage check.
 	path := os.Getenv("TWR_GO_WIT")
 	if path == "" {
-		path = "wit/contracts/tarantool.wit"
+		path = "dist/released-tarantool.wit"
 	}
 	b, e := os.ReadFile(path)
 	if e != nil {

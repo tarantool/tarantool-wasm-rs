@@ -1,0 +1,3 @@
+# Keep SDK dependencies separate from the host's wasi-tls override.
+[overrides]
+"docs:adder" = { path = "wit/runtime" }

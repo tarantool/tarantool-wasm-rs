@@ -21,6 +21,9 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}/.go-ci-tarawasm
     steps:
       - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.2'
@@ -64,6 +67,8 @@ jobs:
           for tool in go tinygo wkg wasm-tools wasm-opt; do command -v "$tool"; done
           "$TWR_GO_PYTHON" -m tarawasm.cli doctor --lang go --json
           bash scripts/add_tarantool_registry.sh
+      - name: Build SDK archive from the locked registry contract
+        run: just go-sdk
       - name: Formatting, static checks, unit tests and archive installation
         working-directory: guests/go
         run: |
@@ -116,6 +121,9 @@ jobs:
             "TARAWASM_CONFIG_HOME=$RUNNER_TEMP/go-peer-config" \
             "TARAWASM_DATA_HOME=$RUNNER_TEMP/go-peer-tools" \
             "WKG_CONFIG_FILE=$RUNNER_TEMP/go-peer-wkg.toml" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0
       - name: Install Python and JS exchange tools
         run: |
           python3 -m pip install -r .go-ci-tarawasm/requirements.txt
