@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {readdirSync, readFileSync} from 'node:fs';
+import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -21,7 +21,7 @@ function collect(dir, recursive = true) {
       files.push(path);
     } else if (recursive && entry.isDirectory() && dir.endsWith('components')) {
       const main = join(path, 'main.js');
-      if (entry.name !== 'python-peer') {
+      if (existsSync(main)) {
         files.push(main);
       }
     }

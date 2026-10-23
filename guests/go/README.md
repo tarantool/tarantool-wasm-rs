@@ -314,8 +314,8 @@ host zlib API instead copies WIT byte buffers and uses the host's libz.
 DNS, TCP and HTTP work with the optional driver and emit WASI socket imports.
 IPv6 TCP is unverified; external HTTPS checks are skipped. TLS, UDP and listening
 sockets are unsupported. See `sdk-manifest.json` for compiled/runtime results,
-verified platforms and tool versions. Python and JavaScript are used only by
-compatibility tests and are not SDK runtime dependencies.
+verified platforms and tool versions. Cross-language tests are maintained in the
+[shared SDK compatibility suite](../tests/README.md).
 
 ## Run tests
 
@@ -338,16 +338,14 @@ interpreter with tarawasm's CLI dependencies. From the repository root:
 
 ```sh
 bash guests/go/tests/build-components.sh
-bash guests/go/tests/build-peers.sh
 just build
 bash guests/go/tests/test-runtime.sh
 ```
 
 The component script builds, strips and validates archive-installed database,
 callback/zlib and network consumers through tarawasm and, for base and network,
-directly through TinyGo. The peer script needs Python and JS compilers plus npm;
-it prepares the two guests used in MessagePack exchange tests. Runtime tests
-use the native module installed by `just build` and require `luatest`.
+directly through TinyGo. Runtime tests use the native module installed by
+`just build` and require `luatest`.
 
 Run the separate standard-library and network capability checks with:
 

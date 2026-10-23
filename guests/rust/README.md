@@ -133,9 +133,9 @@ just build
 bash guests/rust/tests/test-runtime.sh
 ```
 
-The [Clippy workflow](../../.github/workflows/clippy.yaml) checks formatting and
-runs Clippy for the host workspace, SDK and test component on every pull request.
-The [Rust SDK workflow](../../.github/workflows/guests-rust.yml) runs the build,
+The [SDK linters workflow](../../.github/workflows/sdk-lint.yml) checks
+formatting and runs Clippy for Rust code under `guests/` on every pull request.
+The [SDK workflow](../../.github/workflows/sdk.yml) runs the build,
 tests and package verification. It uploads a `.crate`
 archive containing the standalone SDK and fetched WIT contract. Extract it and
 use its directory as the dependency path above. Pull requests require the

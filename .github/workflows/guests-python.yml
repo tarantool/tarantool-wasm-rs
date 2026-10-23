@@ -1,25 +1,17 @@
 name: Python SDK
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    types: [opened, reopened, synchronize, labeled]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   sdk:
-    name: Build
-    if: >-
-      ${{ github.event_name != 'pull_request' ||
-          contains(github.event.pull_request.labels.*.name, 'full-ci') ||
-          contains(github.event.pull_request.labels.*.name, 'sdk-ci') }}
+    name: Build and test
     # Guest compilation uses Docker bind mounts from the runner checkout.
     runs-on: ubuntu-20.04-self-hosted
-    timeout-minutes: 45
+    timeout-minutes: 135
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,97 +67,68 @@ jobs:
             guests/python/tests/components/*/*.wasm
           if-no-files-found: error
 
-  test:
-    name: Test (Linux)
-    needs: sdk
-    runs-on: ubuntu-20.04-self-hosted
-    container:
-      image: docker.io/tarantool/testing:ubuntu-jammy
-      # WASI keylogs append via pwritev2(RWF_APPEND) on Linux. Keep temporary
-      # files off the runner's container filesystem, which can overwrite logs.
-      options: --tmpfs /tmp:rw,exec,mode=1777
-    timeout-minutes: 90
-    env:
-      WKG_CONFIG_FILE: ${{ github.workspace }}/.python-ci-wkg.toml
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          submodules: recursive
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12.11'
-      - name: Check temporary file append
+          name: sdk-host-linux-amd64
+          path: .rocks/lib/tarantool/
+      - name: Python reference and guest tests in Jammy
         run: |
+          docker run --rm -i --platform linux/amd64 \
+            --tmpfs /tmp:rw,exec,mode=1777 \
+            -v "$PWD:/workspace" -v "$RUNNER_TEMP:$RUNNER_TEMP" \
+            -w /workspace -e RUNNER_TEMP \
+            -e PATH="$RUNNER_TEMP/python-reference/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+            tarantool/testing:ubuntu-jammy bash -euo pipefail <<'BASH'
+          bash .github/actions/sdk-runtime/setup.sh
+          export PATH="$PWD/.rocks/bin:$PATH"
+          python3 -m pip install -r guests/python/interpreter/requirements-build.txt
           python3 - <<'PY'
+          import ctypes
           import errno
           import os
           import platform
           import tempfile
 
+          class Iovec(ctypes.Structure):
+              _fields_ = [('base', ctypes.c_void_p), ('length', ctypes.c_size_t)]
+
+          # Probe libc directly: managed Python may lack os.pwritev flag support.
+          libc = ctypes.CDLL(None, use_errno=True)
+          libc.pwritev2.argtypes = [
+              ctypes.c_int, ctypes.POINTER(Iovec), ctypes.c_int,
+              ctypes.c_longlong, ctypes.c_int,
+          ]
+          libc.pwritev2.restype = ctypes.c_ssize_t
+          payload = ctypes.create_string_buffer(b'next\n')
+          vector = Iovec(ctypes.cast(payload, ctypes.c_void_p), 5)
           print(f'Kernel: {platform.release()}; temp dir: {tempfile.gettempdir()}')
           with tempfile.TemporaryFile() as file:
               file.write(b'first-long-record\n')
               file.flush()
-              try:
-                  os.pwritev(file.fileno(), [b'next\n'], 0, os.RWF_APPEND)
-              except OSError as error:
-                  if error.errno not in (errno.ENOSYS, errno.EOPNOTSUPP):
-                      raise
+              written = libc.pwritev2(file.fileno(), ctypes.byref(vector), 1, 0, 0x10)
+              if written == -1:
+                  code = ctypes.get_errno()
+                  if code not in (errno.ENOSYS, errno.EOPNOTSUPP):
+                      raise OSError(code, os.strerror(code))
                   print('RWF_APPEND unavailable; WASI uses the O_APPEND fallback')
               else:
+                  assert written == 5, 'Temporary filesystem performed a short append'
                   file.seek(0)
                   assert file.read() == b'first-long-record\nnext\n', \
                       'Temporary filesystem overwrites files instead of appending'
           PY
-      - name: Linux deps
-        run: sudo sh scripts/install_openssl_dependencies.sh
-      - uses: tarantool/setup-tarantool@v3
-        with:
-          tarantool-version: '3.6'
-      - name: Linux tt
-        run: |
-          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
-          sudo apt-get install -y tt
-      - name: Setup WIT
-        uses: ./.github/actions/wit-setup
-        with:
-          rustflags: ''
-      - name: Build host
-        shell: bash
-        run: |
-          cargo build --locked --release
-          mkdir -p .rocks/lib/tarantool
-          cp target/release/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
-          tt rocks install luatest
-      - name: Rust tests
-        run: |
-          cargo test --locked --release -p twr-python-ssl-host --lib
-          cargo check --locked --release --no-default-features
-      - uses: actions/download-artifact@v4
-        with:
-          name: python-components
-          path: guests/python/
-      - name: Python deps
-        run: python3 -m pip install -r guests/python/interpreter/requirements-build.txt
-      - name: Reference tests
-        run: |
           python3 guests/python/tests/integration/ssl_bio_cases.py guests/python/tests/fixtures/ssl
           python3 guests/python/tests/integration/ssl_socket_cases.py guests/python/tests/fixtures/ssl
           python3 guests/python/tests/integration/ssl_asyncio_cases.py guests/python/tests/fixtures/ssl
           python3 guests/python/tests/conformance/generate.py > "$RUNNER_TEMP/ssl-conformance-native.json"
           python3 guests/python/tests/conformance/native.py > "$RUNNER_TEMP/ssl-conformance-native-full.json"
-      - name: Guest tests
-        run: |
           TWR_SSL_CONFORMANCE_REPORT="$RUNNER_TEMP/ssl-conformance-guest.json" \
             bash guests/python/test.sh
+          timeout --kill-after=10s 300s luatest -v test/lualib/interpreter_api_test.lua
+          BASH
       - name: Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ssl-conformance-linux
           path: ${{ runner.temp }}/ssl-conformance-*.json
-      - name: Interpreter tests
-        shell: bash
-        run: |
-          export PATH="$PWD/.rocks/bin:$PATH"
-          timeout --kill-after=10s 300s luatest -v test/lualib/interpreter_api_test.lua

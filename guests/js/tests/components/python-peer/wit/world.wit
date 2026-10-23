@@ -1,5 +1,0 @@
-package twr:js-python-peer@0.1.0;
-world peer {
-  include tarantool:tarantool/guest@0.2.0;
-  export exchange: func() -> string;
-}

@@ -5,13 +5,6 @@ local socket = require('socket')
 local msgpack = require('msgpack')
 local g = t.group('go_sdk')
 local root = fio.abspath('guests/go/tests/components')
-local function comparable(value)
-    if box.error.is(value) then return value:unpack() end
-    if type(value) ~= 'table' then return value end
-    local result = {}
-    for key, item in pairs(value) do result[key] = comparable(item) end
-    return result
-end
 g.before_all(function(cg)
     box.cfg{memtx_use_mvcc_engine=true}
     cg.users = box.schema.space.create('go_users')
@@ -91,29 +84,4 @@ g.test_sessions=function(cg)
     end
     watcher:unregister();client:close();box.cfg{listen=''};fio.rmtree(directory)
     t.assert(ok,tostring(v));t.assert_equals(v,'ok')
-end
-g.test_cross_language_exchange=function(cg)
-    t.assert_equals(wasm.call(cg.base,'check','extensions'),'ok')
-    for _,language in ipairs({'python','js'}) do
-        local m=wasm.load(fio.pathjoin(root,language..'-peer/sdk.wasm'))
-        local ok,v=pcall(wasm.call,m,'exchange')
-        if ok then
-            for _,row in ipairs({cg.specials:get(1):totable(),cg.bigints:get(1):totable(),
-                               {box.NULL,require('varbinary').new('\0\255'),{}, {a=1}}}) do
-                local encoded=msgpack.encode(row)
-                local bytes={encoded:byte(1,-1)}
-                local out=wasm.call(m,'roundtrip',bytes)
-                local gobytes=wasm.call(cg.base,'roundtrip',out)
-                local decoded=msgpack.decode(string.char(unpack(gobytes)))
-                t.assert_equals(comparable(decoded),comparable(row))
-            end
-        end
-        wasm.drop(m);t.assert(ok,tostring(v));t.assert_equals(v,'ok')
-    end
-    -- Both peers write values that Go then decodes, including extensions.
-    for _,id in ipairs({2,3}) do
-        local row=cg.specials:get(id):totable();local encoded=msgpack.encode(row)
-        local bytes=wasm.call(cg.base,'roundtrip',{encoded:byte(1,-1)})
-        t.assert_equals(comparable(msgpack.decode(string.char(unpack(bytes)))),comparable(row))
-    end
 end

@@ -1,21 +1,14 @@
 name: Rust SDK
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    types: [opened, reopened, synchronize, labeled]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   sdk:
-    if: >-
-      ${{ github.event_name != 'pull_request' ||
-          contains(github.event.pull_request.labels.*.name, 'full-ci') ||
-          contains(github.event.pull_request.labels.*.name, 'sdk-ci') }}
+    name: Build and test
     runs-on: ubuntu-20.04-self-hosted
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy
@@ -26,15 +19,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Dependencies
-        run: sudo sh scripts/install_openssl_dependencies.sh
-      - uses: tarantool/setup-tarantool@v3
-        with:
-          tarantool-version: '3.7'
-      - name: tt
-        run: |
-          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
-          sudo apt-get install -y tt
       - uses: ./.github/actions/wit-setup
         with:
           rustflags: ''
@@ -60,15 +44,16 @@ jobs:
           wasm-tools strip "$component" -o "$component.stripped"
           mv "$component.stripped" "$component"
           wasm-tools validate "$component"
-      - name: Build host and run SDK in Tarantool
-        run: |
-          cargo build --locked --release
-          mkdir -p .rocks/lib/tarantool
-          cp target/release/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
-          tt rocks install luatest
-          bash guests/rust/tests/test-runtime.sh
+      - uses: ./.github/actions/sdk-runtime
+      - name: Rust SDK in Tarantool
+        run: bash guests/rust/tests/test-runtime.sh
       - uses: actions/upload-artifact@v4
         with:
           name: rust-sdk
           path: guests/rust/target/package/*.crate
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-components
+          path: guests/rust/tests/component/target/wasm32-wasip2/release/rust_sdk_test.wasm
           if-no-files-found: error

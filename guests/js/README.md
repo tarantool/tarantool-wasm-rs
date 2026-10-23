@@ -317,11 +317,10 @@ maintained in TypeScript declarations.
 
 `tests/build-components.sh` builds, strips and validates guests importing the
 installed archive with local tools. CI checks out the latest tarawasm `master`
-and prepares only its JS toolchain and the Python compiler for the exchange
-test. For local build checks, set `PYTHONPATH` to that checkout, prepare
-`toolchain setup js` and `toolchain setup python` in local mode, and expose the
-managed tool paths in `PATH`. `TWR_JS_PYTHON` can select the Python interpreter
-that has tarawasm's CLI dependencies installed.
+and prepares its JS toolchain. For local build checks, set `PYTHONPATH` to that
+checkout, prepare `toolchain setup js` in local mode, and expose the managed
+tool paths in `PATH`. `TWR_JS_PYTHON` can select the Python interpreter that has
+tarawasm's CLI dependencies installed.
 
 With those tools available, run from the repository root:
 
@@ -335,8 +334,9 @@ The component script consumes the archive built by `just js-sdk`; it does not
 repack SDK sources. The runtime script uses the native module installed by
 `just build` and requires `luatest`.
 
-`tests/test-runtime.sh` runs the components in Tarantool-Wasm-Rs,
-including the MessagePack exchange with a Python guest. The separate capability
+`tests/test-runtime.sh` runs the components in Tarantool-Wasm-Rs.
+Cross-language checks are maintained in the
+[shared SDK compatibility suite](../tests/README.md). The separate capability
 audit uses `tests/build-capability-probes.sh` and
 `tests/integration/capabilities_test.lua`. Optional external HTTPS checks use
 `TWR_JS_HTTPS_PROBE_URL`; skipped or classified failures do not count as verified

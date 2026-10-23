@@ -1,0 +1,27 @@
+extend = "../../../ruff.toml"
+
+# ssl-compatible constants are installed by globals().update(enum.__members__).
+builtins = [
+    "ALERT_DESCRIPTION_INTERNAL_ERROR",
+    "OP_ALL",
+    "OP_CIPHER_SERVER_PREFERENCE",
+    "OP_ENABLE_MIDDLEBOX_COMPAT",
+    "OP_NO_COMPRESSION",
+    "OP_NO_SSLv3",
+    "OP_NO_TLSv1",
+    "OP_NO_TLSv1_1",
+    "OP_NO_TLSv1_2",
+    "OP_NO_TLSv1_3",
+    "PROTOCOL_TLS",
+    "PROTOCOL_TLS_CLIENT",
+    "PROTOCOL_TLS_SERVER",
+    "PROTOCOL_TLSv1",
+    "PROTOCOL_TLSv1_1",
+    "PROTOCOL_TLSv1_2",
+    "SSL_ERROR_EOF",
+    "SSL_ERROR_SSL",
+    "SSL_ERROR_WANT_READ",
+    "SSL_ERROR_WANT_WRITE",
+    "SSL_ERROR_ZERO_RETURN",
+    "VERIFY_X509_TRUSTED_FIRST",
+]

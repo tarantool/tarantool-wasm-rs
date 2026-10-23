@@ -29,8 +29,9 @@ def private_socket_arguments():
     context = _ssl._SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
     with socket.socket() as raw:
         fd = raw.fileno()
+        # Both closures run before raw is deleted below.
         for call in (lambda: context._wrap_socket(object(), False),
-                     lambda: context._wrap_socket(raw, False, owner=1)):
+                     lambda: context._wrap_socket(raw, False, owner=1)):  # noqa: F821
             try:
                 call()
             except TypeError:

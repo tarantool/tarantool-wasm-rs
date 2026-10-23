@@ -24,21 +24,11 @@ for task_fixture in base extras; do
     '
     if [[ "$task_fixture" != extras ]]; then wkg fetch --type wasm; fi
 done
-PYTHON="$task_python" just --justfile "$task_repo_root/justfile" python-sdk
-cd "$task_sdk_root/tests/components/python-peer"
-wkg fetch --type wasm
-for task_fixture in base extras python-peer; do
+for task_fixture in base extras; do
     cd "$task_sdk_root/tests/components/$task_fixture"
     tarawasm clean
     tarawasm bind --execution local
-    if [[ "$task_fixture" == python-peer ]]; then
-        # Reinstall after clean/bind, then pass the installed SDK to the compiler.
-        "$task_python" -m pip install --upgrade --disable-pip-version-check --target .tarawasm/sdk-installed "$task_repo_root/guests/python/dist/twr_python_sdk-0.1.0-py3-none-any.whl"
-        tarawasm build --execution local -- --python-path .tarawasm/sdk-installed
-    else
-        # Exercise tarawasm's default npm dependency bundling.
-        tarawasm build --execution local
-    fi
+    tarawasm build --execution local
     tarawasm strip --execution local sdk.wasm
     mv sdk.strip.wasm sdk.wasm
     wasm-tools validate sdk.wasm
