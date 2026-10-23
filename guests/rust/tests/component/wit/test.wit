@@ -1,0 +1,6 @@
+package test:rust-sdk@0.1.0;
+world sdk-test {
+  export check: func() -> string;
+  export roundtrip: func(data: list<u8>) -> list<u8>;
+  export exchange: func(data: list<u8>) -> list<u8>;
+}

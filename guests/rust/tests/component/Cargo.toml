@@ -1,0 +1,14 @@
+[package]
+name = "rust-sdk-test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tarantool-wasm = { path = "../.." }
+wit-bindgen = "=0.58.0"
