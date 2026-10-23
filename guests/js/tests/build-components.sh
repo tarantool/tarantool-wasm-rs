@@ -5,9 +5,6 @@ task_repo_root=$(cd -- "$(dirname -- "$0")/../../.." && pwd)
 task_sdk_root="$task_repo_root/guests/js"
 task_python=${TWR_JS_PYTHON:-python3}
 tarawasm() { "$task_python" -m tarawasm.cli --non-interactive "$@"; }
-mkdir -p "$task_sdk_root/dist"
-cd "$task_sdk_root"
-npm pack --pack-destination dist
 bash "$task_repo_root/scripts/add_tarantool_registry.sh"
 # Prepare fixtures from the actual archive. No SDK source imports in JS guests.
 for task_fixture in base extras; do
@@ -27,7 +24,7 @@ for task_fixture in base extras; do
     '
     if [[ "$task_fixture" != extras ]]; then wkg fetch --type wasm; fi
 done
-PYTHON="$task_python" sh "$task_repo_root/guests/python/build-wheel.sh" "$task_repo_root/guests/python/dist"
+PYTHON="$task_python" just --justfile "$task_repo_root/justfile" python-sdk
 cd "$task_sdk_root/tests/components/python-peer"
 wkg fetch --type wasm
 for task_fixture in base extras python-peer; do
@@ -50,4 +47,3 @@ done
 if grep -Eq "docs:adder/|wasi:tls" "$task_sdk_root/dist/base.component.wit"; then
     echo "Base SDK component imports an optional runtime interface" >&2; exit 1
 fi
-node "$task_sdk_root/tests/observe-toolchain.js"

@@ -15,14 +15,18 @@ JavaScript interpreter are outside this stage.
 
 ## Install and write a component
 
-Create an installable archive from this checkout:
+Install Node.js, npm, `wkg`, `wasm-tools` and `just`. From the repository root:
 
 ```sh
-cd guests/js
-npm ci --ignore-scripts
-mkdir -p dist
-npm pack --pack-destination dist
+just js-sdk
 ```
+
+The recipe configures the registry, fetches `tarantool:tarantool@0.2.0` with
+the digest in `wkg.lock` and creates `guests/js/dist/twr-js-sdk-0.1.0.tgz`.
+Downloaded WIT is a build output. The package contains the SDK worlds, registry
+configuration and lock; it does not embed the full database contract.
+The SDK ships JavaScript sources and TypeScript declarations, so packaging
+requires no compiler, development dependencies or test execution.
 
 In your component project, install the archive and save it as a dependency:
 
@@ -288,10 +292,28 @@ record these failures separately from successful network exchanges.
 
 ## Development checks
 
-Run `npm run test:style`, `npm test`, `npm run test:types` and `bash tests/pack.sh`
-from `guests/js`. `npm run format` applies Google JavaScript formatting; public
-signatures are maintained in TypeScript declarations. `tests/check-coverage.js`
-checks every released WIT function against its SDK method after fetching WIT.
+Build the SDK with `just js-sdk` first. From `guests/js`, run native tests,
+declaration checks, released WIT coverage and archive installation manually:
+
+```sh
+npm ci --ignore-scripts
+npm test
+npm run test:types
+npm run test:coverage
+bash tests/pack.sh
+```
+
+`tests/check-coverage.js` reads `dist/released-tarantool.wit`, rendered by the
+SDK build from the locked registry dependency. `tests/pack.sh` tests the existing
+archive without rebuilding it, including declarations used by an external
+consumer. Formatting and lint checks are separate:
+
+```sh
+npm run test:style
+```
+
+`npm run format` applies Google JavaScript formatting; public signatures are
+maintained in TypeScript declarations.
 
 `tests/build-components.sh` builds, strips and validates guests importing the
 installed archive with local tools. CI checks out the latest tarawasm `master`
@@ -301,9 +323,29 @@ test. For local build checks, set `PYTHONPATH` to that checkout, prepare
 managed tool paths in `PATH`. `TWR_JS_PYTHON` can select the Python interpreter
 that has tarawasm's CLI dependencies installed.
 
+With those tools available, run from the repository root:
+
+```sh
+bash guests/js/tests/build-components.sh
+just build
+bash guests/js/tests/test-runtime.sh
+```
+
+The component script consumes the archive built by `just js-sdk`; it does not
+repack SDK sources. The runtime script uses the native module installed by
+`just build` and requires `luatest`.
+
 `tests/test-runtime.sh` runs the components in Tarantool-Wasm-Rs,
 including the MessagePack exchange with a Python guest. The separate capability
 audit uses `tests/build-capability-probes.sh` and
 `tests/integration/capabilities_test.lua`. Optional external HTTPS checks use
 `TWR_JS_HTTPS_PROBE_URL`; skipped or classified failures do not count as verified
 network support.
+
+Run the capability audit separately, with the same guest toolchains and host:
+
+```sh
+bash guests/js/tests/build-capability-probes.sh
+PATH="$PWD/.rocks/bin:$PATH" luatest -v -l luatest.log \
+  guests/js/tests/integration/capabilities_test.lua
+```
