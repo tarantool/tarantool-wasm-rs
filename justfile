@@ -7,6 +7,10 @@ wkg_fetch := "wkg wit fetch --type wasm"
 wkg_build := "wkg wit build"
 add_registry_patch := "./scripts/add_tarantool_registry.sh"
 
+csharp_image := env("TWR_CSHARP_IMAGE", "tarawasm:csharp-sdk")
+csharp_run := 'docker run --rm --pull=never --platform linux/amd64 -v "' + justfile_directory() + ':/work" -w /work/guests/csharp "' + csharp_image + '"'
+csharp_bindgen := "/opt/tarawasm-csharp/packages/bytecodealliance.componentize.dotnet.witbindgen/0.8.0-preview00011/tools/linux-x64/wit-bindgen"
+
 git_submodule_update_wasi_tls := "git submodule update --init --recursive --jobs 8 third-party/wasi-tls"
 
 all: submodule-wasi-tls patch-wkg-config wit-fetch
@@ -47,6 +51,12 @@ test-python:
     python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
     cargo test -p twr-python-ssl-host --lib
     bash guests/python/test.sh
+
+csharp-sdk: patch-wkg-config
+    rm -rf guests/csharp/wit/deps guests/csharp/src/obj/bindings
+    cd guests/csharp && {{ wkg_fetch }}
+    {{ csharp_run }} {{ csharp_bindgen }} c-sharp wit --world tarantool-sdk --runtime native-aot --with-wit-results --internal --out-dir src/obj/bindings
+    {{ csharp_run }} dotnet pack src/Tarantool.Wasm.csproj -c Release -o dist
 
 # Install the native library built for the selected Cargo profile.
 install-module profile="debug":

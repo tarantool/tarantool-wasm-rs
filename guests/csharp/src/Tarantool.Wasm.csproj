@@ -18,11 +18,12 @@
     <None Include="../README.md" Pack="true" PackagePath="/" />
     <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
     <None Include="../sdk-manifest.json" Pack="true" PackagePath="/" />
+    <None Include="../wkg.lock" Pack="true" PackagePath="/" />
     <None Include="../buildTransitive/Tarantool.Wasm.targets" Pack="true" PackagePath="buildTransitive/" />
     <None Include="$(BindingsDir)/TarantoolSdkWorld_component_type.wit" Pack="true" PackagePath="buildTransitive/Tarantool.Wasm.wit" />
   </ItemGroup>
 
   <Target Name="CheckBindings" BeforeTargets="CoreCompile">
-    <Error Condition="!Exists('$(BindingsDir)/TarantoolSdk.cs')" Text="Generate the pinned SDK bindings using guests/csharp/build.sh before compiling or packing." />
+    <Error Condition="!Exists('$(BindingsDir)/TarantoolSdk.cs')" Text="Generate the SDK bindings with just csharp-sdk from the repository root before compiling or packing." />
   </Target>
 </Project>

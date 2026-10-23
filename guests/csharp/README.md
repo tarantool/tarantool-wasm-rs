@@ -9,6 +9,7 @@ responsibility. This is not an IPROTO network client.
 ## Build the package
 
 C# support is experimental and requires a Linux amd64 build environment.
+Install `wkg` and `just` on the machine running the build recipes.
 Use a [tarawasm](https://github.com/mandesero/tarawasm) `csharp` Docker image
 with the revision and toolchain versions in [sdk-manifest.json](sdk-manifest.json).
 In that tarawasm checkout:
@@ -21,10 +22,16 @@ Then, from this repository root:
 
 ```sh
 export TWR_CSHARP_IMAGE=tarawasm:csharp-sdk
-bash guests/csharp/build.sh
+just csharp-sdk
 ```
 
 The local NuGet package is `guests/csharp/dist/Tarantool.Wasm.0.1.0.nupkg`.
+The recipe configures the Tarantool registry, fetches the released
+`tarantool:tarantool@0.2.0` dependency with the digest in `wkg.lock`, generates
+internal C# bindings and packs the library. Downloaded WIT and bindings are
+build outputs; the repository only maintains the SDK world and lock file.
+The package includes its component-type WIT and `wkg.lock`, so applications
+using the package do not need `wkg` or the SDK source checkout.
 
 ## Consume from your own component
 
@@ -159,11 +166,19 @@ this SDK.
 With `TWR_CSHARP_IMAGE` set and the package built, run from the repository root:
 
 ```sh
+docker run --rm --pull=never --platform linux/amd64 \
+  -v "$PWD:/work" -w /work/guests/csharp "$TWR_CSHARP_IMAGE" \
+  dotnet run --project tests/unit/Unit.csproj -c Release
 bash guests/csharp/tests/build-components.sh
 just build
 bash guests/csharp/tests/test-runtime.sh
 ```
 
-`build.sh` also runs the standalone codec tests. The [C# SDK workflow](../../.github/workflows/guests-csharp.yml)
+The Docker command runs standalone codec tests. `build-components.sh` installs
+the NuGet package into two unrelated application worlds outside the checkout,
+builds, strips and validates them. `test-runtime.sh` executes those components
+in Tarantool using the native module installed by `just build`.
+
+The [C# SDK workflow](../../.github/workflows/guests-csharp.yml)
 runs package, component and Tarantool integration checks. Pull requests require
 the `sdk-ci` or `full-ci` label; it can also be started manually.

@@ -3,8 +3,7 @@
   "sdk_version": "0.1.0",
   "package": "Tarantool.Wasm",
   "api": {
-    "tarantool_wit": "tarantool:tarantool@0.2.0",
-    "contract_sha256": "be9ece2f2e93357e54be8421922ae2643e0cb53f781939979166a26957470b2d"
+    "tarantool_wit": "tarantool:tarantool@0.2.0"
   },
   "toolchain": {
     "dotnet": "10.0.402",
