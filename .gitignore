@@ -29,3 +29,6 @@ guests/python/build/
 *.egg-info/
 guests/python/**/wit/deps/
 !guests/python/**/*.wasm
+
+# Rust SDK WIT dependencies are prepared from its locked published contract.
+guests/rust/wit/deps/
