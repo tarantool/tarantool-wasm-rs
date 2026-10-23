@@ -37,20 +37,26 @@ build: && (install-module "debug")
 build-release: && (install-module "release")
     cargo build --release
 
-# Language SDK artifacts and their separately maintained compatibility suite.
-python-sdk:
-    bash guests/python/build-artifacts.sh
+# Language SDK artifacts. Test commands are documented in each SDK's README.
+python-sdk: patch-wkg-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd guests/python
+    rm -rf wit/deps
+    {{ wkg_fetch }}
+    export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-946684800}"
+    task_python="${PYTHON:-python3}"
+    task_tools=$(mktemp -d)
+    trap 'rm -rf "$task_tools"' EXIT
+
+    "$task_python" -m pip install --disable-pip-version-check --target "$task_tools" setuptools==80.9.0 wheel==0.45.1
+    PYTHONPATH="$task_tools" "$task_python" -m pip wheel --disable-pip-version-check --no-build-isolation --no-deps -w dist .
 
 rust-sdk: patch-wkg-config
     rm -rf guests/rust/wit/deps
     cd guests/rust && {{ wkg_fetch }}
     cargo build --locked --manifest-path guests/rust/Cargo.toml
     cargo package --locked --allow-dirty --manifest-path guests/rust/Cargo.toml
-
-test-python:
-    python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
-    cargo test -p twr-python-ssl-host --lib
-    bash guests/python/test.sh
 
 csharp-sdk: patch-wkg-config
     rm -rf guests/csharp/wit/deps guests/csharp/src/obj/bindings

@@ -20,7 +20,7 @@ PASS:
 The separate complete native run uses the original module and lifecycle hooks
 on CPython 3.12.11, with regrtest's default resource selection. Native PASS/SKIP
 results are reported separately; they do not establish guest conformance.
-The guest still runs embedded CPython 3.14.0 from componentize-py 0.25.0.
+The guest still runs embedded CPython 3.14.0 from componentize-py 0.25.1.
 
 ## Run
 
@@ -29,12 +29,16 @@ From the repository root, using CPython 3.12.11:
 ```sh
 python3.12 guests/python/tests/conformance/generate.py > /tmp/ssl-native.json
 python3.12 guests/python/tests/conformance/native.py > /tmp/ssl-native-full.json
-bash guests/python/tests/components/ssl_conformance/build.sh
+just python-sdk
+docker run --rm --pull=never --platform linux/amd64 \
+  -v "$PWD:/workspace" -w /workspace \
+  --entrypoint /bin/bash mandeser0/tarawasm:latest \
+  guests/python/tests/build-components.sh
 TWR_SSL_CONFORMANCE_REPORT=/tmp/ssl-guest.json bash guests/python/test.sh
 ```
 
 The build installs the SDK wheel outside the checkout in
-`mandeser0/tarawasm:v0.3.0`, freezes the generated module/helpers and strips and
+`mandeser0/tarawasm:latest`, freezes the generated module/helpers and strips and
 validates the component. Lua grants loopback-only networking, read-only upstream
 fixtures at `/ssl-conformance` and a writable temporary preopen at `/tmp`.
 

@@ -5,9 +5,10 @@
 `tarantool:tarantool@0.2.0` and uses the installed Python SDK.
 
 ```sh
-# From repository root; pinned Docker build of all Python artifacts:
-bash guests/python/build-artifacts.sh
-# Custom interpreter output with the pinned build tools installed:
+# From repository root:
+just python-sdk
+# Build the interpreter and test components with the SDK README Docker command.
+# Interpreter only, with the matching build tools installed and wheel built:
 sh guests/python/interpreter/build.sh /tmp/python-interpreter.wasm
 ```
 

@@ -1,4 +1,4 @@
-componentize-py==0.25.0
+componentize-py==0.25.1
 msgpack==1.0.3
 urllib3==2.8.0
 requests==2.34.2

@@ -1,2 +1,3 @@
 include sdk-manifest.json
+include wkg.toml wkg.lock wit/sdk.wit
 recursive-include ports *.py *.wit

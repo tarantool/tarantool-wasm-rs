@@ -5,8 +5,8 @@ ports, WIT contracts and a versioned requirements manifest. Importing it does no
 replace modules; call `twr_python_sdk.install()` explicitly before importing
 libraries that use SSL. The wheel contains a library API and does not depend on a compiler.
 
-Supported componentize-py is 0.25.0 (embedded CPython 3.14.0), with wasm-tools
-1.245.1. SSL targets Python 3.12; reference tests use CPython 3.12.11.
+Supported componentize-py is 0.25.1 (embedded CPython 3.14.0), with wasm-tools
+1.261.0. SSL targets Python 3.12; reference tests use CPython 3.12.11.
 The wheel supports Python 3.10+; that does not select the embedded interpreter.
 
 [The Tarantool API](sdk/README.md) wraps all interfaces in
@@ -25,27 +25,33 @@ packages from `interpreter/requirements-build.txt`; the SDK does not require the
 
 ## Build artifacts
 
+Run from the repository root with Python 3.10+, pip, just and wkg installed:
+
 ```sh
-bash guests/python/build-artifacts.sh
-# Wheel only:
-sh guests/python/build-wheel.sh
+just patch-wkg-config
+just python-sdk
 ```
 
-Run from the repository root. The pinned `mandeser0/tarawasm:v0.3.0` image builds
-the wheel, WIT and manifest in `dist/`, plus five stripped, validated components:
-interpreter, HTTPS, stdlib smoke, SSL conformance and Tarantool API checks.
-Packaging dependencies and wheel timestamps are pinned. The Rust host crate
-is compiled into the native module separately.
+The recipe fetches `tarantool:tarantool@0.2.0` from the registry using
+`wkg.lock` and creates `guests/python/dist/twr_python_sdk-0.1.0-py3-none-any.whl`.
+It builds only the SDK. Packaging dependencies and wheel timestamps are pinned.
+The wheel includes the small SDK world, registry configuration and lock under
+`twr_python_sdk/wit/sdk/`; full database WIT is fetched rather than vendored.
+To fetch it in an application, copy these three files into an application WIT
+project (`sdk.wit` under `wit/`, `wkg.toml` and `wkg.lock` at its root), then run
+`wkg wit fetch --type wasm`. See [the API guide](sdk/README.md) for usage.
+The local SSL and Lua callback contracts remain at the root of the packaged
+`wit/` directory. The Rust host crate is built into the native module separately.
 
 ## Use with tarawasm
 
-Build the wheel with `sh guests/python/build-wheel.sh`. Copy it into your
+Build the wheel with `just python-sdk`. Copy it into your
 Python component project. With the project's existing `tarawasm.json`, use the
 pinned Docker toolchain from this repository:
 
 ```sh
 tarawasm() {
-  docker run --rm -v "$PWD:/work" -w /work mandeser0/tarawasm:v0.3.0 "$@"
+  docker run --rm --platform linux/amd64 -v "$PWD:/work" -w /work mandeser0/tarawasm:latest "$@"
 }
 tarawasm pip install ./twr_python_sdk-0.1.0-py3-none-any.whl
 mkdir -p wit/deps/twr-runtime
@@ -134,12 +140,39 @@ tests pass in Wasm using that implementation.
 
 ## Checks
 
+Run manually from the repository root. Reference checks require CPython 3.12.11;
+keep its dependencies in a virtual environment:
+
 ```sh
-python3 -m pip install msgpack==1.0.3
-python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
+python3.12 -m venv /tmp/twr-python-reference
+. /tmp/twr-python-reference/bin/activate
+python -m pip install -r guests/python/interpreter/requirements-build.txt
+python -m unittest discover -s guests/python/tests/unit -p '*_test.py'
+just python-sdk
+
+# Use the latest local tarawasm image with the tool versions listed above.
+docker run --rm --pull=never --platform linux/amd64 \
+  -v "$PWD:/workspace" -w /workspace \
+  --entrypoint /bin/bash mandeser0/tarawasm:latest \
+  guests/python/tests/build-components.sh
+
+just build
+just install-luatest
 cargo test --locked -p twr-python-ssl-host --lib
-bash guests/python/test.sh
+python guests/python/tests/integration/ssl_bio_cases.py guests/python/tests/fixtures/ssl
+python guests/python/tests/integration/ssl_socket_cases.py guests/python/tests/fixtures/ssl
+python guests/python/tests/integration/ssl_asyncio_cases.py guests/python/tests/fixtures/ssl
+python guests/python/tests/conformance/generate.py > /tmp/ssl-native.json
+python guests/python/tests/conformance/native.py > /tmp/ssl-native-full.json
+PYTHON=python TWR_SSL_CONFORMANCE_REPORT=/tmp/ssl-guest.json bash guests/python/test.sh
+just test test/lualib/interpreter_api_test.lua
 ```
+
+The component build consumes the existing wheel and produces five stripped,
+validated components: interpreter, stdlib smoke, Tarantool API, HTTPS and SSL
+conformance. Test applications build outside the checkout from the installed
+wheel. It does not rebuild the SDK. The interpreter build can also be run alone
+with `sh guests/python/interpreter/build.sh` in the same toolchain.
 
 [guests-python.yml](../../.github/workflows/guests-python.yml) builds installed-wheel
 consumers and runs native/guest checks on macOS and Linux, preserving conformance
