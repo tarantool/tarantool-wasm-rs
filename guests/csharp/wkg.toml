@@ -1,0 +1,2 @@
+# Use the released contract without the host's wasi-tls override.
+[overrides]

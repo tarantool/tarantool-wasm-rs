@@ -26,6 +26,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ''
+
+      - name: SDK build tools
+        run: |
+          cargo install just --version 1.58.0 --locked
+          just install-wkg
+
       - uses: actions/checkout@v4
         with:
           repository: mandesero/tarawasm
@@ -46,7 +55,10 @@ jobs:
 
       - name: Codec tests, NuGet package and installed-package components
         run: |
-          bash guests/csharp/build.sh
+          just csharp-sdk
+          docker run --rm --pull=never --platform linux/amd64 \
+            -v "$PWD:/work" -w /work/guests/csharp "$TWR_CSHARP_IMAGE" \
+            dotnet run --project tests/unit/Unit.csproj -c Release
           bash guests/csharp/tests/build-components.sh
 
       - uses: actions/upload-artifact@v4
