@@ -55,7 +55,9 @@ compiled components and evicts the oldest entry when full.
 Each cached component also keeps Wasmtime's `InstancePre`, so linker work is
 performed once at load time and reused by calls, sessions, interpreters, and
 background runs. A persistent Wasmtime compilation cache additionally avoids
-recompiling unchanged components after a Tarantool restart.
+recompiling unchanged components after a Tarantool restart. If its directory is
+unavailable, the runtime logs a warning and continues without the disk cache;
+the in-memory component cache remains active.
 
 Both the regular and fuel-enabled Wasmtime engines use the pooling instance
 allocator. Component metadata, core instances, linear memories, tables, async

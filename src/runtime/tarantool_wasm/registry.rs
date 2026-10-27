@@ -81,7 +81,16 @@ pub(super) struct RuntimeState {
 
 impl RuntimeState {
     pub(super) fn new() -> Self {
-        let cache = Cache::new(CacheConfig::new()).expect("failed to initialize Wasmtime cache");
+        // Disk caching is optional: service users may have no writable home.
+        let cache = match Cache::new(CacheConfig::new()) {
+            Ok(cache) => Some(cache),
+            Err(err) => {
+                tarantool::say_warn!(
+                    "Wasmtime disk cache is unavailable; continuing without it: {err:#}"
+                );
+                None
+            }
+        };
         let engine = Engine::new(&runtime_config(false, cache.clone())).unwrap();
         let fuel_engine = Engine::new(&runtime_config(true, cache)).unwrap();
 
