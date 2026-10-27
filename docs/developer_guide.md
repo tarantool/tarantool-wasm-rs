@@ -101,8 +101,10 @@ MessagePack-only interface. See
 rebuild the Python fixture.
 
 Wasmtime's persistent compilation cache is enabled for ordinary `.wasm`
-components. For the lowest startup latency, precompile once and load the native
-artifact explicitly:
+components when its directory is available. If cache initialization fails
+(for example, the service user's home directory cannot be created), the runtime
+logs a warning and continues without the disk cache. For the lowest startup
+latency, precompile once and load the native artifact explicitly:
 
 ```lua
 wasm.precompile('python.wasm', 'python.cwasm')

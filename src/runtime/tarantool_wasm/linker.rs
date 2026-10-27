@@ -46,9 +46,9 @@ fn pooling_allocation_strategy() -> InstanceAllocationStrategy {
     InstanceAllocationStrategy::Pooling(pooling)
 }
 
-pub(super) fn runtime_config(with_fuel: bool, cache: Cache) -> Config {
+pub(super) fn runtime_config(with_fuel: bool, cache: Option<Cache>) -> Config {
     let mut config = Config::new();
-    config.cache(Some(cache));
+    config.cache(cache);
     config.allocation_strategy(pooling_allocation_strategy());
     if with_fuel {
         config.consume_fuel(true);
