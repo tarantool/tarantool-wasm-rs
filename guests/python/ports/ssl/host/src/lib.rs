@@ -5,6 +5,7 @@ use wasmtime::component::{Linker, ResourceTable};
 
 pub mod bindings;
 mod host;
+mod openssl_dynamic;
 mod tls_alpn;
 mod tls_bio;
 mod tls_capath;

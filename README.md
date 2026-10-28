@@ -75,8 +75,13 @@ Prerequisites are Rust 1.96 or newer, `cargo`, `just`, and a compatible
 Tarantool build. Debug and release recipes build for the native host on Linux
 and macOS.
 
-Default builds also require OpenSSL development libraries (`openssl@3` on
-macOS or `libssl-dev` on Debian/Ubuntu).
+Default builds also require OpenSSL 3 development libraries (`openssl@3` on
+macOS or `libssl-dev` on Debian/Ubuntu). If several versions are installed on
+macOS, select it with `export OPENSSL_DIR="$(brew --prefix openssl@3)"`.
+OpenSSL is loaded dynamically when Python SSL is first used. Without a
+compatible library, the runtime and ordinary Python code still work; SSL
+operations raise `ssl.SSLError`. See the
+[Python SSL port](guests/python/ports/ssl/README.md#runtime-dependency).
 
 ```sh
 git clone https://github.com/tarantool/tarantool-wasm-rs.git
