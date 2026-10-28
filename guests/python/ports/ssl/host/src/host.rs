@@ -23,9 +23,15 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         &mut self,
         data: Vec<u8>,
     ) -> Result<ssl_bio::CertificateDetails, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_certificate::decode_pem(&data)
     }
     async fn verification_message(&mut self, code: i32) -> String {
+        if let Err(error) = crate::openssl_dynamic::ensure_available() {
+            return error.message;
+        }
+
         crate::tls_errors::verification_message(code)
     }
     async fn describe_error(&mut self, message: String) -> ssl_bio::ErrorDetails {
@@ -41,6 +47,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         password: Option<Vec<u8>>,
         policy: ssl_bio::SeededPolicy,
     ) -> Result<ssl_bio::PreparedPolicyCredentials, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_credentials::prepare_policy_credentials(cert, key, password, policy)
     }
     async fn create_context_with_history(
@@ -52,6 +60,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         tls13: ssl_bio::Tls13Settings,
         directories: Vec<ssl_bio::TrustDirectory>,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context =
             BioContext::new_with_history(options, policy, history, enabled, tls13, directories)?;
         self.0
@@ -68,6 +78,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         tls13: ssl_bio::Tls13Settings,
         directories: Vec<ssl_bio::TrustDirectory>,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new_with_key_exchange_history(
             options,
             policy,
@@ -90,6 +102,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         tls13: ssl_bio::Tls13Settings,
         directories: Vec<ssl_bio::TrustDirectory>,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new_with_seeded_policy(
             options,
             policy,
@@ -107,6 +121,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         &mut self,
         policy: ssl_bio::SeededPolicy,
     ) -> Result<ssl_bio::PolicyDetails, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_policy::inspect_seeded(policy)
     }
     async fn prepare_key_exchange_seeded(
@@ -114,6 +130,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         settings: ssl_bio::KeyExchange,
         policy: ssl_bio::SeededPolicy,
     ) -> Result<ssl_bio::KeyExchange, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_key_exchange::prepare_seeded(settings, policy)
     }
     async fn create_context_with_directories(
@@ -125,6 +143,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         tls13: ssl_bio::Tls13Settings,
         directories: Vec<ssl_bio::TrustDirectory>,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new_with_directories(
             options,
             policy,
@@ -139,21 +159,29 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
             .map_err(|e| invalid(e.to_string()))
     }
     async fn random_bytes(&mut self, size: u32) -> Result<Vec<u8>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_utilities::random_bytes(size)
     }
     async fn random_status(&mut self) -> bool {
-        crate::tls_utilities::random_status()
+        crate::openssl_dynamic::ensure_available().is_ok() && crate::tls_utilities::random_status()
     }
     async fn random_add(&mut self, data: Vec<u8>, entropy: f64) -> Result<(), TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_utilities::random_add(&data, entropy)
     }
     async fn lookup_asn1_object(
         &mut self,
         query: ssl_bio::Asn1Query,
     ) -> Result<ssl_bio::Asn1ObjectInfo, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_utilities::lookup(query)
     }
     async fn default_verify_paths(&mut self) -> Result<ssl_bio::VerifyPathDefaults, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_utilities::default_verify_paths()
     }
     async fn create_context_with_tls13(
@@ -164,6 +192,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         enabled: bool,
         tls13: ssl_bio::Tls13Settings,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new_with_tls13(options, policy, settings, enabled, tls13)?;
         self.0
             .ssl_table()
@@ -177,6 +207,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         settings: ssl_bio::KeyExchange,
         enabled: bool,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new_with_sni(options, policy, settings, enabled)?;
         self.0
             .ssl_table()
@@ -188,6 +220,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         settings: ssl_bio::KeyExchange,
         policy: ssl_bio::ContextPolicy,
     ) -> Result<ssl_bio::KeyExchange, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_key_exchange::prepare(settings, policy)
     }
     async fn create_context_with_key_exchange(
@@ -196,6 +230,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         policy: ssl_bio::ContextPolicy,
         settings: ssl_bio::KeyExchange,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new_with_key_exchange(options, policy, settings)?;
         self.0
             .ssl_table()
@@ -203,12 +239,21 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
             .map_err(|e| invalid(e.to_string()))
     }
     async fn backend(&mut self) -> ssl_bio::BackendInfo {
+        if let Err(error) = crate::openssl_dynamic::ensure_available() {
+            return ssl_bio::BackendInfo {
+                version: error.message,
+                number: 0,
+            };
+        }
+
         ssl_bio::BackendInfo {
             version: openssl::version::version().to_owned(),
             number: openssl::version::number() as u64,
         }
     }
     async fn prepare_store_pem(&mut self, data: Vec<u8>) -> Result<Vec<u8>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_store::prepare(data)
     }
     async fn inspect_store(
@@ -217,6 +262,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         default_certs: bool,
         query: ssl_bio::StoreQuery,
     ) -> Result<ssl_bio::StoreDetails, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_store::inspect(data, default_certs, query)
     }
     async fn inspect_store_with_default_sources(
@@ -225,12 +272,16 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         sources: ssl_bio::DefaultTrustSources,
         query: ssl_bio::StoreQuery,
     ) -> Result<ssl_bio::StoreDetails, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_store::inspect_with_defaults(data, sources, query)
     }
     async fn inspect_policy(
         &mut self,
         policy: ssl_bio::ContextPolicy,
     ) -> Result<ssl_bio::PolicyDetails, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_policy::inspect(policy)
     }
     async fn create_context_with_policy(
@@ -238,6 +289,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         options: Config,
         policy: ssl_bio::ContextPolicy,
     ) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new_with_policy(options, policy)?;
         self.0
             .ssl_table()
@@ -245,6 +298,8 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
             .map_err(|e| invalid(e.to_string()))
     }
     async fn prepare_ca(&mut self, data: CertificateInput) -> Result<Vec<u8>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_credentials::prepare_ca(data)
     }
     async fn prepare_credentials(
@@ -253,9 +308,13 @@ impl<T: crate::SslView> ssl_bio::Host for crate::SslHost<'_, T> {
         key: Vec<u8>,
         password: Option<Vec<u8>>,
     ) -> Result<PreparedCredentials, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         crate::tls_credentials::prepare_credentials(cert, key, password)
     }
     async fn create_context(&mut self, options: Config) -> Result<Resource<BioContext>, TlsError> {
+        crate::openssl_dynamic::ensure_available()?;
+
         let context = BioContext::new(options)?;
         self.0
             .ssl_table()

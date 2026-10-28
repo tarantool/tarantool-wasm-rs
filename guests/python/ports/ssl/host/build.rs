@@ -9,6 +9,27 @@ fn main() {
     // unrelated system OpenSSL (also important when cross compiling).
     let includes = std::env::var_os("DEP_OPENSSL_INCLUDE")
         .expect("openssl-sys must publish its include directories");
+    cc::Build::new()
+        .includes(std::env::split_paths(&includes))
+        .file("src/openssl_dynamic.c")
+        .flag("-fvisibility=hidden")
+        .flag_if_supported("-Wno-deprecated-declarations")
+        .compile("twr_openssl_dynamic");
+
+    // Resolve openssl-sys' native link names to forwarding code, not OpenSSL.
+    // This directory precedes openssl-sys' library directories at the final link.
+    let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    for library in ["ssl", "crypto"] {
+        std::fs::copy(
+            output.join("libtwr_openssl_dynamic.a"),
+            output.join(format!("lib{library}.a")),
+        )
+        .expect("create OpenSSL forwarding archive");
+    }
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-lib=dl");
+    }
+
     let expanded = cc::Build::new()
         .includes(std::env::split_paths(&includes))
         .file("src/tls_protocols.c")
@@ -28,7 +49,6 @@ fn main() {
         !versions.is_empty(),
         "OpenSSL must enable at least one TLS protocol"
     );
-    let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     std::fs::write(
         output.join("ssl_protocols.rs"),
         format!(
@@ -38,6 +58,8 @@ fn main() {
     .expect("write compiled TLS protocol list");
     error_names(&includes, &output);
     println!("cargo:rerun-if-changed=src/tls_protocols.c");
+    println!("cargo:rerun-if-changed=src/openssl_dynamic.c");
+    println!("cargo:rerun-if-changed=src/openssl_functions.h");
     println!("cargo:rerun-if-changed=build_support/ssl_version.rs");
     println!("cargo:rerun-if-env-changed=DEP_OPENSSL_INCLUDE");
 }

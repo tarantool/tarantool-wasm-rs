@@ -123,9 +123,9 @@ build_for() {
         "$image" \
         -c 'set -eu
             cd /workspace
-            sh scripts/install_openssl_dependencies.sh
             rustc --version
-            cargo build --locked --release --target x86_64-unknown-linux-gnu'
+            sh scripts/install_openssl_dependencies.sh \
+                cargo build --locked --release --target x86_64-unknown-linux-gnu'
 
     local max_glibc
     max_glibc="$(
@@ -171,8 +171,7 @@ test_for() {
         -v "$target_volume:/target:ro" \
         -v "$test_volume:/run-tests" \
         "$image" \
-        -c 'set -eu
-            sh /workspace/scripts/install_openssl_dependencies.sh
+        /workspace/scripts/install_openssl_dependencies.sh /bin/sh -c 'set -eu
             if ! command -v cmake >/dev/null 2>&1; then
                 if ! command -v dnf >/dev/null 2>&1; then
                     echo "cmake is required to install luatest" >&2

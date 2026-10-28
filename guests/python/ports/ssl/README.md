@@ -19,6 +19,37 @@ The caller must retain and close that socket. Connections/sessions retain native
 context references after a context resource is dropped. Explicit close/drop is
 available; garbage collection is a fallback.
 
+## Runtime dependency
+
+The native module contains the adapter, but does not link to or bundle OpenSSL.
+It loads OpenSSL 3 on the first native SSL operation and checks all required
+entry points before enabling the backend. Install the runtime libraries with
+your system package manager (`libssl3` on Debian 12/Ubuntu 22.04 or
+`brew install openssl@3` on macOS arm64).
+
+Linux uses `libssl.so.3`; macOS arm64 uses Homebrew's
+`/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib`. Set `TWR_OPENSSL_LIBRARY` to an
+explicit library path for another installation. An explicit path disables
+fallback, including when the selected library is missing or incompatible.
+The loader resolves libcrypto calls through libssl's dependencies.
+
+Without a compatible backend, Python components still instantiate, `import ssl`
+works and ordinary Python code runs. Operations requiring the backend raise
+`ssl.SSLError` with the loading failure. Version/capability queries also require
+the backend, so consumers that query SSL while importing can raise this error
+during their import.
+The existing WIT imports remain registered; raw fallible SSL calls return a
+TLS error. `backend()` reports version number zero and the diagnostic in its
+version string, and the raw
+`random-status()` returns false. Availability is cached for the process lifetime;
+restart Tarantool after installing OpenSSL or changing the selected library.
+
+Building the adapter requires OpenSSL 3 headers. On macOS with multiple
+versions installed, set `OPENSSL_DIR="$(brew --prefix openssl@3)"` for Cargo.
+`src/openssl_functions.h` lists the typed entry points used by openssl-rs and
+the adapter's native tests. If those calls change, update this list and verify
+that the final module has no OpenSSL dependency or unresolved OpenSSL symbols.
+
 ## Supported behavior
 
 | Area | Coverage |

@@ -28,6 +28,7 @@ class ErrorBridgeTests(unittest.TestCase):
     def setUp(self):
         host = ModuleType('wit_world.imports.ssl_bio')
         host.ErrorKind = Kind
+        host.backend = lambda: SimpleNamespace(number=0x30000000, version="OpenSSL 3")
         host.describe_error = lambda message: SimpleNamespace(library='SSL', reason='REASON')
         host.verification_message = lambda code: 'certificate rejected'
         world = ModuleType('wit_world')
@@ -59,6 +60,22 @@ class ErrorBridgeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as caught:
             self.ssl._invoke(fail)
         self.assertIs(caught.exception, failure)
+
+    def test_missing_backend_is_a_python_error_before_native_calls(self):
+        self.ssl._host.backend = lambda: SimpleNamespace(
+            number=0, version='Python SSL unavailable: OpenSSL 3 was not found')
+        calls = []
+
+        for operation in (
+            lambda: self.ssl._invoke(lambda: calls.append('native call')),
+            self.ssl.RAND_status,
+            lambda: self.ssl.OPENSSL_VERSION,
+        ):
+            with self.assertRaisesRegex(self.ssl.SSLError, 'Python SSL unavailable'):
+                operation()
+
+        self.assertEqual(calls, [])
+        self.assertIsNone(self.ssl._backend_info)
 
     def test_every_host_failure_keeps_its_python_type_and_metadata(self):
         cases = [(Kind.INVALID_INPUT, ValueError, None),

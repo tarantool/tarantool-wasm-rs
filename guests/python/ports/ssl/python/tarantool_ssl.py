@@ -129,11 +129,13 @@ HAS_SSLv2 = HAS_NPN = False
 _PROTOCOL_FLAGS = {'HAS_SSLv3': 0x300, 'HAS_TLSv1': 0x301, 'HAS_TLSv1_1': 0x302,
                    'HAS_TLSv1_2': 0x303, 'HAS_TLSv1_3': 0x304}
 _protocol_versions = None
+_backend_info = None
 
 
 def _available_versions():
     global _protocol_versions
     if _protocol_versions is None:
+        _require_backend()
         _protocol_versions = tuple(_host.protocol_capabilities())
         globals().update({name: value in _protocol_versions for name, value in _PROTOCOL_FLAGS.items()})
     return _protocol_versions
@@ -329,7 +331,7 @@ def __getattr__(name):
         raise AttributeError("module 'ssl' has no attribute " + repr(name))
     # componentize-py executes imports before host WIT functions are available.
     # Query only on runtime access, then cache the immutable host backend facts.
-    backend = _host.backend()
+    backend = _require_backend()
     number = backend.number
     values = {
         "OPENSSL_VERSION": backend.version,
@@ -345,7 +347,18 @@ def __dir__():
     return sorted(set(globals()) | set(_PROTOCOL_FLAGS) | {"OPENSSL_VERSION", "OPENSSL_VERSION_NUMBER", "OPENSSL_VERSION_INFO"})
 
 
+def _require_backend():
+    global _backend_info
+    if _backend_info is None:
+        backend = _host.backend()
+        if backend.number == 0:
+            raise SSLError(SSL_ERROR_SSL, backend.version)
+        _backend_info = backend
+    return _backend_info
+
+
 def _invoke(function, *args):
+    _require_backend()
     try:
         return function(*args)
     except _WitError as caught:
@@ -398,6 +411,7 @@ def RAND_bytes(num, /):
 
 
 def RAND_status():
+    _require_backend()
     return _host.random_status()
 
 
