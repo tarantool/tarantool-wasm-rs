@@ -2,6 +2,10 @@ name: Prepare release artifacts
 
 on:
   workflow_call:
+    outputs:
+      prerelease:
+        description: Whether the package version is a prerelease.
+        value: ${{ jobs.package.outputs.prerelease }}
 
 permissions:
   contents: read
@@ -12,6 +16,8 @@ jobs:
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy
     timeout-minutes: 30
+    outputs:
+      prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,17 +67,24 @@ jobs:
           name: js-sdk
           path: guests/js/
       - name: Prepare the tested runtime and SDK bundle
+        id: release
         run: |
           just package-runtime release-input/wasm.so linux-x86_64
           just package-sdk
           python3 - <<'PY'
+          import os
           from pathlib import Path
           import tomllib
           version = tomllib.loads(Path('Cargo.toml').read_text())['package']['version']
+          assert os.environ['GITHUB_REF'] == f'refs/tags/v{version}', \
+              f'Release tag must be v{version}'
           expected = {f'tarantool-wasm-{version}-{suffix}' for suffix in (
               'linux-x86_64.so', 'macos-arm64.dylib', 'sdk.tar.gz',
           )}
           assert {path.name for path in Path('dist').iterdir()} == expected
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              prerelease = '-' in version.split('+')[0]
+              output.write(f'prerelease={str(prerelease).lower()}\n')
           PY
       - uses: actions/upload-artifact@v4
         with:
