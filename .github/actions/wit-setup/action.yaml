@@ -1,30 +1,10 @@
 name: Setup WIT Dependencies
-description: |
-  Installs `wkg`, adds Tarantool registry override, initializes wasi-tls submodule,
-  and fetches WIT dependencies.
-
-inputs:
-  rustflags:
-    description: Rust flags for setup-rust-toolchain; empty preserves Cargo configuration.
-    required: false
-    default: "-D warnings"
+description: Prepare the root WIT dependencies after setup-rust.
 
 runs:
   using: "composite"
   steps:
-    - uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        rustflags: ${{ inputs.rustflags }}
-
-    - name: Cache WIT tools
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/wkg
-          ~/.cargo/registry/index
-          ~/.cargo/registry/cache
-          ~/.cargo/git
-        key: ${{ runner.os }}-wit-tools-v1
+    - uses: ./.github/actions/setup-wkg
 
     - name: Cache WIT packages
       uses: actions/cache@v4
@@ -33,17 +13,6 @@ runs:
           ~/.cache/wasm-pkg
           ~/Library/Caches/wasm-pkg
         key: ${{ runner.os }}-wit-packages-${{ hashFiles('wkg.lock') }}
-
-    - name: Install wkg
-      run: |
-        if ! command -v wkg >/dev/null 2>&1; then
-          cargo install wkg --locked
-        fi
-      shell: bash
-
-    - name: Add Tarantool wit registry override
-      run: ./scripts/add_tarantool_registry.sh
-      shell: bash
 
     - name: Init wasi-tls submodule
       run: git submodule update --init --recursive --jobs 8 third-party/wasi-tls

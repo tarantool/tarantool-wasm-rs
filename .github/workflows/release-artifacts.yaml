@@ -1,0 +1,83 @@
+name: Prepare release artifacts
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: ./.github/actions/setup-rust
+        with:
+          rustflags: ''
+      - uses: ./.github/actions/wit-setup
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0,wasm-tools@1.261.0
+      - name: Fetch SDK WIT closures
+        shell: bash
+        run: |
+          for language in python rust go js csharp; do
+            (cd "guests/$language" && wkg wit fetch --type wasm)
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-host-linux-amd64
+          path: release-input/
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-macos-arm64
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-sdk
+          path: guests/rust/target/package/
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-sdk
+          path: guests/python/dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: csharp-sdk
+          path: guests/csharp/dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: go-sdk
+          path: guests/go/
+      - uses: actions/download-artifact@v4
+        with:
+          name: js-sdk
+          path: guests/js/
+      - name: Prepare the tested runtime and SDK bundle
+        run: |
+          just package-runtime release-input/wasm.so linux-x86_64
+          just package-sdk
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+          version = tomllib.loads(Path('Cargo.toml').read_text())['package']['version']
+          expected = {f'tarantool-wasm-{version}-{suffix}' for suffix in (
+              'linux-x86_64.so', 'macos-arm64.dylib', 'sdk.tar.gz',
+          )}
+          assert {path.name for path in Path('dist').iterdir()} == expected
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            dist/tarantool-wasm-*-linux-x86_64.so
+            dist/tarantool-wasm-*-macos-arm64.dylib
+            dist/tarantool-wasm-*-sdk.tar.gz
+          if-no-files-found: error

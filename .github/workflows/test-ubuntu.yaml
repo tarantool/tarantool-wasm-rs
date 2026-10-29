@@ -1,73 +1,34 @@
-name: Test
+name: Test Ubuntu
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: ${{ matrix.profile }} (ubuntu-jammy)
+    name: debug (ubuntu-jammy)
     runs-on: ubuntu-20.04-self-hosted
-    timeout-minutes: 90
-
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - profile: debug
-            build_command: cargo build
-            artifact: target/debug/libtarantool_wasm_rs.so
-          - profile: release
-            build_command: cargo build --release --target x86_64-unknown-linux-gnu
-            artifact: target/x86_64-unknown-linux-gnu/release/libtarantool_wasm_rs.so
-
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup WIT
-        uses: ./.github/actions/wit-setup
-
-      - name: OpenSSL deps
-        run: sudo sh scripts/install_openssl_dependencies.sh
-
-      - name: Update Rust toolchain
+      - uses: ./.github/actions/setup-openssl
+      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/actions/wit-setup
+      - name: Build debug host
         run: |
-          rustup update stable
-          rustup default stable
-
-      - name: Build (${{ matrix.profile }})
-        run: ${{ matrix.build_command }}
-
-      - name: Prepare wasm module
-        run: |
+          cargo build --locked
           mkdir -p .rocks/lib/tarantool
-          cp "${{ matrix.artifact }}" .rocks/lib/tarantool/wasm.so
-
-      - name: Setup Tarantool
-        uses: tarantool/setup-tarantool@v3
-        with:
-          tarantool-version: '3.6'
-
-      - name: Setup tt
-        run: |
-          curl -L https://tarantool.io/release/2/installer.sh | sudo bash
-          sudo apt install -y tt
-          tt version
-
-      - name: Add local rocks to PATH
-        run: echo "$PWD/.rocks/bin" >> "$GITHUB_PATH"
-
-      - name: Install luatest
-        run: |
-          if ! command -v luatest >/dev/null 2>&1; then
-            tt rocks install luatest
-          fi
-
+          cp target/debug/libtarantool_wasm_rs.so .rocks/lib/tarantool/wasm.so
+      - uses: ./.github/actions/setup-tarantool
       - name: Run all tests
-        run: luatest -v -l luatest.log
+        run: timeout --kill-after=10s 1800s luatest -v -l luatest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubuntu-debug-log
+          path: luatest.log
+          if-no-files-found: warn

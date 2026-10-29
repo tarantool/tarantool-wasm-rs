@@ -9,8 +9,9 @@ runs:
         name: sdk-host-linux-amd64
         path: .rocks/lib/tarantool/
 
-    - name: Prepare runtime and load shared host
-      run: |
-        bash .github/actions/sdk-runtime/setup.sh
-        echo "$PWD/.rocks/bin" >> "$GITHUB_PATH"
+    - uses: ./.github/actions/setup-tarantool
+    - name: Load shared host
       shell: bash
+      run: |
+        test -s .rocks/lib/tarantool/wasm.so
+        LUA_CPATH="$PWD/.rocks/lib/tarantool/?.so;;" tarantool -e "require('wasm')" </dev/null
