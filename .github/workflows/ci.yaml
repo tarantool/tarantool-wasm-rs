@@ -40,10 +40,69 @@ jobs:
     uses: ./.github/workflows/sdk.yml
 
   macos:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !github.event.deleted && startsWith(github.ref, 'refs/tags/v') }}
     uses: ./.github/workflows/test-macos.yaml
 
   artifacts:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !github.event.deleted && startsWith(github.ref, 'refs/tags/v') }}
     needs: [lint, udeps, ubuntu, linux, distributions, sdk, macos]
     uses: ./.github/workflows/release-artifacts.yaml
+
+  release:
+    if: >-
+      ${{ github.event_name == 'push' && !github.event.deleted &&
+          startsWith(github.ref, 'refs/tags/v') }}
+    needs: artifacts
+    runs-on: ubuntu-20.04-self-hosted
+    permissions:
+      contents: write
+    concurrency: release-${{ github.ref }}
+    timeout-minutes: 15
+    steps:
+      - name: Check published release
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: published
+        with:
+          script: |
+            try {
+              const {data} = await github.rest.repos.getReleaseByTag({
+                ...context.repo, tag: context.ref.slice('refs/tags/'.length),
+              });
+              return !data.draft;
+            } catch (error) {
+              if (error.status === 404) return false;
+              throw error;
+            }
+      - uses: actions/download-artifact@v4
+        if: steps.published.outputs.result != 'true'
+        id: download
+        with:
+          name: release-artifacts
+          path: ${{ runner.temp }}/release-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload release assets
+        if: steps.published.outputs.result != 'true'
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          prerelease: ${{ needs.artifacts.outputs.prerelease }}
+          fail_on_unmatched_files: true
+          working_directory: ${{ steps.download.outputs.download-path }}
+          files: |
+            tarantool-wasm-*-linux-x86_64.so
+            tarantool-wasm-*-macos-arm64.dylib
+            tarantool-wasm-*-sdk.tar.gz
+          body: |
+            - Tarantool: tested with versions >= 3.6.
+            - Linux x86_64: GLIBC >= 2.28.
+            - macOS: arm64.
+            - OpenSSL 3 is optional and must be installed separately for Python SSL calls.
+              Without it, Python works and SSL calls report a clear error.
+
+            SDK installation and component builds: https://github.com/mandesero/tarawasm.
+      - name: Publish release
+        if: steps.published.outputs.result != 'true'
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          prerelease: ${{ needs.artifacts.outputs.prerelease }}
