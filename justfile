@@ -92,6 +92,13 @@ go-sdk: patch-wkg-config
     cp -R wit/runtime "$task_module/wit/"
     COPYFILE_DISABLE=1 tar --no-xattrs --exclude='*_test.go' -czf dist/twr-go-sdk-0.1.0.tar.gz -C "$task_stage" twr-go-sdk-0.1.0
 
+# Assemble prebuilt artifacts; language toolchains are only needed by *-sdk above.
+package-sdk:
+    python3 scripts/package_release.py sdk
+
+package-runtime module platform:
+    python3 scripts/package_release.py runtime --module "{{ module }}" --platform "{{ platform }}"
+
 # Install the native library built for the selected Cargo profile.
 install-module profile="debug":
     #!/usr/bin/env sh
