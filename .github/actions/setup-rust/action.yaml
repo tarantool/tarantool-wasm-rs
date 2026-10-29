@@ -1,0 +1,27 @@
+name: Setup Rust
+description: Install the CI Rust toolchain without sharing native caches across distributions.
+
+inputs:
+  toolchain:
+    description: Rust toolchain; nightly is used only by cargo-udeps.
+    default: '1.96.0'
+  components:
+    description: Additional Rust components.
+    default: ''
+  target:
+    description: Additional compilation target.
+    default: ''
+  rustflags:
+    description: Rust flags; empty preserves Cargo configuration, including macOS linker flags.
+    default: '-D warnings'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+        target: ${{ inputs.target }}
+        rustflags: ${{ inputs.rustflags }}
+        cache: false

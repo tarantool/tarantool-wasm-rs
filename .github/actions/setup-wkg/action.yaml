@@ -1,0 +1,12 @@
+name: Setup wkg
+description: Install the pinned WIT package tool and configure the Tarantool registry.
+
+runs:
+  using: composite
+  steps:
+    - name: Install wkg
+      shell: bash
+      run: cargo install wkg --version 0.16.1 --locked
+    - name: Configure Tarantool WIT registry
+      shell: bash
+      run: ./scripts/add_tarantool_registry.sh

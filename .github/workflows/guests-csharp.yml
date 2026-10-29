@@ -19,14 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: ./.github/actions/setup-rust
         with:
           rustflags: ''
 
-      - name: SDK build tools
-        run: |
-          cargo install just --version 1.58.0 --locked
-          just install-wkg
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0
+
+      - uses: ./.github/actions/setup-wkg
 
       - uses: actions/checkout@v4
         with:
@@ -60,16 +61,19 @@ jobs:
           path: guests/csharp/dist/
           if-no-files-found: error
 
+  runtime:
+    name: Test in Tarantool
+    needs: sdk
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: sdk-host-linux-amd64
-          path: .rocks/lib/tarantool/
-
+          name: csharp-sdk
+          path: guests/csharp/dist/
+      - uses: ./.github/actions/sdk-runtime
       - name: C# SDK in Tarantool
-        run: |
-          docker run --rm --platform linux/amd64 \
-            -v "$PWD:/workspace" -w /workspace \
-            tarantool/testing:ubuntu-jammy bash -euo pipefail -c '
-              bash .github/actions/sdk-runtime/setup.sh
-              bash guests/csharp/tests/test-runtime.sh
-            '
+        run: bash guests/csharp/tests/test-runtime.sh

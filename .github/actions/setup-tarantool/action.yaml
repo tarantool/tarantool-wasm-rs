@@ -1,0 +1,57 @@
+name: Setup Tarantool tests
+description: Install Tarantool 3, tt and luatest in a Linux job container.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Tarantool and test dependencies
+      shell: bash
+      run: |
+        # Series 3 provides static packages shared by all supported distributions.
+        repository=https://download.tarantool.org/tarantool/release/series-3
+        if command -v apt-get >/dev/null 2>&1; then
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y curl ca-certificates make cmake binutils
+          mkdir -p /usr/share/keyrings
+          curl --fail --location --retry 3 "$repository/gpgkey" \
+            -o /usr/share/keyrings/tarantool-ci.asc
+          printf 'deb [signed-by=/usr/share/keyrings/tarantool-ci.asc] %s/linux-deb/ static main\n' \
+            "$repository" > /etc/apt/sources.list.d/tarantool-ci.list
+          apt-get update
+          apt-get install -y tarantool tarantool-dev
+        else
+          # Old PackPack images have an unrelated, expired Docker repository.
+          dnf --disablerepo=docker install -y curl ca-certificates \
+            make cmake binutils
+          cat > /etc/yum.repos.d/tarantool-ci.repo <<EOF
+        [tarantool-ci]
+        name=Tarantool 3 static packages
+        baseurl=$repository/linux-rpm/static/x86_64/
+        enabled=1
+        repo_gpgcheck=1
+        gpgcheck=0
+        gpgkey=$repository/gpgkey
+        EOF
+          dnf --disablerepo=docker install -y tarantool tarantool-devel
+        fi
+
+        tarantool --version
+        tarantool -e '
+          local major, minor = _TARANTOOL:match("^(%d+)%.(%d+)")
+          major, minor = tonumber(major), tonumber(minor)
+          assert(major > 3 or (major == 3 and minor >= 6), "Tarantool >= 3.6 required")
+        ' </dev/null
+
+    - name: Install tt and luatest
+      shell: bash
+      run: |
+        curl --fail --location --retry 3 \
+          https://github.com/tarantool/tt/releases/download/v2.13.0/tt-2.13.0-linux-amd64.tar.gz \
+          -o "$RUNNER_TEMP/tt.tar.gz"
+        tar --no-same-owner -xzf "$RUNNER_TEMP/tt.tar.gz" \
+          -C /usr/local/bin tt
+        tt version
+
+        tt rocks install luatest
+        echo "$PWD/.rocks/bin" >> "$GITHUB_PATH"

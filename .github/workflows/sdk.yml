@@ -1,76 +1,35 @@
 name: SDK
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    types: [opened, reopened, synchronize, labeled]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  host:
-    name: Build shared host (Linux)
-    if: >-
-      ${{ github.event_name != 'pull_request' ||
-          contains(github.event.pull_request.labels.*.name, 'full-ci') ||
-          contains(github.event.pull_request.labels.*.name, 'sdk-ci') }}
-    runs-on: ubuntu-20.04-self-hosted
-    container:
-      image: docker.io/tarantool/testing:ubuntu-jammy
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: OpenSSL dependencies
-        run: sudo sh scripts/install_openssl_dependencies.sh
-      - uses: ./.github/actions/wit-setup
-        with:
-          rustflags: ''
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just@1.58.0
-      - name: Build host
-        run: just build-release
-      - name: SSL host tests
-        run: cargo test --locked --release -p twr-python-ssl-host --lib
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdk-host-linux-amd64
-          path: .rocks/lib/tarantool/wasm.so
-          if-no-files-found: error
-
   rust:
     name: Rust SDK
-    needs: host
     uses: ./.github/workflows/guests-rust.yml
 
   csharp:
     name: C# SDK
-    needs: host
     uses: ./.github/workflows/guests-csharp.yml
 
   go:
     name: Go SDK
-    needs: host
     uses: ./.github/workflows/guests-go.yml
 
   js:
     name: JavaScript SDK
-    needs: host
     uses: ./.github/workflows/guests-js.yml
 
   python:
     name: Python SDK
-    needs: host
     uses: ./.github/workflows/guests-python.yml
 
   compatibility:
     name: SDK compatibility
-    needs: [host, rust, csharp, go, js, python]
+    needs: [rust, csharp, go, js, python]
     runs-on: ubuntu-20.04-self-hosted
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy

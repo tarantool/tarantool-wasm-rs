@@ -7,8 +7,9 @@ bindings dispatch these operations through `Executor::execute` and call
 assertion protects TX-owned iterator destruction.
 
 `RuntimeState` records the thread that initializes the Lua module as TX. The
-module must therefore be initialized by Tarantool on its Lua/TX thread. Debug
-and CI builds turn a violation into a panic at the offending API boundary.
+module must therefore be initialized by Tarantool on its Lua/TX thread. Builds
+with debug assertions enabled turn a violation into a panic at the offending
+API boundary.
 
 ## TX-thread-only operations
 

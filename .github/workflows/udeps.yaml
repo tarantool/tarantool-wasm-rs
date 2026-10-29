@@ -1,40 +1,26 @@
-name: Udeps check
+name: Unused Rust dependencies
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-  workflow_dispatch:
+  workflow_call:
 
-env:
-  CARGO_TERM_COLOR: always
+permissions:
+  contents: read
 
 jobs:
-  udeps_check:
+  check:
+    runs-on: ubuntu-20.04-self-hosted
     container:
       image: docker.io/tarantool/testing:ubuntu-jammy
-
-    runs-on: ubuntu-20.04-self-hosted
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install OpenSSL dependencies
-        run: sudo sh scripts/install_openssl_dependencies.sh
-
-      - name: Setup WIT
-        uses: ./.github/actions/wit-setup
-
-      - name: Set up nightly toolchain
-        run: |
-          rustup update nightly
-          rustup default nightly
-
-      - name: Install cargo-udeps
-        run: cargo install cargo-udeps --locked
-
-      - name: Install pre-commit
-        run: pip install pre-commit
-
-      - name: Run udeps via pre-commit
-        run: pre-commit run --all-files --color always
+      - uses: ./.github/actions/setup-openssl
+      - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+      - uses: ./.github/actions/wit-setup
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-udeps@0.1.61
+      - name: Check unused dependencies
+        run: cargo +nightly udeps

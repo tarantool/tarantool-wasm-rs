@@ -1,0 +1,35 @@
+name: Build Linux release
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: packpack/packpack:centos-8
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-openssl
+      - uses: ./.github/actions/setup-rust
+        with:
+          rustflags: ''
+      - uses: ./.github/actions/wit-setup
+      - name: Build portable host
+        run: |
+          cargo build --locked --release --target x86_64-unknown-linux-gnu
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/libtarantool_wasm_rs.so dist/wasm.so
+      - name: SSL host tests
+        run: cargo test --locked --release --target x86_64-unknown-linux-gnu -p twr-python-ssl-host --lib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-host-linux-amd64
+          path: dist/wasm.so
+          if-no-files-found: error

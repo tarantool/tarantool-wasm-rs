@@ -1,0 +1,28 @@
+name: Setup OpenSSL 3 build dependencies
+description: Install packaged OpenSSL headers for native Linux builds.
+
+runs:
+  using: composite
+  steps:
+    - name: Install OpenSSL 3 development package
+      shell: bash
+      run: |
+        if command -v apt-get >/dev/null 2>&1; then
+          apt-get update
+          apt-get install -y pkg-config libssl-dev
+          package=openssl
+        else
+          # EPEL 8 keeps OpenSSL 3 alongside the system OpenSSL 1.1.
+          dnf --disablerepo=docker install -y pkgconf-pkg-config openssl3-devel
+          printf '%s\n' \
+            'OPENSSL_INCLUDE_DIR=/usr/include/openssl3' \
+            'OPENSSL_LIB_DIR=/usr/lib64/openssl3' >> "$GITHUB_ENV"
+          package=openssl3
+        fi
+
+        version=$(pkg-config --modversion "$package")
+        echo "OpenSSL headers: $version"
+        case "$version" in
+          3.*) ;;
+          *) echo 'OpenSSL 3 headers are required' >&2; exit 1 ;;
+        esac

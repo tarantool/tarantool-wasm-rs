@@ -2,6 +2,7 @@ name: Test macOS
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -9,7 +10,7 @@ permissions:
 jobs:
   test:
     name: release (macOS)
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 90
     env:
       CARGO_TERM_COLOR: always
@@ -27,21 +28,23 @@ jobs:
           brew install tarantool tt coreutils pkg-config openssl@3
           tarantool --version
           tt version
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
 
       - name: Set WIT registry config path
         run: |
           echo "WKG_CONFIG_FILE=$RUNNER_TEMP/wkg-config.toml" >> "$GITHUB_ENV"
           echo 'default_registry = "wasi.dev"' > "$RUNNER_TEMP/wkg-config.toml"
 
-      - name: Setup WIT
-        uses: ./.github/actions/wit-setup
+      - uses: ./.github/actions/setup-rust
         with:
           # RUSTFLAGS would override the macOS linker flags in .cargo/config.toml.
-          rustflags: ""
+          rustflags: ''
+
+      - uses: ./.github/actions/wit-setup
 
       - name: Build and install (release)
         run: |
-          cargo build --release
+          cargo build --locked --release
           mkdir -p .rocks/lib/tarantool
           cp target/release/libtarantool_wasm_rs.dylib .rocks/lib/tarantool/wasm.dylib
 
@@ -72,3 +75,17 @@ jobs:
             echo "::endgroup::"
           done
           exit "$result"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0
+      - name: Prepare tested runtime
+        run: just package-runtime target/release/libtarantool_wasm_rs.dylib macos-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-macos-arm64
+          path: dist/tarantool-wasm-*-macos-arm64.dylib
+          if-no-files-found: error

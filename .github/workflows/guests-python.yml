@@ -33,16 +33,15 @@ jobs:
         run: |
           python3 -m pip install msgpack==1.0.3
           python3 -m unittest discover -s guests/python/tests/unit -p '*_test.py'
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: ./.github/actions/setup-rust
         with:
           rustflags: ''
       - uses: taiki-e/install-action@v2
         with:
           tool: just@1.58.0
+      - uses: ./.github/actions/setup-wkg
       - name: Build SDK
-        run: |
-          just install-wkg
-          just python-sdk
+        run: just python-sdk
       - name: Build guests
         env:
           TWR_PYTHON_IMAGE: mandeser0/tarawasm:latest
@@ -67,20 +66,43 @@ jobs:
             guests/python/tests/components/*/*.wasm
           if-no-files-found: error
 
+  runtime:
+    name: Python reference and guest tests
+    needs: sdk
+    runs-on: ubuntu-20.04-self-hosted
+    container:
+      image: docker.io/tarantool/testing:ubuntu-jammy
+      options: --tmpfs /tmp:rw,exec,mode=1777
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
-          name: sdk-host-linux-amd64
-          path: .rocks/lib/tarantool/
-      - name: Python reference and guest tests in Jammy
+          name: python-components
+          path: guests/python/
+      - name: Install SSL runtime for Python SSL tests
         run: |
-          docker run --rm -i --platform linux/amd64 \
-            --tmpfs /tmp:rw,exec,mode=1777 \
-            -v "$PWD:/workspace" -v "$RUNNER_TEMP:$RUNNER_TEMP" \
-            -w /workspace -e RUNNER_TEMP \
-            -e PATH="$RUNNER_TEMP/python-reference/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-            tarantool/testing:ubuntu-jammy bash -euo pipefail <<'BASH'
-          bash .github/actions/sdk-runtime/setup.sh
-          export PATH="$PWD/.rocks/bin:$PATH"
+          apt-get update
+          apt-get install -y libssl3
+      - uses: ./.github/actions/sdk-runtime
+      # Managed Python also supports fresh Ubuntu 20.04 self-hosted runners.
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.7.13'
+          enable-cache: false
+      - name: Python reference
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/python-reference-managed
+        run: |
+          uv python install 3.12.11
+          uv venv --managed-python --python 3.12.11 --seed "$RUNNER_TEMP/python-reference"
+          echo "$RUNNER_TEMP/python-reference/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/python-reference/bin/python3" -c 'import sys; assert sys.version_info[:3] == (3, 12, 11), sys.version'
+      - name: Python reference and guest tests
+        shell: bash
+        run: |
           python3 -m pip install -r guests/python/interpreter/requirements-build.txt
           python3 - <<'PY'
           import ctypes
@@ -125,7 +147,6 @@ jobs:
           TWR_SSL_CONFORMANCE_REPORT="$RUNNER_TEMP/ssl-conformance-guest.json" \
             bash guests/python/test.sh
           timeout --kill-after=10s 300s luatest -v test/lualib/interpreter_api_test.lua
-          BASH
       - name: Reports
         if: always()
         uses: actions/upload-artifact@v4

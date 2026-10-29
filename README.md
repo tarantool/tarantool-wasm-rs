@@ -547,23 +547,18 @@ and current limitations.
 
 ## Supported platforms
 
-Linux release builds are tested on x86-64 with Rust 1.96.0 and Tarantool 3.7.0.
+Linux release builds target x86-64 with GLIBC >= 2.28 and are tested with
+Tarantool >= 3.6. The same library is built on CentOS 8 and tested in each
+Linux environment below. macOS release builds target arm64.
 
-| Distribution | Version | CI coverage | Support status |
-| --- | --- | --- | --- |
-| Debian | 12 (Bookworm) | Release build and full `luatest` suite | Supported |
-| Fedora | 39 | Release build and full `luatest` suite | Supported |
-| CentOS | 8 | Release build and full `luatest` suite | Supported |
-| RED OS | 7.3.4 | Release build and full `luatest` suite | Supported |
-| Astra Linux | 1.7 | Release build and full `luatest` suite | Supported |
-
-Linux checks run in pinned PackPack containers.
-
-The Linux release matrix can be reproduced locally with:
-
-```sh
-./scripts/test_distros.sh
-```
+| Distribution | Version | Validation |
+| --- | --- | --- |
+| Ubuntu | 22.04 (Jammy) | Debug build and full release tests |
+| Debian | 12 (Bookworm) | Full release tests |
+| Fedora | 39 | Full release tests |
+| CentOS | 8 | Portable release build and full release tests |
+| RED OS | 7.3.4 | Full release tests |
+| Astra Linux | 1.7 | Full release tests |
 
 See [Platform compatibility](docs/platform-support.md) for image names, GLIBC
 requirements, and test scope.
@@ -611,7 +606,7 @@ Use `just test test/lualib/exports_args_test.lua` to run a single test file.
 - [Thread-safety boundary](docs/thread-safety.md) — TX-only Tarantool APIs and
   the lifetime guarantees for worker-side operations.
 - [Platform compatibility](docs/platform-support.md) — tested Linux images,
-  GLIBC constraints, and CI coverage.
+  GLIBC constraints, and test scope.
 
 ## Related projects
 
