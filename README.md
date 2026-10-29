@@ -67,9 +67,31 @@ Compiled components are cached independently of instances. Loading unchanged
 bytes from the same path avoids recompilation, but does not preserve guest
 state unless a session or interpreter is used.
 
+## Prebuilt library
+
+Download the library for Linux x86_64 or macOS arm64 from the
+[latest GitHub Release](https://github.com/tarantool/tarantool-wasm-rs/releases/latest).
+Runtime requirements are listed in the release description. From your Tarantool
+application directory, rename the downloaded file and load it:
+
+```sh
+# Linux x86_64:
+cp "/path/to/tarantool-wasm-<version>-linux-x86_64.so" ./wasm.so
+LUA_CPATH='./?.so;;' tarantool -e "require('wasm')"
+
+# macOS arm64:
+cp "/path/to/tarantool-wasm-<version>-macos-arm64.dylib" ./wasm.dylib
+LUA_CPATH='./?.dylib;;' tarantool -e "require('wasm')"
+```
+
+For language SDK installation and component builds, see
+[tarawasm](https://github.com/mandesero/tarawasm).
+
 ## Quick start
 
 ### 1. Build the runtime
+
+You can use the [prebuilt library](#prebuilt-library) or build from source below.
 
 Prerequisites are Rust 1.96 or newer, `cargo`, `just`, and a compatible
 Tarantool build. Debug and release recipes build for the native host on Linux

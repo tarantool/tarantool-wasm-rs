@@ -1,4 +1,5 @@
 target
+/dist/
 .vscode/
 .emmyrc.json
 wit/deps
